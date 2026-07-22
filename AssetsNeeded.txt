@@ -1,0 +1,96 @@
+Democracy - Needed Assets
+Updated: 2026-07-18
+
+Login Screen
+- No missing login-screen assets. A generated generic office background image is included at Content/UI/Login/Office_Login_Background.png.
+
+Future Game Framework
+- Player/account authentication service integration for Sign In and Sign Up.
+- Generic political/strategy faction visual kit with no real-country flags, seals, or copyrighted marks.
+- 3D government office environment set for eventual animated login/menu scene.
+- RTS unit blockout meshes for workers, security, staff, analysts, and command units.
+- Board-game deduction room pieces: table, cards, evidence tokens, dossier folders, timer, and neutral avatar pawns.
+- UI icon set for resources, policies, influence, suspicion, votes, evidence, and commands.
+- Audio placeholders: menu ambience, button hover/click, notification, and match start.
+
+Login/Game Flow Placeholder Screens
+- Backend authentication API for real Sign In and Sign Up.
+- Multiplayer account-state API that returns server-owned save/state metadata.
+- Server directory API that returns live server name, region, ruleset, population, and ping.
+- Final settings controls and persistence for display, audio, controls, accessibility, and network preferences.
+
+Settings UI Placeholders
+- Persisted game user settings backend for visual, audio, and control values.
+- Input key-capture widget/service for rebinding controls safely.
+- Disabled multiplayer activation gate once backend login, account states, and server browser services are ready.
+
+Single Player Save Flow Placeholders
+- Real new-state creation after selecting Easy, Normal, Hard, or Expert.
+- Local save metadata extraction for date played, campaign name, difficulty, and progress filters.
+
+Initial Save State Implementation
+- Gameplay map and game-state loader to consume newly created .democracy files after the temporary loaded-game screen.
+- Save schema expansion for starting resources, territory layout, factions, climate-driven map generation, and board-state seed.
+
+Opening Cinematic Script
+- Runtime replacement for bracketed script placeholders after country/player naming systems are added.
+- Cinematic camera sequence, subtitles, skippable playback, advisor voice/audio, and first-turn tutorial handoff.
+
+Playable Office Prototype
+- Replace primitive blockout office with authored 3D meshes/materials matching the generated office image.
+- Add final interaction logic for office door, computer dashboard, and secure phone.
+- Add mouse-look input, proper collision polish, lighting, sound, and in-world prompts.
+
+Difficulty Profiles
+- Balance-test Config/DifficultyProfiles.ini values for country size, assistance, advisors, tips, and starting resources.
+- Connect difficulty profile values to map generation, advisor systems, tutorial frequency, AI support, and resource economy.
+
+Leader Address Selection
+- Replace opening-script address placeholders with saved addressTitle during runtime cinematic dialogue.
+- Review final wording for male/female presidential address before voice-over recording.
+
+Simulation And RTS Foundation
+- Connect initialGameState save block to runtime systems for country policy simulation and real-time country-vs-country strategy.
+- Implement live simulation ticks, resource consumption/production, policy effects, rival-country AI, and map territory updates.
+
+Assassination Failure Risk
+- Implement live stability/unrest evaluation that increases assassination risk and ends the run when triggered.
+- Surface difficulty-dependent advisor warnings through the office phone/computer and future HUD alerts.
+- Add reload-from-previous-save flow after assassination game over.
+
+Invasion Failure Risk
+- Implement live military-readiness, border-pressure, territorial-loss, and rival-AI evaluation that can trigger foreign takeover game over.
+- Surface difficulty-dependent invasion warnings through the office phone/computer and future strategic map alerts.
+- Add reload-from-previous-save flow after foreign takeover.
+
+World Map Generation
+- Authored 3D or 2D strategic world map with eight permanent continents, distinct biomes, borders, and territory selection.
+- Climate-specific map materials and terrain sets for Northern Cold, Middle Moderate, Southern Tropical, and Mixed Transitional continents.
+- Political-type icons/colors for player democracy, democratic ally, democratic neutral, non-aligned republic, authoritarian state, and hostile bloc.
+- Later balancing pass for generated-country names, diplomatic mixes, borders, and continent geography.
+
+Runtime Save Loading
+- Replace opening-briefing placeholder handoff with gameplay map loading that consumes FDemocracyLoadedSaveState.
+- Add save migration/version handling when formatVersion increases beyond the current prototype schema.
+- Add corrupt-save UI messaging and backup restore flow for local single-player saves.
+
+Prototype Simulation Tick
+- Add persistent save-write support for updated runtime simulation values when the player chooses Save.
+- Replace placeholder formulas with balanced economy, policy, advisor, and fail-state simulation rules.
+- Add a full gameplay HUD/dashboard for live country stats, warnings, pause state, and tick speed controls.
+
+Office Interaction Wiring
+- Replace placeholder computer overlay with the full gameplay dashboard/HUD.
+- Replace phone warning overlay with advisor call UI, audio, portraits, and actionable recommendations.
+- Replace door return behavior with final routing once the world map and connected office rooms exist.
+
+Fail State And Runtime Save Buttons
+- Replace prototype game-over screen with final presentation, audio, reason breakdown, and previous-save restore UX.
+- Add save-slot history or autosave checkpoints before dangerous simulation outcomes.
+- Move save/load controls into the full gameplay dashboard once the current opening-briefing test panel is retired.
+
+Opening Office Briefing
+- Replace text-only assistant briefing overlay with animated advisor character, camera beats, and voiced dialogue.
+- Add dialogue stepper/skip controls and runtime substitution for [Country Name], [Difficulty], [Climate], and address title placeholders.
+- Replace primitive office blockout with authored office meshes before final cinematic work.
+

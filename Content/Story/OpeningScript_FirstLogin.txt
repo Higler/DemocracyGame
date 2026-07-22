@@ -1,0 +1,88 @@
+DEMOCRACY - Opening Script (First Login / New Game)
+
+FADE IN:
+
+EXT. NATIONAL CAPITOL BALCONY - SUNSET (Cinematic Cutscene)
+The camera sweeps over a massive crowd waving flags of [Country Name]. Cheers roar. The PLAYER CHARACTER (newly elected Head of State) stands at the podium, finishing their victory speech.
+
+PLAYER CHARACTER (voice, determined, slightly echoing)
+"...and together, we will build a stronger, fairer, and more prosperous [Country Name]! Thank you!"
+
+The crowd erupts. Confetti falls. The Player Character waves, then turns and walks back through the grand doors as the sun dips below the horizon.
+
+CUT TO:
+
+INT. PRESIDENTIAL OFFICE - DUSK (Playable Transition)
+The heavy oak doors swing open. The Player Character steps into a stately but lived-in office. Tall windows overlook the capital city. A large wooden desk dominates the room, already stacked with briefing folders, a secure phone, and a glowing holographic national dashboard (the main game UI).
+
+Soft orchestral music swells - hopeful yet carrying undertones of responsibility.
+
+An ADVISOR (mid-40s, sharp suit, loyal but pragmatic) stands waiting near the desk.
+
+ADVISOR
+"Mr./Ms./President, congratulations. The speech was masterful. The people are energized... for now."
+
+The Advisor gestures to the desk. The camera smoothly transitions to an over-the-shoulder view of the Player Character sitting down. The game UI fades in around the edges of the screen.
+
+ADVISOR (continuing)
+"You've inherited the highest office in [Country Name]. This isn't just a title - it's a living simulation of leadership. You'll manage the economy, diplomacy, military readiness, public opinion, infrastructure, and the unpredictable forces of politics and global events. Think of it as real-time strategy meets the delicate art of governance."
+
+UI Pop-up (Tutorial Overlay - Non-intrusive, skippable)
+Welcome to Democracy
+Hybrid RTS + Political Simulation
+Balance growth, stability, and approval. Respond to crises in real time. Negotiate, legislate, and sometimes deceive when necessary - but every choice has consequences.
+
+ADVISOR
+"Your first term begins now. Success depends on the challenges you've chosen to face."
+
+The Advisor walks to a large interactive map/table that materializes on the desk (the strategic overview layer).
+
+ADVISOR (tailored to player choices)
+
+On [Difficulty] setting: [For Easy: "We begin from a position of relative strength - solid reserves, moderate support, and few immediate fires."]
+[For Medium: "The nation is stable but faces typical pressures - budget constraints, regional tensions, and fluctuating public trust."]
+[For Hard: "The situation is precarious. Low approval, strained resources, and multiple simmering crises demand immediate attention."]
+
+Given our [Climate] conditions: [Temperate: "Fertile lands and moderate weather support strong agriculture and steady growth."]
+[Arid/Desert: "Water scarcity and extreme heat challenge food security and energy demands."]
+[Tropical: "Rich biodiversity but vulnerable to storms, disease vectors, and rapid environmental shifts."]
+[Polar/Arctic: "Harsh conditions limit expansion but offer unique mineral and energy opportunities - at a cost."]
+
+ADVISOR (leaning in, serious)
+"Your objectives, Mr./Ms./President:
+
+Maintain or grow public approval above critical thresholds.
+Drive economic and technological progress while managing debt and inequality.
+Ensure national security - through diplomacy, alliances, or military strength.
+Navigate random events, opposition parties, international pressures, and scandals.
+Ultimately, leave [Country Name] better than you found it... or face the consequences at the ballot box - or worse."
+
+The Advisor straightens up with a small smile.
+
+ADVISOR
+"The cabinet, generals, economists, and intelligence chiefs are standing by. The holographic dashboard gives you real-time metrics on GDP, happiness, military readiness, environmental health, and more. Click, drag, and issue directives like in the great strategy games - but here, the 'units' are people, policies, and entire industries."
+
+UI Flash (Goal Summary - Persistent until dismissed)
+Primary Win Conditions (4-Year Term):
+- Achieve re-election or a strong legacy score
+- Reach key national milestones tailored to your vision (Economic Superpower / Green Paradise / Military Fortress / etc.)
+
+Failure States to Avoid:
+- Approval drops to zero -> Impeachment / Revolution
+- Bankruptcy, invasion, or total collapse
+
+ADVISOR
+"Shall we begin with the first briefing, or would you like a quick tour of the core systems first?"
+
+The camera pulls back slightly. The full strategic map lights up across the desk and walls. Soft UI sounds indicate systems coming online. Music transitions into a more active, strategic theme.
+
+FADE TO GAMEPLAY
+
+Additional Implementation Notes (for developers or modders)
+
+Dynamic Text: All bracketed sections should be replaced at runtime based on player selections during character/nation creation.
+Voice Acting: The Advisor's lines can be voiced with slight variations per difficulty/climate for replayability.
+Pacing: The entire sequence should take 60-90 seconds on first play, with options to skip future playthroughs.
+Tutorial Depth: After this, transition into a lightweight guided first turn (e.g., "Address the immediate [Climate]-related issue" or "Review your starting budget").
+Tone Nuances: The script balances optimism (new leader energy) with realism (governance is hard). It hints at the social-deduction and intrigue elements through future "scandals" and "negotiation" mentions without spoiling them.
+Accessibility: All spoken lines should have subtitles. UI pop-ups remain on-screen until the player interacts.

@@ -1,0 +1,30 @@
+# Unreal generated folders
+Binaries/
+DerivedDataCache/
+Intermediate/
+Saved/
+
+# Local save data
+Saves/
+*.democracy
+*.democracy.backup
+*.democracy.autosave
+
+# Build artifacts
+*.sln
+*.VC.db
+*.opensdf
+*.sdf
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+.vs/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+
+# Logs and temp
+*.log
+*.tmp

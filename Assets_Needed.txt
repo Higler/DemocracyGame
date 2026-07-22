@@ -1,0 +1,38 @@
+
+
+Office asset import status - 2026-07-21:
+- Imported and applied: Antique Partner Desk -> /Game/DemocracyOffice/Props/Desk/LOD_0
+- Applied existing project assets: Museum chair, door frame, floor tile, ceiling panel, and window meshes.
+- Still needed/import pending: pencil/paper supplies FBX, all-in-one computer GLB, carpet/rug asset, and better office plant assets. Desk, executive chair, vintage desk lamp, and Nortel landline phone are imported and wired.
+
+Office visual pass - 2026-07-21:
+- Applied imported executive chair asset when available: /Game/DemocracyOffice/Props/ExecutiveChair/Executive_Office_Chair
+- Added Museum picture/oval painting meshes to the office walls.
+- Added a procedural carpet placeholder because no imported carpet/rug asset is available yet.
+- Door is now the interactable door mesh itself instead of a separate visible mesh plus target cube.
+- Imported and applied vintage desk lamp: /Game/DemocracyOffice/Props/VintageDeskLamp/lamp_02.
+- Imported and applied Nortel landline phone interactable: /Game/DemocracyOffice/Props/Phone/nt_vis200_01/StaticMeshes/nt_vis200_01.
+
+Office requested prop pass - 2026-07-21:
+- Imported and wired Classic Wooden Door as visible skeletal door with invisible interaction target.
+- Imported and wired Red Carpet Tiles With Gold Trim as the office rug/carpet.
+- Imported and wired Trash Can, Ceramic Mug, Sleek All-in-One Computer pieces, and Wooden Monkey statue.
+- Nortel Vista 200 phone remains wired to its imported StaticMeshes/nt_vis200_01 asset.
+- Settings Menu Pro package was not found by folder name in the current VaultCache or project Content; still needed before menu styling can be switched to that asset pack.
+
+Office carpet pass - 2026-07-21:
+- Expanded Red Carpet Tiles With Gold Trim from one rug patch into a tiled floor covering across the office footprint.
+- Kept the collision floor underneath and placed carpet tiles slightly above it as visual-only meshes.
+
+Settings menu asset pass - 2026-07-21:
+- Found Settings Menu Pro / Settings Menu Kit in VaultCache: F:\Epic Games\VaultCache\SpireSys94e9c23c6722V1\data\Content\SpireSystems\SettingsMenuKit
+- Copied the pack into project Content at /Game/SpireSystems/SettingsMenuKit.
+- Wired the login Settings button to load and display /Game/SpireSystems/SettingsMenuKit/Widgets/WBP_SettingsMenu.WBP_SettingsMenu_C when available.
+- Kept the existing C++ Slate settings screen as fallback if the UMG asset cannot be loaded.
+
+Office interaction pass - 2026-07-21:
+- Imported Earth Globe from FabLibrary: F:\Epic Games\VaultCache\FabLibrary\Earth_Globe-bfcd3580\glb\earth_globe8k.glb
+- Project globe meshes are under /Game/DemocracyOffice/Props/EarthGlobe/earth_globe8k/StaticMeshes.
+- Globe is now placed as an office interactable and opens the placeholder World RTS Command overlay.
+- Computer now opens the office save/settings workstation overlay.
+- Door now moves the player into the newly created hallway beyond the office door.
