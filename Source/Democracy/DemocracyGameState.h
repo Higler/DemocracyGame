@@ -842,8 +842,72 @@ struct FDemocracyRtsArmyGroupState
     int32 SupplyStatus = 100;
     int32 MovementTurnsRemaining = 0;
     bool bSelected = false;
+    FString ActiveOrderType = TEXT("Defend");
+    FString OrderTargetProvinceId;
+    FString OrderTargetType = TEXT("Province");
+    int32 OrderTurnsRemaining = 0;
+    int32 Morale = 70;
+    bool bSupplyRouteBroken = false;
     TArray<FString> AssignedUnitIds;
     TArray<FString> Orders;
+
+    FString ToJson(int32 IndentSpaces = 2) const;
+};
+
+
+
+struct FDemocracyRtsMovementOrderState
+{
+    FString OrderId;
+    FString ArmyId;
+    FString OrderType = TEXT("Move");
+    FString SourceProvinceId;
+    FString TargetProvinceId;
+    FString RallyPointId;
+    int32 IssuedTurn = 0;
+    int32 TotalTurns = 1;
+    int32 TurnsRemaining = 1;
+    bool bActive = true;
+    bool bComplete = false;
+    bool bCancelled = false;
+    FString StatusSummary;
+    TArray<FString> AllowedFollowUps;
+
+    FString ToJson(int32 IndentSpaces = 2) const;
+};
+
+struct FDemocracyRtsSupplyRouteState
+{
+    FString RouteId;
+    FString ArmyId;
+    FString SourceProvinceId;
+    FString DestinationProvinceId;
+    int32 SupplyStatus = 100;
+    int32 DistancePenalty = 0;
+    int32 Disruption = 0;
+    bool bBroken = false;
+    FString StatusSummary;
+    TArray<FString> Risks;
+
+    FString ToJson(int32 IndentSpaces = 2) const;
+};
+
+struct FDemocracyRtsBattleResolutionState
+{
+    FString BattleId;
+    FString ArmyId;
+    FString ProvinceId;
+    FString OpponentCountry;
+    FString TerrainType;
+    int32 PlayerScore = 0;
+    int32 OpponentScore = 0;
+    int32 ReadinessModifier = 0;
+    int32 TerrainModifier = 0;
+    int32 SupplyModifier = 0;
+    int32 TechModifier = 0;
+    int32 MoraleModifier = 0;
+    FString Result = TEXT("Unresolved");
+    FString Summary;
 
     FString ToJson(int32 IndentSpaces = 2) const;
 };
@@ -952,6 +1016,9 @@ struct FDemocracyRtsWorldState
     FDemocracyRtsCityBaseState CityBase;
     TArray<FDemocracyRtsUnitDefinitionState> UnitCatalog;
     TArray<FDemocracyRtsArmyGroupState> ArmyGroups;
+    TArray<FDemocracyRtsMovementOrderState> MovementOrders;
+    TArray<FDemocracyRtsSupplyRouteState> SupplyRoutes;
+    TArray<FDemocracyRtsBattleResolutionState> BattleHistory;
     FDemocracyRtsResourceCollectionState ResourceCollection;
     FDemocracyRtsWorldInteractionState WorldInteraction;
     TArray<FDemocracyRivalCountryState> Rivals;

@@ -2514,6 +2514,12 @@ FString FDemocracyRtsArmyGroupState::ToJson(int32 IndentSpaces) const
         TEXT("%s\"supplyStatus\": %d,\n")
         TEXT("%s\"movementTurnsRemaining\": %d,\n")
         TEXT("%s\"selected\": %s,\n")
+        TEXT("%s\"activeOrderType\": \"%s\",\n")
+        TEXT("%s\"orderTargetProvinceId\": \"%s\",\n")
+        TEXT("%s\"orderTargetType\": \"%s\",\n")
+        TEXT("%s\"orderTurnsRemaining\": %d,\n")
+        TEXT("%s\"morale\": %d,\n")
+        TEXT("%s\"supplyRouteBroken\": %s,\n")
         TEXT("%s\"assignedUnitIds\": %s,\n")
         TEXT("%s\"orders\": %s\n")
         TEXT("%s}"),
@@ -2534,9 +2540,82 @@ FString FDemocracyRtsArmyGroupState::ToJson(int32 IndentSpaces) const
         *Pad, SupplyStatus,
         *Pad, MovementTurnsRemaining,
         *Pad, bSelected ? TEXT("true") : TEXT("false"),
+        *Pad, *JsonEscape(ActiveOrderType),
+        *Pad, *JsonEscape(OrderTargetProvinceId),
+        *Pad, *JsonEscape(OrderTargetType),
+        *Pad, OrderTurnsRemaining,
+        *Pad, Morale,
+        *Pad, bSupplyRouteBroken ? TEXT("true") : TEXT("false"),
         *Pad, *StringArrayToJson(AssignedUnitIds),
         *Pad, *StringArrayToJson(Orders),
         *Indent(IndentSpaces - 2));
+}
+
+
+
+FString FDemocracyRtsMovementOrderState::ToJson(int32 IndentSpaces) const
+{
+    const FString Pad = Indent(IndentSpaces);
+    return FString::Printf(
+        TEXT("{\n")
+        TEXT("%s\"orderId\": \"%s\",\n")
+        TEXT("%s\"armyId\": \"%s\",\n")
+        TEXT("%s\"orderType\": \"%s\",\n")
+        TEXT("%s\"sourceProvinceId\": \"%s\",\n")
+        TEXT("%s\"targetProvinceId\": \"%s\",\n")
+        TEXT("%s\"rallyPointId\": \"%s\",\n")
+        TEXT("%s\"issuedTurn\": %d,\n")
+        TEXT("%s\"totalTurns\": %d,\n")
+        TEXT("%s\"turnsRemaining\": %d,\n")
+        TEXT("%s\"active\": %s,\n")
+        TEXT("%s\"complete\": %s,\n")
+        TEXT("%s\"cancelled\": %s,\n")
+        TEXT("%s\"statusSummary\": \"%s\",\n")
+        TEXT("%s\"allowedFollowUps\": %s\n")
+        TEXT("%s}"),
+        *Pad, *JsonEscape(OrderId), *Pad, *JsonEscape(ArmyId), *Pad, *JsonEscape(OrderType), *Pad, *JsonEscape(SourceProvinceId), *Pad, *JsonEscape(TargetProvinceId), *Pad, *JsonEscape(RallyPointId), *Pad, IssuedTurn, *Pad, TotalTurns, *Pad, TurnsRemaining, *Pad, bActive ? TEXT("true") : TEXT("false"), *Pad, bComplete ? TEXT("true") : TEXT("false"), *Pad, bCancelled ? TEXT("true") : TEXT("false"), *Pad, *JsonEscape(StatusSummary), *Pad, *StringArrayToJson(AllowedFollowUps), *Indent(IndentSpaces - 2));
+}
+
+FString FDemocracyRtsSupplyRouteState::ToJson(int32 IndentSpaces) const
+{
+    const FString Pad = Indent(IndentSpaces);
+    return FString::Printf(
+        TEXT("{\n")
+        TEXT("%s\"routeId\": \"%s\",\n")
+        TEXT("%s\"armyId\": \"%s\",\n")
+        TEXT("%s\"sourceProvinceId\": \"%s\",\n")
+        TEXT("%s\"destinationProvinceId\": \"%s\",\n")
+        TEXT("%s\"supplyStatus\": %d,\n")
+        TEXT("%s\"distancePenalty\": %d,\n")
+        TEXT("%s\"disruption\": %d,\n")
+        TEXT("%s\"broken\": %s,\n")
+        TEXT("%s\"statusSummary\": \"%s\",\n")
+        TEXT("%s\"risks\": %s\n")
+        TEXT("%s}"),
+        *Pad, *JsonEscape(RouteId), *Pad, *JsonEscape(ArmyId), *Pad, *JsonEscape(SourceProvinceId), *Pad, *JsonEscape(DestinationProvinceId), *Pad, SupplyStatus, *Pad, DistancePenalty, *Pad, Disruption, *Pad, bBroken ? TEXT("true") : TEXT("false"), *Pad, *JsonEscape(StatusSummary), *Pad, *StringArrayToJson(Risks), *Indent(IndentSpaces - 2));
+}
+
+FString FDemocracyRtsBattleResolutionState::ToJson(int32 IndentSpaces) const
+{
+    const FString Pad = Indent(IndentSpaces);
+    return FString::Printf(
+        TEXT("{\n")
+        TEXT("%s\"battleId\": \"%s\",\n")
+        TEXT("%s\"armyId\": \"%s\",\n")
+        TEXT("%s\"provinceId\": \"%s\",\n")
+        TEXT("%s\"opponentCountry\": \"%s\",\n")
+        TEXT("%s\"terrainType\": \"%s\",\n")
+        TEXT("%s\"playerScore\": %d,\n")
+        TEXT("%s\"opponentScore\": %d,\n")
+        TEXT("%s\"readinessModifier\": %d,\n")
+        TEXT("%s\"terrainModifier\": %d,\n")
+        TEXT("%s\"supplyModifier\": %d,\n")
+        TEXT("%s\"techModifier\": %d,\n")
+        TEXT("%s\"moraleModifier\": %d,\n")
+        TEXT("%s\"result\": \"%s\",\n")
+        TEXT("%s\"summary\": \"%s\"\n")
+        TEXT("%s}"),
+        *Pad, *JsonEscape(BattleId), *Pad, *JsonEscape(ArmyId), *Pad, *JsonEscape(ProvinceId), *Pad, *JsonEscape(OpponentCountry), *Pad, *JsonEscape(TerrainType), *Pad, PlayerScore, *Pad, OpponentScore, *Pad, ReadinessModifier, *Pad, TerrainModifier, *Pad, SupplyModifier, *Pad, TechModifier, *Pad, MoraleModifier, *Pad, *JsonEscape(Result), *Pad, *JsonEscape(Summary), *Indent(IndentSpaces - 2));
 }
 
 FString FDemocracyRtsConstructionQueueEntryState::ToJson(int32 IndentSpaces) const
@@ -2778,6 +2857,30 @@ FString FDemocracyRtsWorldState::ToJson(int32 IndentSpaces) const
     }
     ArmyJson += FString::Printf(TEXT("\n%s]"), *Pad);
 
+    FString OrderJson = TEXT("[");
+    for (int32 Index = 0; Index < MovementOrders.Num(); ++Index)
+    {
+        OrderJson += FString::Printf(TEXT("\n%s%s"), *EntryPad, *MovementOrders[Index].ToJson(IndentSpaces + 4));
+        if (Index < MovementOrders.Num() - 1) { OrderJson += TEXT(","); }
+    }
+    OrderJson += FString::Printf(TEXT("\n%s]"), *Pad);
+
+    FString SupplyJson = TEXT("[");
+    for (int32 Index = 0; Index < SupplyRoutes.Num(); ++Index)
+    {
+        SupplyJson += FString::Printf(TEXT("\n%s%s"), *EntryPad, *SupplyRoutes[Index].ToJson(IndentSpaces + 4));
+        if (Index < SupplyRoutes.Num() - 1) { SupplyJson += TEXT(","); }
+    }
+    SupplyJson += FString::Printf(TEXT("\n%s]"), *Pad);
+
+    FString BattleJson = TEXT("[");
+    for (int32 Index = 0; Index < BattleHistory.Num(); ++Index)
+    {
+        BattleJson += FString::Printf(TEXT("\n%s%s"), *EntryPad, *BattleHistory[Index].ToJson(IndentSpaces + 4));
+        if (Index < BattleHistory.Num() - 1) { BattleJson += TEXT(","); }
+    }
+    BattleJson += FString::Printf(TEXT("\n%s]"), *Pad);
+
     FString RivalJson = TEXT("[");
     for (int32 Index = 0; Index < Rivals.Num(); ++Index)
     {
@@ -2802,6 +2905,9 @@ FString FDemocracyRtsWorldState::ToJson(int32 IndentSpaces) const
         TEXT("%s\"cityBase\": %s,\n")
         TEXT("%s\"unitCatalog\": %s,\n")
         TEXT("%s\"armyGroups\": %s,\n")
+        TEXT("%s\"movementOrders\": %s,\n")
+        TEXT("%s\"supplyRoutes\": %s,\n")
+        TEXT("%s\"battleHistory\": %s,\n")
         TEXT("%s\"resourceCollection\": %s,\n")
         TEXT("%s\"worldInteraction\": %s,\n")
         TEXT("%s\"rivals\": %s,\n")
@@ -2819,6 +2925,9 @@ FString FDemocracyRtsWorldState::ToJson(int32 IndentSpaces) const
         *Pad, *CityBase.ToJson(IndentSpaces + 2),
         *Pad, *UnitJson,
         *Pad, *ArmyJson,
+        *Pad, *OrderJson,
+        *Pad, *SupplyJson,
+        *Pad, *BattleJson,
         *Pad, *ResourceCollection.ToJson(IndentSpaces + 2),
         *Pad, *WorldInteraction.ToJson(IndentSpaces + 2),
         *Pad, *RivalJson,
@@ -4098,8 +4207,32 @@ FDemocracySimulationState FDemocracyGameStateFactory::CreateInitialState(
 
     const FString HomeProvinceId = State.RtsWorld.CityBase.LinkedProvinceId;
     State.RtsWorld.ArmyGroups = {
-        { TEXT("army_capital_guard"), TEXT("Capital Guard Army"), StateName, HomeProvinceId, HomeProvinceId, TEXT("rally_capital"), TEXT("Garrisoned"), 3, 1, 0, 1, 1, 1, FMath::Clamp(State.PlayerCountry.MilitaryReadiness + 18, 25, 100), 92, 0, true, { TEXT("infantry_security_team"), TEXT("vehicle_patrol_unit"), TEXT("logistics_convoy"), TEXT("scout_team"), TEXT("static_defense_battery") }, { TEXT("Defend capital"), TEXT("Hold rally point"), TEXT("Await world-map orders") } }
+        { TEXT("army_capital_guard"), TEXT("Capital Guard Army"), StateName, HomeProvinceId, HomeProvinceId, TEXT("rally_capital"), TEXT("Garrisoned"), 3, 1, 0, 1, 1, 1, FMath::Clamp(State.PlayerCountry.MilitaryReadiness + 18, 25, 100), 92, 0, true, TEXT("Defend"), HomeProvinceId, TEXT("Province"), 0, 74, false, { TEXT("infantry_security_team"), TEXT("vehicle_patrol_unit"), TEXT("logistics_convoy"), TEXT("scout_team"), TEXT("static_defense_battery") }, { TEXT("Defend capital"), TEXT("Hold rally point"), TEXT("Await world-map orders") } }
     };
+
+    FString FirstBorderTargetId;
+    FString FirstRivalProvinceId;
+    FString FirstRivalCountryName = State.RtsWorld.Rivals.Num() > 0 ? State.RtsWorld.Rivals[0].CountryName : TEXT("Unknown Rival");
+    for (const FDemocracyProvinceOwnershipState& Province : State.RtsWorld.Ownership.Provinces)
+    {
+        if (FirstBorderTargetId.IsEmpty() && Province.bPlayerControlled && Province.bBorderProvince)
+        {
+            FirstBorderTargetId = Province.ProvinceId;
+        }
+        if (FirstRivalProvinceId.IsEmpty() && !Province.bPlayerControlled)
+        {
+            FirstRivalProvinceId = Province.ProvinceId;
+            FirstRivalCountryName = Province.CurrentControllerCountryName;
+        }
+    }
+    State.RtsWorld.MovementOrders = {
+        { TEXT("order_capital_defend_001"), TEXT("army_capital_guard"), TEXT("Defend"), HomeProvinceId, FirstBorderTargetId.IsEmpty() ? HomeProvinceId : FirstBorderTargetId, TEXT("rally_capital"), State.Turn, 1, 1, true, false, false, TEXT("Capital Guard is assigned to defend the nearest controlled border province."), { TEXT("Reinforce"), TEXT("Patrol/Scout"), TEXT("Rally") } },
+        { TEXT("order_capital_scout_001"), TEXT("army_capital_guard"), TEXT("Patrol/Scout"), HomeProvinceId, FirstRivalProvinceId, TEXT("rally_capital"), State.Turn, 2, 2, true, false, false, TEXT("Scout order will test deterministic battle/capture backflow against nearby rival territory."), { TEXT("Move"), TEXT("Defend"), TEXT("Reinforce") } }
+    };
+    State.RtsWorld.SupplyRoutes = {
+        { TEXT("supply_capital_guard"), TEXT("army_capital_guard"), HomeProvinceId, FirstBorderTargetId.IsEmpty() ? HomeProvinceId : FirstBorderTargetId, 92, 0, 0, false, TEXT("Capital supply route is open."), { TEXT("Fuel shortage"), TEXT("border disruption"), TEXT("distance from capital") } }
+    };
+    State.RtsWorld.BattleHistory.Reset();
 
     SelectableTargets.Insert({ StateName + TEXT("_country"), StateName, TEXT("Country"), StateName, TEXT(""), TEXT("Inspect Country"), State.RtsWorld.ControlledTerritories, true, true, { TEXT("Select"), TEXT("Open diplomacy"), TEXT("View provinces"), TEXT("Show government type") } }, 0);
     SelectableTargets.Add({ TEXT("capital_command_target"), TEXT("Capital Command"), TEXT("Capital"), StateName, HomeProvinceId, TEXT("Inspect Capital"), 90, true, false, { TEXT("Select"), TEXT("Open city/base"), TEXT("View defenses"), TEXT("Set rally point") } });

@@ -1426,6 +1426,240 @@ namespace
         LogDecision(State, TEXT("RTS Backflow"), Outcome.OutcomeType, FString::Printf(TEXT("%s against %s."), *Outcome.ConflictName, *Outcome.OpponentCountry), Backflow.LastOutcomeSummary, FMath::Clamp(25 + Outcome.Casualties / 6 + FMath::Abs(Outcome.TerritoryDelta) * 15, 0, 100), Outcome.ConsequenceTags);
     }
 
+
+
+    FDemocracyProvinceOwnershipState* FindMutableRtsProvinceById(FDemocracySimulationState& State, const FString& ProvinceId)
+    {
+        for (FDemocracyProvinceOwnershipState& Province : State.RtsWorld.Ownership.Provinces)
+        {
+            if (Province.ProvinceId.Equals(ProvinceId, ESearchCase::IgnoreCase))
+            {
+                return &Province;
+            }
+        }
+        return nullptr;
+    }
+
+    const FDemocracyProvinceOwnershipState* FindRtsProvinceById(const FDemocracySimulationState& State, const FString& ProvinceId)
+    {
+        for (const FDemocracyProvinceOwnershipState& Province : State.RtsWorld.Ownership.Provinces)
+        {
+            if (Province.ProvinceId.Equals(ProvinceId, ESearchCase::IgnoreCase))
+            {
+                return &Province;
+            }
+        }
+        return nullptr;
+    }
+
+    int32 RtsTerrainBattleModifier(const FString& TerrainType, const FString& OrderType)
+    {
+        if (TerrainType.Contains(TEXT("Mountain")) || TerrainType.Contains(TEXT("Highlands")))
+        {
+            return OrderType.Equals(TEXT("Defend"), ESearchCase::IgnoreCase) ? 10 : -8;
+        }
+        if (TerrainType.Contains(TEXT("Urban")) || TerrainType.Contains(TEXT("Capital")))
+        {
+            return OrderType.Equals(TEXT("Defend"), ESearchCase::IgnoreCase) ? 8 : -3;
+        }
+        if (TerrainType.Contains(TEXT("Rainforest")) || TerrainType.Contains(TEXT("Jungle")))
+        {
+            return OrderType.Equals(TEXT("Patrol/Scout"), ESearchCase::IgnoreCase) ? -4 : -6;
+        }
+        if (TerrainType.Contains(TEXT("Plains")) || TerrainType.Contains(TEXT("Basin")))
+        {
+            return OrderType.Equals(TEXT("Move"), ESearchCase::IgnoreCase) ? 4 : 0;
+        }
+        return 0;
+    }
+
+    FDemocracyRtsBattleResolutionState ResolveDeterministicRtsBattle(const FDemocracySimulationState& State, const FDemocracyRtsArmyGroupState& Army, const FDemocracyProvinceOwnershipState& Province, const FString& OrderType)
+    {
+        FDemocracyRtsBattleResolutionState Battle;
+        Battle.BattleId = FString::Printf(TEXT("BATTLE-%d-%s"), State.Turn, *Army.ArmyId);
+        Battle.ArmyId = Army.ArmyId;
+        Battle.ProvinceId = Province.ProvinceId;
+        Battle.OpponentCountry = Province.CurrentControllerCountryName.Equals(State.PlayerCountry.CountryName, ESearchCase::IgnoreCase) ? (State.RtsWorld.Rivals.Num() > 0 ? State.RtsWorld.Rivals[0].CountryName : TEXT("Unknown Rival")) : Province.CurrentControllerCountryName;
+        Battle.TerrainType = Province.TerrainType;
+        Battle.ReadinessModifier = FMath::Clamp(State.PlayerCountry.MilitaryReadiness / 5, 0, 20);
+        Battle.TerrainModifier = RtsTerrainBattleModifier(Province.TerrainType, OrderType);
+        Battle.SupplyModifier = FMath::Clamp((Army.SupplyStatus - 50) / 3, -20, 20);
+        Battle.TechModifier = FMath::Clamp(State.PlayerCountry.Technology / 8, 0, 15);
+        Battle.MoraleModifier = FMath::Clamp((Army.Morale - 50) / 3, -15, 15);
+        Battle.PlayerScore = Army.TotalStrength + Battle.ReadinessModifier + Battle.TerrainModifier + Battle.SupplyModifier + Battle.TechModifier + Battle.MoraleModifier;
+        Battle.OpponentScore = FMath::Clamp(Province.StrategicValue * 12 + Province.Unrest / 4 + (Province.bBorderProvince ? 8 : 0) + FMath::Max(0, 55 - Province.Stability) / 3, 20, 140);
+        if (Battle.PlayerScore >= Battle.OpponentScore + 15)
+        {
+            Battle.Result = TEXT("Province Captured");
+        }
+        else if (Battle.PlayerScore + 15 < Battle.OpponentScore)
+        {
+            Battle.Result = TEXT("Battle Lost");
+        }
+        else
+        {
+            Battle.Result = TEXT("Stalemate");
+        }
+        Battle.Summary = FString::Printf(TEXT("%s resolved in %s. Player score %d vs opponent score %d. Modifiers readiness %+d, terrain %+d, supply %+d, tech %+d, morale %+d."), *OrderType, *Province.ProvinceName, Battle.PlayerScore, Battle.OpponentScore, Battle.ReadinessModifier, Battle.TerrainModifier, Battle.SupplyModifier, Battle.TechModifier, Battle.MoraleModifier);
+        return Battle;
+    }
+
+    FDemocracyRtsOutcomeState MakeRtsOutcomeFromBattle(const FDemocracySimulationState& State, const FDemocracyRtsBattleResolutionState& Battle)
+    {
+        FDemocracyRtsOutcomeState Outcome = MakePrototypeRtsOutcome(State, Battle.Result);
+        Outcome.OutcomeId = FString::Printf(TEXT("RTS-BATTLE-%d-%d"), State.Turn, State.RtsWorld.Backflow.OutcomeHistory.Num() + State.RtsWorld.Backflow.PendingOutcomes.Num() + 1);
+        Outcome.ConflictName = TEXT("Deterministic RTS Battle Placeholder");
+        Outcome.OpponentCountry = Battle.OpponentCountry;
+        Outcome.AffectedProvinceId = Battle.ProvinceId;
+        if (const FDemocracyProvinceOwnershipState* Province = FindRtsProvinceById(State, Battle.ProvinceId))
+        {
+            Outcome.AffectedProvinceName = Province->ProvinceName;
+            Outcome.AffectedResource = Province->ResourceFocus;
+        }
+        Outcome.Summary = Battle.Summary;
+        if (Battle.Result.Equals(TEXT("Province Captured"), ESearchCase::IgnoreCase))
+        {
+            Outcome.TerritoryDelta = 1;
+            Outcome.Casualties = FMath::Clamp(Battle.OpponentScore / 2, 20, 90);
+            Outcome.InvasionRiskDelta = -8;
+            Outcome.StabilityDelta = 1;
+        }
+        else if (Battle.Result.Equals(TEXT("Battle Lost"), ESearchCase::IgnoreCase))
+        {
+            Outcome.TerritoryDelta = 0;
+            Outcome.Casualties = FMath::Clamp(Battle.OpponentScore, 55, 160);
+            Outcome.InvasionRiskDelta = 12;
+            Outcome.StabilityDelta = -4;
+        }
+        else
+        {
+            Outcome.TerritoryDelta = 0;
+            Outcome.Casualties = FMath::Clamp((Battle.PlayerScore + Battle.OpponentScore) / 4, 25, 95);
+            Outcome.InvasionRiskDelta = 3;
+            Outcome.StabilityDelta = -1;
+        }
+        Outcome.ResourceDisruption = FMath::Clamp(FMath::Max(0, 65 - Battle.SupplyModifier * 2) / 4 + FMath::Abs(Battle.PlayerScore - Battle.OpponentScore) / 12, 4, 30);
+        Outcome.WarFatigueDelta = FMath::Clamp(Outcome.Casualties / 18 + (Battle.Result.Equals(TEXT("Battle Lost"), ESearchCase::IgnoreCase) ? 5 : 2), 3, 18);
+        Outcome.BudgetStrain = FMath::Clamp(Outcome.Casualties / 15 + FMath::Max(0, -Battle.SupplyModifier), 5, 24);
+        Outcome.DiplomaticDamage = Battle.Result.Equals(TEXT("Province Captured"), ESearchCase::IgnoreCase) ? 7 : 4;
+        Outcome.ConsequenceTags = { TEXT("rts"), TEXT("deterministic-battle"), Battle.Result, Battle.TerrainType, TEXT("province-control") };
+        PopulateRtsOutcomeAttentionFields(State, Outcome);
+        return Outcome;
+    }
+
+    void TickRtsMovementOrdersAndSupply(FDemocracySimulationState& State, bool bAdvancedTurn)
+    {
+        if (State.RtsWorld.ArmyGroups.Num() == 0)
+        {
+            return;
+        }
+
+        for (FDemocracyRtsSupplyRouteState& Route : State.RtsWorld.SupplyRoutes)
+        {
+            const int32 FuelShortage = GetResourceChainShortage(State.ResourceChains, TEXT("Fuel"));
+            Route.DistancePenalty = Route.SourceProvinceId.Equals(Route.DestinationProvinceId, ESearchCase::IgnoreCase) ? 0 : 8;
+            Route.Disruption = FMath::Clamp(State.RtsWorld.Backflow.ResourceDisruptionPressure / 8 + FuelShortage / 10 + Route.DistancePenalty, 0, 100);
+            Route.SupplyStatus = FMath::Clamp(100 - Route.Disruption, 0, 100);
+            Route.bBroken = Route.SupplyStatus < 35;
+            Route.StatusSummary = Route.bBroken ? TEXT("Supply route broken. Army movement, readiness, and combat strength are reduced.") : FString::Printf(TEXT("Supply route open at %d%%."), Route.SupplyStatus);
+            if (Route.bBroken)
+            {
+                Route.Risks.AddUnique(TEXT("broken supply route"));
+            }
+        }
+
+        for (FDemocracyRtsArmyGroupState& Army : State.RtsWorld.ArmyGroups)
+        {
+            for (const FDemocracyRtsSupplyRouteState& Route : State.RtsWorld.SupplyRoutes)
+            {
+                if (Route.ArmyId.Equals(Army.ArmyId, ESearchCase::IgnoreCase))
+                {
+                    Army.SupplyStatus = Route.SupplyStatus;
+                    Army.bSupplyRouteBroken = Route.bBroken;
+                    if (Route.bBroken)
+                    {
+                        Army.MovementState = TEXT("Supply Disrupted");
+                        Army.Morale = FMath::Clamp(Army.Morale - 1, 0, 100);
+                    }
+                    break;
+                }
+            }
+        }
+
+        if (!bAdvancedTurn)
+        {
+            return;
+        }
+
+        for (FDemocracyRtsMovementOrderState& Order : State.RtsWorld.MovementOrders)
+        {
+            if (!Order.bActive || Order.bComplete || Order.bCancelled)
+            {
+                continue;
+            }
+
+            Order.TurnsRemaining = FMath::Max(0, Order.TurnsRemaining - 1);
+            FDemocracyRtsArmyGroupState* Army = nullptr;
+            for (FDemocracyRtsArmyGroupState& CandidateArmy : State.RtsWorld.ArmyGroups)
+            {
+                if (CandidateArmy.ArmyId.Equals(Order.ArmyId, ESearchCase::IgnoreCase))
+                {
+                    Army = &CandidateArmy;
+                    break;
+                }
+            }
+            if (!Army)
+            {
+                Order.StatusSummary = TEXT("Order cannot resolve because the assigned army is missing.");
+                continue;
+            }
+
+            Army->ActiveOrderType = Order.OrderType;
+            Army->OrderTargetProvinceId = Order.TargetProvinceId;
+            Army->OrderTurnsRemaining = Order.TurnsRemaining;
+            Army->MovementState = Order.OrderType;
+            if (Order.TurnsRemaining > 0)
+            {
+                Order.StatusSummary = FString::Printf(TEXT("%s order has %d turn(s) remaining."), *Order.OrderType, Order.TurnsRemaining);
+                continue;
+            }
+
+            Order.bComplete = true;
+            Order.bActive = false;
+            if (Order.OrderType.Equals(TEXT("Move"), ESearchCase::IgnoreCase) || Order.OrderType.Equals(TEXT("Rally"), ESearchCase::IgnoreCase) || Order.OrderType.Equals(TEXT("Reinforce"), ESearchCase::IgnoreCase))
+            {
+                Army->CurrentProvinceId = Order.TargetProvinceId;
+                Army->DestinationProvinceId = Order.TargetProvinceId;
+                Army->MovementState = Order.OrderType.Equals(TEXT("Reinforce"), ESearchCase::IgnoreCase) ? TEXT("Reinforcing") : TEXT("Arrived");
+                Army->Morale = FMath::Clamp(Army->Morale + (Order.OrderType.Equals(TEXT("Reinforce"), ESearchCase::IgnoreCase) ? 3 : 1), 0, 100);
+                Order.StatusSummary = FString::Printf(TEXT("%s completed. %s is now at %s."), *Order.OrderType, *Army->DisplayName, *Order.TargetProvinceId);
+            }
+            else if (Order.OrderType.Equals(TEXT("Defend"), ESearchCase::IgnoreCase))
+            {
+                Army->CurrentProvinceId = Order.TargetProvinceId;
+                Army->MovementState = TEXT("Defending");
+                Army->Morale = FMath::Clamp(Army->Morale + 2, 0, 100);
+                Order.StatusSummary = FString::Printf(TEXT("%s is defending %s."), *Army->DisplayName, *Order.TargetProvinceId);
+            }
+            else if (Order.OrderType.Equals(TEXT("Patrol/Scout"), ESearchCase::IgnoreCase))
+            {
+                if (const FDemocracyProvinceOwnershipState* Province = FindRtsProvinceById(State, Order.TargetProvinceId))
+                {
+                    FDemocracyRtsBattleResolutionState Battle = ResolveDeterministicRtsBattle(State, *Army, *Province, Order.OrderType);
+                    State.RtsWorld.BattleHistory.Add(Battle);
+                    if (State.RtsWorld.BattleHistory.Num() > 20)
+                    {
+                        State.RtsWorld.BattleHistory.RemoveAt(0, State.RtsWorld.BattleHistory.Num() - 20);
+                    }
+                    QueueRtsOutcomeImport(State, MakeRtsOutcomeFromBattle(State, Battle));
+                    Army->MovementState = Battle.Result;
+                    Army->Morale = FMath::Clamp(Army->Morale + (Battle.Result.Equals(TEXT("Province Captured"), ESearchCase::IgnoreCase) ? 4 : -4), 0, 100);
+                    Order.StatusSummary = Battle.Summary;
+                }
+            }
+        }
+    }
+
     bool ApplyPendingRtsBackflow(FDemocracySimulationState& State)
     {
         QueuePrototypeRtsOutcomeIfNeeded(State);
@@ -1478,11 +1712,29 @@ namespace
             const FDemocracyRtsConstructionQueueEntryState& QueueEntry = RtsWorld.CityBase.ConstructionQueue[Index];
             Lines.Add(FString::Printf(TEXT("Queue | %s | %s to L%d | %d/%d turns remaining | cost T%d F%d W%d M%d"), *QueueEntry.QueueType, *QueueEntry.DisplayName, QueueEntry.TargetLevel, QueueEntry.TurnsRemaining, QueueEntry.TotalTurns, QueueEntry.TreasuryCost, QueueEntry.FuelCost, QueueEntry.WoodCost, QueueEntry.MetalsCost));
         }
+        const int32 OrderDisplayCount = FMath::Min(RtsWorld.MovementOrders.Num(), 5);
+        for (int32 Index = 0; Index < OrderDisplayCount; ++Index)
+        {
+            const FDemocracyRtsMovementOrderState& Order = RtsWorld.MovementOrders[Index];
+            Lines.Add(FString::Printf(TEXT("Order | %s | army %s | %s -> %s | %d/%d turns | %s"), *Order.OrderType, *Order.ArmyId, *Order.SourceProvinceId, *Order.TargetProvinceId, Order.TurnsRemaining, Order.TotalTurns, Order.bComplete ? TEXT("Complete") : (Order.bActive ? TEXT("Active") : TEXT("Inactive"))));
+        }
+        const int32 SupplyDisplayCount = FMath::Min(RtsWorld.SupplyRoutes.Num(), 4);
+        for (int32 Index = 0; Index < SupplyDisplayCount; ++Index)
+        {
+            const FDemocracyRtsSupplyRouteState& Route = RtsWorld.SupplyRoutes[Index];
+            Lines.Add(FString::Printf(TEXT("Supply | %s | %s -> %s | status %d | disruption %d | %s"), *Route.ArmyId, *Route.SourceProvinceId, *Route.DestinationProvinceId, Route.SupplyStatus, Route.Disruption, Route.bBroken ? TEXT("Broken") : TEXT("Open")));
+        }
+        const int32 BattleStartIndex = FMath::Max(0, RtsWorld.BattleHistory.Num() - 3);
+        for (int32 Index = RtsWorld.BattleHistory.Num() - 1; Index >= BattleStartIndex; --Index)
+        {
+            const FDemocracyRtsBattleResolutionState& Battle = RtsWorld.BattleHistory[Index];
+            Lines.Add(FString::Printf(TEXT("Battle | %s | %s | score %d vs %d | %s"), *Battle.ProvinceId, *Battle.Result, Battle.PlayerScore, Battle.OpponentScore, *Battle.TerrainType));
+        }
         const int32 ArmyDisplayCount = FMath::Min(RtsWorld.ArmyGroups.Num(), 4);
         for (int32 Index = 0; Index < ArmyDisplayCount; ++Index)
         {
             const FDemocracyRtsArmyGroupState& Army = RtsWorld.ArmyGroups[Index];
-            Lines.Add(FString::Printf(TEXT("Army | %s | %s -> %s | strength %d | supply %d | units I%d V%d A%d L%d S%d D%d"), *Army.DisplayName, *Army.CurrentProvinceId, Army.DestinationProvinceId.IsEmpty() ? TEXT("hold") : *Army.DestinationProvinceId, Army.TotalStrength, Army.SupplyStatus, Army.InfantryCount, Army.VehicleCount, Army.AircraftCount, Army.LogisticsCount, Army.ScoutCount, Army.DefensiveUnitCount));
+            Lines.Add(FString::Printf(TEXT("Army | %s | %s -> %s | order %s | strength %d | supply %d | morale %d | units I%d V%d A%d L%d S%d D%d"), *Army.DisplayName, *Army.CurrentProvinceId, Army.DestinationProvinceId.IsEmpty() ? TEXT("hold") : *Army.DestinationProvinceId, *Army.ActiveOrderType, Army.TotalStrength, Army.SupplyStatus, Army.Morale, Army.InfantryCount, Army.VehicleCount, Army.AircraftCount, Army.LogisticsCount, Army.ScoutCount, Army.DefensiveUnitCount));
         }
         const int32 TargetDisplayCount = FMath::Min(RtsWorld.WorldInteraction.SelectableTargets.Num(), 6);
         for (int32 Index = 0; Index < TargetDisplayCount; ++Index)
