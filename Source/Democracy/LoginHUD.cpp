@@ -1,4 +1,4 @@
-﻿#include "LoginHUD.h"
+#include "LoginHUD.h"
 
 #include "Engine/Engine.h"
 #include "EngineUtils.h"
@@ -1223,6 +1223,9 @@ namespace
 
     void RefreshSimulationToRtsContract(FDemocracySimulationState& State)
     {
+        State.RtsSaveBoundary = FDemocracyGameStateFactory::BuildRtsSaveBoundaryState(State);
+        State.SimulationToRtsContract = FDemocracyGameStateFactory::BuildSimulationToRtsContractState(State);
+        State.RtsSaveBoundary = FDemocracyGameStateFactory::BuildRtsSaveBoundaryState(State);
         State.SimulationToRtsContract = FDemocracyGameStateFactory::BuildSimulationToRtsContractState(State);
     }
 
@@ -4914,6 +4917,8 @@ TSharedRef<SWidget> ALoginHUD::BuildOfficeComputerMenuScreen()
     Body->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
     [BuildInfoRow(TEXT("Simulation-to-RTS Contract"), BuildSimulationToRtsContractStatusText())];
     Body->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
+    [BuildInfoRow(TEXT("RTS Save Boundary"), BuildRtsSaveBoundaryStatusText())];
+    Body->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
     [BuildInfoRow(TEXT("Difficulty Guidance"), GuidanceSummary)];
     Body->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
     [BuildInfoRow(TEXT("Risk / Causes"), RiskSummary)];
@@ -5565,6 +5570,8 @@ TSharedRef<SWidget> ALoginHUD::BuildOfficeWorldRtsScreen()
         [BuildInfoRow(TEXT("War / Conflict State"), BuildWarConflictStatusText())]
         + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 4.0f)
         [BuildInfoRow(TEXT("Simulation-to-RTS Contract"), BuildSimulationToRtsContractStatusText())]
+        + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 4.0f)
+        [BuildInfoRow(TEXT("RTS Save Boundary"), BuildRtsSaveBoundaryStatusText())]
         + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 4.0f)
         [BuildInfoRow(TEXT("Command Authority"), BuildCommandAuthorityStatusText())]
         + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 4.0f)
@@ -6406,6 +6413,39 @@ FString ALoginHUD::BuildSimulationToRtsContractStatusText() const
     return FString::Join(Lines, TEXT("\n"));
 }
 
+FString ALoginHUD::BuildRtsSaveBoundaryStatusText() const
+{
+    if (!bHasLoadedRuntimeState)
+    {
+        return TEXT("RTS save boundary unavailable until a save is loaded.");
+    }
+
+    const FDemocracyRtsSaveBoundaryState& Boundary = LoadedSaveState.RuntimeState.RtsSaveBoundary;
+    TArray<FString> Lines;
+    Lines.Add(Boundary.BoundarySummary);
+    Lines.Add(FString::Printf(TEXT("Version %s | updated turn %d"), *Boundary.BoundaryVersion, Boundary.LastUpdatedTurn));
+    Lines.Add(FString::Printf(TEXT("Simulation owns: %s"), *Boundary.SimulationAuthority));
+    Lines.Add(FString::Printf(TEXT("RTS owns: %s"), *Boundary.RtsAuthority));
+    Lines.Add(FString::Printf(TEXT("Save authority: %s"), *Boundary.SaveAuthority));
+    Lines.Add(FString::Printf(TEXT("Multiplayer authority: %s"), *Boundary.MultiplayerAuthority));
+    if (Boundary.SharedHandshakeFields.Num() > 0)
+    {
+        Lines.Add(FString::Printf(TEXT("Handshake: %s"), *FString::Join(Boundary.SharedHandshakeFields, TEXT(" | "))));
+    }
+    if (Boundary.ForbiddenSimulationWrites.Num() > 0)
+    {
+        Lines.Add(FString::Printf(TEXT("Forbidden from simulation office: %s"), *FString::Join(Boundary.ForbiddenSimulationWrites, TEXT(" | "))));
+    }
+    if (Boundary.SaveRules.Num() > 0)
+    {
+        Lines.Add(FString::Printf(TEXT("Save rules: %s"), *FString::Join(Boundary.SaveRules, TEXT(" | "))));
+    }
+    if (Boundary.BoundaryValidationNotes.Num() > 0)
+    {
+        Lines.Add(FString::Printf(TEXT("Validation: %s"), *FString::Join(Boundary.BoundaryValidationNotes, TEXT(" | "))));
+    }
+    return FString::Join(Lines, TEXT("\n"));
+}
 FString ALoginHUD::BuildMapOwnershipStatusText() const
 {
     if (!bHasLoadedRuntimeState)

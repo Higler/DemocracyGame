@@ -186,6 +186,7 @@ private:
     FString BuildDiplomacyStatusText() const;
     FString BuildRtsBackflowStatusText() const;
     FString BuildWarConflictStatusText() const;
+    FString BuildRtsSaveBoundaryStatusText() const;
     FString BuildMapOwnershipStatusText() const;
     FString BuildSimulationToRtsContractStatusText() const;
     FString BuildCommandAuthorityStatusText() const;

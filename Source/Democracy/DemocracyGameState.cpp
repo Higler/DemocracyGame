@@ -2090,6 +2090,44 @@ FString FDemocracyRtsWorldState::ToJson(int32 IndentSpaces) const
         *Indent(IndentSpaces - 2));
 }
 
+FString FDemocracyRtsSaveBoundaryState::ToJson(int32 IndentSpaces) const
+{
+    const FString Pad = Indent(IndentSpaces);
+    return FString::Printf(
+        TEXT("{\n")
+        TEXT("%s\"lastUpdatedTurn\": %d,\n")
+        TEXT("%s\"boundaryVersion\": \"%s\",\n")
+        TEXT("%s\"simulationAuthority\": \"%s\",\n")
+        TEXT("%s\"rtsAuthority\": \"%s\",\n")
+        TEXT("%s\"saveAuthority\": \"%s\",\n")
+        TEXT("%s\"multiplayerAuthority\": \"%s\",\n")
+        TEXT("%s\"simulationOwnedFields\": %s,\n")
+        TEXT("%s\"rtsOwnedFields\": %s,\n")
+        TEXT("%s\"sharedHandshakeFields\": %s,\n")
+        TEXT("%s\"simulationExportsToRts\": %s,\n")
+        TEXT("%s\"rtsImportsToSimulation\": %s,\n")
+        TEXT("%s\"forbiddenSimulationWrites\": %s,\n")
+        TEXT("%s\"saveRules\": %s,\n")
+        TEXT("%s\"boundaryValidationNotes\": %s,\n")
+        TEXT("%s\"boundarySummary\": \"%s\"\n")
+        TEXT("%s}"),
+        *Pad, LastUpdatedTurn,
+        *Pad, *JsonEscape(BoundaryVersion),
+        *Pad, *JsonEscape(SimulationAuthority),
+        *Pad, *JsonEscape(RtsAuthority),
+        *Pad, *JsonEscape(SaveAuthority),
+        *Pad, *JsonEscape(MultiplayerAuthority),
+        *Pad, *StringArrayToJson(SimulationOwnedFields),
+        *Pad, *StringArrayToJson(RtsOwnedFields),
+        *Pad, *StringArrayToJson(SharedHandshakeFields),
+        *Pad, *StringArrayToJson(SimulationExportsToRts),
+        *Pad, *StringArrayToJson(RtsImportsToSimulation),
+        *Pad, *StringArrayToJson(ForbiddenSimulationWrites),
+        *Pad, *StringArrayToJson(SaveRules),
+        *Pad, *StringArrayToJson(BoundaryValidationNotes),
+        *Pad, *JsonEscape(BoundarySummary),
+        *Indent(IndentSpaces - 2));
+}
 FString FDemocracyWarParticipantState::ToJson(int32 IndentSpaces) const
 {
     const FString Pad = Indent(IndentSpaces);
@@ -2481,6 +2519,7 @@ FString FDemocracySimulationState::ToJson(int32 IndentSpaces) const
         TEXT("%s\"worldMap\": %s,\n")
         TEXT("%s\"diplomacyMatrix\": %s,\n")
         TEXT("%s\"rtsWorld\": %s,\n")
+        TEXT("%s\"rtsSaveBoundary\": %s,\n")
         TEXT("%s\"warSystem\": %s,\n")
         TEXT("%s\"simulationToRtsContract\": %s,\n")
         TEXT("%s\"commandAuthority\": %s,\n")
@@ -2507,6 +2546,7 @@ FString FDemocracySimulationState::ToJson(int32 IndentSpaces) const
         *Pad, *WorldMap.ToJson(IndentSpaces + 2),
         *Pad, *DiplomacyMatrix.ToJson(IndentSpaces + 2),
         *Pad, *RtsWorld.ToJson(IndentSpaces + 2),
+        *Pad, *RtsSaveBoundary.ToJson(IndentSpaces + 2),
         *Pad, *WarSystem.ToJson(IndentSpaces + 2),
         *Pad, *SimulationToRtsContract.ToJson(IndentSpaces + 2),
         *Pad, *CommandAuthority.ToJson(IndentSpaces + 2),
@@ -2514,6 +2554,78 @@ FString FDemocracySimulationState::ToJson(int32 IndentSpaces) const
         *Indent(IndentSpaces - 2));
 }
 
+FDemocracyRtsSaveBoundaryState FDemocracyGameStateFactory::BuildRtsSaveBoundaryState(const FDemocracySimulationState& State)
+{
+    FDemocracyRtsSaveBoundaryState Boundary = State.RtsSaveBoundary;
+    Boundary.LastUpdatedTurn = State.Turn;
+    Boundary.BoundaryVersion = TEXT("RTSSaveBoundary.v1");
+    const bool bMultiplayer = State.ObjectiveState.Mode.Equals(TEXT("Multiplayer"), ESearchCase::IgnoreCase);
+    Boundary.SimulationAuthority = TEXT("Simulation owns national policy, diplomacy, economy, approval, stability, unrest, advisors, events, objectives, press history, meetings, development, and failure risks.");
+    Boundary.RtsAuthority = TEXT("RTS owns unit positions, unit orders, battle resolution, local tactical objectives, province control changes, battlefield construction, resource extraction sites, and army logistics.");
+    Boundary.SaveAuthority = bMultiplayer
+        ? TEXT("Multiplayer saves are not trusted locally; the server stores authoritative simulation, RTS, war, diplomacy, and ownership state.")
+        : TEXT("Single-player saves store simulation state, RTS ownership/backflow, and this boundary locally with autosave and backup protection.");
+    Boundary.MultiplayerAuthority = TEXT("Server authority owns player slots, government side, side-switch timers, country ownership, war declarations, RTS outcomes, resources, and anti-cheat validation.");
+    Boundary.SimulationOwnedFields = {
+        TEXT("playerCountry policies/resources/treasury/economy/approval/stability/unrest"),
+        TEXT("diplomacyMatrix relationships/treaties/sanctions/trade"),
+        TEXT("eventSystem/advisorSystem/meetingSystem/pressOffice/departments/developmentSystem"),
+        TEXT("failureRisk/invasionRisk/warSystem strategic status"),
+        TEXT("objectiveState and government transition progress")
+    };
+    Boundary.RtsOwnedFields = {
+        TEXT("unit positions, unit health, formations, orders, and army groups"),
+        TEXT("battle instances, local objectives, casualties, and tactical victory state"),
+        TEXT("province controller deltas and contested borders"),
+        TEXT("battlefield construction, farms, mines, cities, roads, and resource extraction nodes"),
+        TEXT("local RTS fog-of-war, pathing, supply lines, and deployment state")
+    };
+    Boundary.SharedHandshakeFields = {
+        TEXT("rtsWorld.ownership provides the durable map ownership snapshot"),
+        TEXT("simulationToRtsContract exports simulation inputs to the RTS layer"),
+        TEXT("rtsWorld.backflow imports tactical outcomes back into simulation"),
+        TEXT("warSystem links strategic wars to RTS conflict identifiers"),
+        TEXT("commandAuthority decides which office orders can request RTS actions")
+    };
+    Boundary.SimulationExportsToRts = {
+        TEXT("country resources, treasury, technology, policies, readiness, stability, unrest, approval"),
+        TEXT("allies, enemies, treaties, sanctions, trade partners, border tension"),
+        TEXT("active wars, escalation, objectives, fronts, victory/defeat conditions"),
+        TEXT("region stability, unrest, climate, resource focus, and strategic value"),
+        TEXT("authorized strategic commands such as mobilize, defend, negotiate, embargo, trade, aid, emergency")
+    };
+    Boundary.RtsImportsToSimulation = {
+        TEXT("territory gained/lost and province controller changes"),
+        TEXT("battle casualties, war fatigue, and military readiness pressure"),
+        TEXT("resource disruption, supply route damage, budget strain, and infrastructure damage"),
+        TEXT("diplomatic damage, border escalation, invasion risk, and stability shifts"),
+        TEXT("battle completion, ceasefire, surrender, occupation, or capital-threat results")
+    };
+    Boundary.ForbiddenSimulationWrites = {
+        TEXT("Simulation office must not directly write unit positions or individual battle results."),
+        TEXT("Simulation office must not directly build farms, mines, cities, roads, or battlefield structures."),
+        TEXT("Simulation office must not directly teleport resources, troops, or assets on the RTS map."),
+        TEXT("Local multiplayer clients must not write save state, country ownership, war outcome, government side, or resource totals.")
+    };
+    Boundary.SaveRules = {
+        TEXT("Single-player manual save persists currentGameState including simulation, RTS ownership/backflow, war, command, contract, and boundary state."),
+        TEXT("Single-player autosave rotates primary/autosave/bak1/bak2 so fail-state recovery can load a protected previous save."),
+        TEXT("RTS transient render/pathing state should be rebuilt by RTS from durable ownership, unit, battle, and contract data."),
+        TEXT("Multiplayer local files may cache UI preferences only; authoritative save state must come from server response."),
+        TEXT("Every RTS outcome must enter rtsWorld.backflow before it mutates simulation-owned systems.")
+    };
+    Boundary.BoundaryValidationNotes = {
+        FString::Printf(TEXT("Turn %d boundary refreshed after %d owned provinces and %d active war(s)."), State.Turn, State.RtsWorld.Ownership.PlayerControlledProvinces, State.WarSystem.ActiveConflicts.Num()),
+        FString::Printf(TEXT("Contract exports %d regions, %d diplomacy records, and %d active war/risk records."), State.SimulationToRtsContract.Regions.Num(), State.SimulationToRtsContract.Diplomacy.Num(), State.SimulationToRtsContract.ActiveWars.Num()),
+        bMultiplayer ? TEXT("Mode: multiplayer server-authoritative boundary active.") : TEXT("Mode: single-player local-save boundary active.")
+    };
+    Boundary.BoundarySummary = FString::Printf(TEXT("RTS save boundary %s: simulation owns national systems, RTS owns tactical state, %s save authority, %d export fields, %d import result types."),
+        *Boundary.BoundaryVersion,
+        bMultiplayer ? TEXT("server") : TEXT("local single-player"),
+        Boundary.SimulationExportsToRts.Num(),
+        Boundary.RtsImportsToSimulation.Num());
+    return Boundary;
+}
 FDemocracyWarSystemState FDemocracyGameStateFactory::BuildWarConflictState(const FDemocracySimulationState& State)
 {
     FDemocracyWarSystemState WarSystem = State.WarSystem;
@@ -2641,7 +2753,8 @@ FDemocracySimulationToRtsContractState FDemocracyGameStateFactory::BuildSimulati
     Contract.StrategicPermissions = {
         TEXT("Simulation office may mobilize, defend, negotiate, embargo, trade, send aid, and declare emergencies."),
         TEXT("RTS layer receives readiness, diplomacy, resources, regional stability, wars, technologies, and policy posture."),
-        TEXT("Direct troop movement, battles, construction, farms, mines, city upgrades, and manual resource transport remain RTS-only.")
+        TEXT("Direct troop movement, battles, construction, farms, mines, city upgrades, and manual resource transport remain RTS-only."),
+        State.RtsSaveBoundary.BoundarySummary
     };
 
     for (const FDemocracyDevelopmentTrackState& Track : State.DevelopmentSystem.Tracks)
@@ -2922,7 +3035,10 @@ FDemocracySimulationState FDemocracyGameStateFactory::CreateInitialState(
     State.RtsWorld.Ownership = BuildMapOwnershipState(State.WorldMap, StateName, State.Turn, State.RtsWorld.ControlledTerritories);
     State.RtsWorld.ControlledTerritories = State.RtsWorld.Ownership.PlayerControlledProvinces;
     State.RtsWorld.BorderTerritories = State.RtsWorld.Ownership.BorderProvinceCount;
+    State.RtsSaveBoundary = FDemocracyGameStateFactory::BuildRtsSaveBoundaryState(State);
     State.WarSystem = FDemocracyGameStateFactory::BuildWarConflictState(State);
+    State.SimulationToRtsContract = FDemocracyGameStateFactory::BuildSimulationToRtsContractState(State);
+    State.RtsSaveBoundary = FDemocracyGameStateFactory::BuildRtsSaveBoundaryState(State);
     State.SimulationToRtsContract = FDemocracyGameStateFactory::BuildSimulationToRtsContractState(State);
     State.CommandAuthority = BuildCommandAuthorityState(State);
 

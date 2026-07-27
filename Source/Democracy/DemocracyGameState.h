@@ -667,6 +667,26 @@ struct FDemocracyRtsWorldState
     FString ToJson(int32 IndentSpaces = 2) const;
 };
 
+struct FDemocracyRtsSaveBoundaryState
+{
+    int32 LastUpdatedTurn = 1;
+    FString BoundaryVersion = TEXT("RTSSaveBoundary.v1");
+    FString SimulationAuthority = TEXT("Simulation owns national policy, diplomacy, economy, approval, stability, unrest, advisors, events, objectives, and failure risks.");
+    FString RtsAuthority = TEXT("RTS owns unit positions, battle resolution, province control deltas, tactical objectives, fronts, and local build/movement state.");
+    FString SaveAuthority = TEXT("Single-player saves store both simulation and RTS boundary data locally; multiplayer save data remains server-authoritative.");
+    FString MultiplayerAuthority = TEXT("Multiplayer server owns player slots, country ownership, government side, wars, RTS outcomes, and anti-cheat validation.");
+    TArray<FString> SimulationOwnedFields;
+    TArray<FString> RtsOwnedFields;
+    TArray<FString> SharedHandshakeFields;
+    TArray<FString> SimulationExportsToRts;
+    TArray<FString> RtsImportsToSimulation;
+    TArray<FString> ForbiddenSimulationWrites;
+    TArray<FString> SaveRules;
+    TArray<FString> BoundaryValidationNotes;
+    FString BoundarySummary = TEXT("RTS save boundary has not been initialized yet.");
+
+    FString ToJson(int32 IndentSpaces = 2) const;
+};
 struct FDemocracyRtsRegionInputState
 {
     FString RegionName;
@@ -870,6 +890,7 @@ struct FDemocracySimulationState
     FDemocracyWorldMapState WorldMap;
     FDemocracyDiplomacyMatrixState DiplomacyMatrix;
     FDemocracyRtsWorldState RtsWorld;
+    FDemocracyRtsSaveBoundaryState RtsSaveBoundary;
     FDemocracyWarSystemState WarSystem;
     FDemocracySimulationToRtsContractState SimulationToRtsContract;
     FDemocracyCommandAuthorityState CommandAuthority;
@@ -881,6 +902,7 @@ struct FDemocracySimulationState
 class FDemocracyGameStateFactory
 {
 public:
+    static FDemocracyRtsSaveBoundaryState BuildRtsSaveBoundaryState(const FDemocracySimulationState& State);
     static FDemocracyWarSystemState BuildWarConflictState(const FDemocracySimulationState& State);
     static FDemocracySimulationToRtsContractState BuildSimulationToRtsContractState(const FDemocracySimulationState& State);
 
