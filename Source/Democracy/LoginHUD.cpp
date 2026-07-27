@@ -1216,6 +1216,11 @@ namespace
         return FString::Join(Lines, TEXT("\n"));
     }
 
+    void RefreshWarConflictState(FDemocracySimulationState& State)
+    {
+        State.WarSystem = FDemocracyGameStateFactory::BuildWarConflictState(State);
+    }
+
     void RefreshSimulationToRtsContract(FDemocracySimulationState& State)
     {
         State.SimulationToRtsContract = FDemocracyGameStateFactory::BuildSimulationToRtsContractState(State);
@@ -4866,6 +4871,7 @@ TSharedRef<SWidget> ALoginHUD::BuildOfficeComputerMenuScreen()
 {
     if (bHasLoadedRuntimeState)
     {
+        RefreshWarConflictState(LoadedSaveState.RuntimeState);
         RefreshSimulationToRtsContract(LoadedSaveState.RuntimeState);
         RefreshCommandAuthority(LoadedSaveState.RuntimeState);
     }
@@ -4903,6 +4909,8 @@ TSharedRef<SWidget> ALoginHUD::BuildOfficeComputerMenuScreen()
     [BuildInfoRow(TEXT("Command Authority"), BuildCommandAuthorityStatusText())];
     Body->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
     [BuildInfoRow(TEXT("RTS Backflow"), BuildRtsBackflowStatusText())];
+    Body->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
+    [BuildInfoRow(TEXT("War / Conflict State"), BuildWarConflictStatusText())];
     Body->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
     [BuildInfoRow(TEXT("Simulation-to-RTS Contract"), BuildSimulationToRtsContractStatusText())];
     Body->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
@@ -5540,6 +5548,7 @@ TSharedRef<SWidget> ALoginHUD::BuildOfficeWorldRtsScreen()
 {
     if (bHasLoadedRuntimeState)
     {
+        RefreshWarConflictState(LoadedSaveState.RuntimeState);
         RefreshSimulationToRtsContract(LoadedSaveState.RuntimeState);
     }
     return BuildPanel(TEXT("World Strategy Globe"), TEXT("Prototype globe entry point for country-vs-country strategy."),
@@ -5552,6 +5561,8 @@ TSharedRef<SWidget> ALoginHUD::BuildOfficeWorldRtsScreen()
         [BuildInfoRow(TEXT("Diplomacy Matrix"), BuildDiplomacyStatusText())]
         + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 4.0f)
         [BuildInfoRow(TEXT("Map Ownership"), BuildMapOwnershipStatusText())]
+        + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 4.0f)
+        [BuildInfoRow(TEXT("War / Conflict State"), BuildWarConflictStatusText())]
         + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 4.0f)
         [BuildInfoRow(TEXT("Simulation-to-RTS Contract"), BuildSimulationToRtsContractStatusText())]
         + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 4.0f)
@@ -6177,6 +6188,7 @@ bool ALoginHUD::LoadSinglePlayerSaveIntoRuntime(const FString& SavePath)
     InitializeEarlyGameBalanceTestData(LoadedSaveState.RuntimeState);
     RefreshObjectiveState(LoadedSaveState.RuntimeState, LoadedSaveState.Mode.IsEmpty() ? TEXT("SinglePlayer") : LoadedSaveState.Mode);
     RefreshFailureValidationState(LoadedSaveState.RuntimeState);
+    RefreshWarConflictState(LoadedSaveState.RuntimeState);
     RefreshSimulationToRtsContract(LoadedSaveState.RuntimeState);
     LoadedSaveSummary = LoadedSaveState.ToSummaryText();
     SimulationTickSummary = BuildSimulationStatusText();
@@ -6306,6 +6318,47 @@ FString ALoginHUD::BuildRtsBackflowStatusText() const
     }
 
     return BuildRtsBackflowSummaryText(LoadedSaveState.RuntimeState.RtsWorld);
+}
+
+FString ALoginHUD::BuildWarConflictStatusText() const
+{
+    if (!bHasLoadedRuntimeState)
+    {
+        return TEXT("War/conflict state unavailable until a save is loaded.");
+    }
+
+    const FDemocracyWarSystemState& WarSystem = LoadedSaveState.RuntimeState.WarSystem;
+    TArray<FString> Lines;
+    Lines.Add(WarSystem.Summary);
+    Lines.Add(FString::Printf(TEXT("Active %d | escalation pressure %d | fatigue %d | casualties %d | readiness %s"),
+        WarSystem.ActiveConflictCount,
+        WarSystem.EscalationPressure,
+        WarSystem.WarFatigue,
+        WarSystem.TotalCasualties,
+        *WarSystem.ReadinessStatus));
+    for (const FDemocracyWarConflictState& Conflict : WarSystem.ActiveConflicts)
+    {
+        Lines.Add(FString::Printf(TEXT("%s [%s/%s]: escalation %d | war score %d | victory %d | defeat risk %d"),
+            *Conflict.ConflictName,
+            *Conflict.ConflictType,
+            *Conflict.Status,
+            Conflict.EscalationLevel,
+            Conflict.WarScore,
+            Conflict.VictoryProgress,
+            Conflict.DefeatRisk));
+        Lines.Add(FString::Printf(TEXT("Objective: %s | Enemy: %s"), *Conflict.PrimaryObjective, *Conflict.EnemyObjective));
+        if (Conflict.Fronts.Num() > 0)
+        {
+            const FDemocracyWarFrontState& Front = Conflict.Fronts[0];
+            Lines.Add(FString::Printf(TEXT("Front: %s in %s | pressure %d | player control %d | %s"), *Front.FrontName, *Front.RegionName, Front.Pressure, Front.PlayerControl, *Front.Status));
+        }
+        Lines.Add(FString::Printf(TEXT("Win: %s | Lose: %s"), *Conflict.VictoryCondition, *Conflict.DefeatCondition));
+    }
+    if (WarSystem.ActiveConflicts.Num() == 0)
+    {
+        Lines.Add(TEXT("No active war. Invasion risk and diplomacy tension can escalate into a durable conflict."));
+    }
+    return FString::Join(Lines, TEXT("\n"));
 }
 
 FString ALoginHUD::BuildSimulationToRtsContractStatusText() const
@@ -7016,6 +7069,7 @@ void ALoginHUD::RunSimulationTick()
     State.AdvisorSystem.Reports = GenerateAdvisorReports(State);
     InitializeDiplomacyMatrixIfMissing(State);
     RefreshObjectiveState(State, LoadedSaveState.Mode.IsEmpty() ? TEXT("SinglePlayer") : LoadedSaveState.Mode);
+    RefreshWarConflictState(State);
     RefreshSimulationToRtsContract(State);
 
     if (!bEventDeadlineApplied && !State.Phase.Equals(TEXT("Event Decision Pending"), ESearchCase::IgnoreCase))
@@ -7817,6 +7871,7 @@ FReply ALoginHUD::HandleExecuteAuthorityCommand(FString CommandId, FString Surfa
     State.AdvisorSystem.GuidanceLevel = AdvisorGuidanceForDifficultyScore(Country.CountrySizeScore);
     State.AdvisorSystem.LastUpdatedTurn = State.Turn;
     State.AdvisorSystem.Reports = GenerateAdvisorReports(State);
+    RefreshWarConflictState(State);
     RefreshSimulationToRtsContract(State);
     RefreshCommandAuthority(State);
     LogDecision(State, TEXT("Command Authority"), SelectedAction->Label, FString::Printf(TEXT("%s command executed from %s."), *SelectedAction->CommandType, *SurfaceName), State.CommandAuthority.LastCommandSummary, 38, { TEXT("command"), SelectedAction->CommandType, SelectedAction->AuthorityLayer });
@@ -8437,6 +8492,7 @@ FReply ALoginHUD::HandleSaveRuntimeStateClicked()
         return FReply::Handled();
     }
 
+    RefreshWarConflictState(LoadedSaveState.RuntimeState);
     RefreshSimulationToRtsContract(LoadedSaveState.RuntimeState);
 
     FString SaveError;

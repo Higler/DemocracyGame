@@ -2090,6 +2090,154 @@ FString FDemocracyRtsWorldState::ToJson(int32 IndentSpaces) const
         *Indent(IndentSpaces - 2));
 }
 
+FString FDemocracyWarParticipantState::ToJson(int32 IndentSpaces) const
+{
+    const FString Pad = Indent(IndentSpaces);
+    return FString::Printf(
+        TEXT("{\n")
+        TEXT("%s\"countryName\": \"%s\",\n")
+        TEXT("%s\"role\": \"%s\",\n")
+        TEXT("%s\"alignment\": \"%s\",\n")
+        TEXT("%s\"commitment\": %d,\n")
+        TEXT("%s\"warSupport\": %d,\n")
+        TEXT("%s\"casualties\": %d\n")
+        TEXT("%s}"),
+        *Pad, *JsonEscape(CountryName),
+        *Pad, *JsonEscape(Role),
+        *Pad, *JsonEscape(Alignment),
+        *Pad, Commitment,
+        *Pad, WarSupport,
+        *Pad, Casualties,
+        *Indent(IndentSpaces - 2));
+}
+
+FString FDemocracyWarFrontState::ToJson(int32 IndentSpaces) const
+{
+    const FString Pad = Indent(IndentSpaces);
+    return FString::Printf(
+        TEXT("{\n")
+        TEXT("%s\"frontName\": \"%s\",\n")
+        TEXT("%s\"regionName\": \"%s\",\n")
+        TEXT("%s\"contestedBorder\": \"%s\",\n")
+        TEXT("%s\"pressure\": %d,\n")
+        TEXT("%s\"playerControl\": %d,\n")
+        TEXT("%s\"status\": \"%s\"\n")
+        TEXT("%s}"),
+        *Pad, *JsonEscape(FrontName),
+        *Pad, *JsonEscape(RegionName),
+        *Pad, *JsonEscape(ContestedBorder),
+        *Pad, Pressure,
+        *Pad, PlayerControl,
+        *Pad, *JsonEscape(Status),
+        *Indent(IndentSpaces - 2));
+}
+
+FString FDemocracyWarConflictState::ToJson(int32 IndentSpaces) const
+{
+    const FString Pad = Indent(IndentSpaces);
+    const FString ParticipantPad = Indent(IndentSpaces + 2);
+    FString ParticipantJson = TEXT("[");
+    for (int32 Index = 0; Index < Participants.Num(); ++Index)
+    {
+        ParticipantJson += FString::Printf(TEXT("\n%s%s"), *ParticipantPad, *Participants[Index].ToJson(IndentSpaces + 4));
+        if (Index < Participants.Num() - 1) ParticipantJson += TEXT(",");
+    }
+    ParticipantJson += FString::Printf(TEXT("\n%s]"), *Pad);
+
+    const FString FrontPad = Indent(IndentSpaces + 2);
+    FString FrontJson = TEXT("[");
+    for (int32 Index = 0; Index < Fronts.Num(); ++Index)
+    {
+        FrontJson += FString::Printf(TEXT("\n%s%s"), *FrontPad, *Fronts[Index].ToJson(IndentSpaces + 4));
+        if (Index < Fronts.Num() - 1) FrontJson += TEXT(",");
+    }
+    FrontJson += FString::Printf(TEXT("\n%s]"), *Pad);
+
+    return FString::Printf(
+        TEXT("{\n")
+        TEXT("%s\"conflictId\": \"%s\",\n")
+        TEXT("%s\"conflictName\": \"%s\",\n")
+        TEXT("%s\"conflictType\": \"%s\",\n")
+        TEXT("%s\"status\": \"%s\",\n")
+        TEXT("%s\"primaryObjective\": \"%s\",\n")
+        TEXT("%s\"enemyObjective\": \"%s\",\n")
+        TEXT("%s\"startedTurn\": %d,\n")
+        TEXT("%s\"lastUpdatedTurn\": %d,\n")
+        TEXT("%s\"escalationLevel\": %d,\n")
+        TEXT("%s\"warScore\": %d,\n")
+        TEXT("%s\"victoryProgress\": %d,\n")
+        TEXT("%s\"defeatRisk\": %d,\n")
+        TEXT("%s\"victoryCondition\": \"%s\",\n")
+        TEXT("%s\"defeatCondition\": \"%s\",\n")
+        TEXT("%s\"participants\": %s,\n")
+        TEXT("%s\"fronts\": %s,\n")
+        TEXT("%s\"activeModifiers\": %s\n")
+        TEXT("%s}"),
+        *Pad, *JsonEscape(ConflictId),
+        *Pad, *JsonEscape(ConflictName),
+        *Pad, *JsonEscape(ConflictType),
+        *Pad, *JsonEscape(Status),
+        *Pad, *JsonEscape(PrimaryObjective),
+        *Pad, *JsonEscape(EnemyObjective),
+        *Pad, StartedTurn,
+        *Pad, LastUpdatedTurn,
+        *Pad, EscalationLevel,
+        *Pad, WarScore,
+        *Pad, VictoryProgress,
+        *Pad, DefeatRisk,
+        *Pad, *JsonEscape(VictoryCondition),
+        *Pad, *JsonEscape(DefeatCondition),
+        *Pad, *ParticipantJson,
+        *Pad, *FrontJson,
+        *Pad, *StringArrayToJson(ActiveModifiers),
+        *Indent(IndentSpaces - 2));
+}
+
+FString FDemocracyWarSystemState::ToJson(int32 IndentSpaces) const
+{
+    const FString Pad = Indent(IndentSpaces);
+    const FString ActivePad = Indent(IndentSpaces + 2);
+    FString ActiveJson = TEXT("[");
+    for (int32 Index = 0; Index < ActiveConflicts.Num(); ++Index)
+    {
+        ActiveJson += FString::Printf(TEXT("\n%s%s"), *ActivePad, *ActiveConflicts[Index].ToJson(IndentSpaces + 4));
+        if (Index < ActiveConflicts.Num() - 1) ActiveJson += TEXT(",");
+    }
+    ActiveJson += FString::Printf(TEXT("\n%s]"), *Pad);
+
+    const FString HistoryPad = Indent(IndentSpaces + 2);
+    FString HistoryJson = TEXT("[");
+    for (int32 Index = 0; Index < ConflictHistory.Num(); ++Index)
+    {
+        HistoryJson += FString::Printf(TEXT("\n%s%s"), *HistoryPad, *ConflictHistory[Index].ToJson(IndentSpaces + 4));
+        if (Index < ConflictHistory.Num() - 1) HistoryJson += TEXT(",");
+    }
+    HistoryJson += FString::Printf(TEXT("\n%s]"), *Pad);
+
+    return FString::Printf(
+        TEXT("{\n")
+        TEXT("%s\"lastUpdatedTurn\": %d,\n")
+        TEXT("%s\"activeConflictCount\": %d,\n")
+        TEXT("%s\"escalationPressure\": %d,\n")
+        TEXT("%s\"warFatigue\": %d,\n")
+        TEXT("%s\"totalCasualties\": %d,\n")
+        TEXT("%s\"readinessStatus\": \"%s\",\n")
+        TEXT("%s\"summary\": \"%s\",\n")
+        TEXT("%s\"activeConflicts\": %s,\n")
+        TEXT("%s\"conflictHistory\": %s\n")
+        TEXT("%s}"),
+        *Pad, LastUpdatedTurn,
+        *Pad, ActiveConflictCount,
+        *Pad, EscalationPressure,
+        *Pad, WarFatigue,
+        *Pad, TotalCasualties,
+        *Pad, *JsonEscape(ReadinessStatus),
+        *Pad, *JsonEscape(Summary),
+        *Pad, *ActiveJson,
+        *Pad, *HistoryJson,
+        *Indent(IndentSpaces - 2));
+}
+
 FString FDemocracyRtsRegionInputState::ToJson(int32 IndentSpaces) const
 {
     const FString Pad = Indent(IndentSpaces);
@@ -2333,6 +2481,7 @@ FString FDemocracySimulationState::ToJson(int32 IndentSpaces) const
         TEXT("%s\"worldMap\": %s,\n")
         TEXT("%s\"diplomacyMatrix\": %s,\n")
         TEXT("%s\"rtsWorld\": %s,\n")
+        TEXT("%s\"warSystem\": %s,\n")
         TEXT("%s\"simulationToRtsContract\": %s,\n")
         TEXT("%s\"commandAuthority\": %s,\n")
         TEXT("%s\"objectiveState\": %s\n")
@@ -2358,10 +2507,113 @@ FString FDemocracySimulationState::ToJson(int32 IndentSpaces) const
         *Pad, *WorldMap.ToJson(IndentSpaces + 2),
         *Pad, *DiplomacyMatrix.ToJson(IndentSpaces + 2),
         *Pad, *RtsWorld.ToJson(IndentSpaces + 2),
+        *Pad, *WarSystem.ToJson(IndentSpaces + 2),
         *Pad, *SimulationToRtsContract.ToJson(IndentSpaces + 2),
         *Pad, *CommandAuthority.ToJson(IndentSpaces + 2),
         *Pad, *ObjectiveState.ToJson(IndentSpaces + 2),
         *Indent(IndentSpaces - 2));
+}
+
+FDemocracyWarSystemState FDemocracyGameStateFactory::BuildWarConflictState(const FDemocracySimulationState& State)
+{
+    FDemocracyWarSystemState WarSystem = State.WarSystem;
+    WarSystem.LastUpdatedTurn = State.Turn;
+    WarSystem.ActiveConflicts.RemoveAll([](const FDemocracyWarConflictState& Conflict)
+    {
+        return Conflict.Status.Equals(TEXT("Resolved"), ESearchCase::IgnoreCase) || Conflict.Status.Equals(TEXT("Archived"), ESearchCase::IgnoreCase);
+    });
+
+    const int32 InvasionPressure = State.InvasionRisk.CurrentInvasionRisk;
+    const int32 ReadinessGap = FMath::Max(0, State.InvasionRisk.MilitaryReadinessWarningThreshold - State.PlayerCountry.MilitaryReadiness);
+    const int32 BorderPressure = State.RtsWorld.Ownership.BorderProvinceCount + InvasionPressure / 8;
+    FString PrimaryOpponent;
+    int32 HighestTension = 0;
+    for (const FDemocracyDiplomacyRelationshipState& Relationship : State.DiplomacyMatrix.Relationships)
+    {
+        const bool bThreat = Relationship.RelationshipStatus.Equals(TEXT("Hostile"), ESearchCase::IgnoreCase) || Relationship.RelationshipStatus.Equals(TEXT("Rival"), ESearchCase::IgnoreCase) || Relationship.BorderTension >= 60;
+        if (bThreat && Relationship.BorderTension >= HighestTension)
+        {
+            HighestTension = Relationship.BorderTension;
+            PrimaryOpponent = Relationship.CountryName;
+        }
+    }
+    if (PrimaryOpponent.IsEmpty() && State.RtsWorld.Rivals.Num() > 0)
+    {
+        const FDemocracyRivalCountryState& Rival = State.RtsWorld.Rivals[0];
+        PrimaryOpponent = Rival.CountryName;
+        HighestTension = Rival.BorderPressure;
+    }
+
+    const bool bShouldCreateConflict = !PrimaryOpponent.IsEmpty() && (InvasionPressure >= 35 || HighestTension >= 55 || State.RtsWorld.Backflow.PendingOutcomes.Num() > 0 || State.RtsWorld.Backflow.OutcomeHistory.Num() > 0);
+    if (bShouldCreateConflict)
+    {
+        const FString ConflictId = FString::Printf(TEXT("war-%s"), *PrimaryOpponent.Replace(TEXT(" "), TEXT("-")).ToLower());
+        FDemocracyWarConflictState* Existing = nullptr;
+        for (FDemocracyWarConflictState& Conflict : WarSystem.ActiveConflicts)
+        {
+            if (Conflict.ConflictId.Equals(ConflictId, ESearchCase::IgnoreCase))
+            {
+                Existing = &Conflict;
+                break;
+            }
+        }
+        if (!Existing)
+        {
+            FDemocracyWarConflictState NewConflict;
+            NewConflict.ConflictId = ConflictId;
+            NewConflict.ConflictName = FString::Printf(TEXT("%s Border Conflict"), *PrimaryOpponent);
+            NewConflict.ConflictType = InvasionPressure >= 65 ? TEXT("Invasion War") : TEXT("Border Conflict");
+            NewConflict.Status = TEXT("Active");
+            NewConflict.PrimaryObjective = TEXT("Defend controlled provinces, preserve capital control, and prevent forced takeover.");
+            NewConflict.EnemyObjective = TEXT("Pressure borders, disrupt resources, and force political concessions.");
+            NewConflict.StartedTurn = State.Turn;
+            NewConflict.VictoryCondition = TEXT("Hold capital, reduce invasion risk below warning, and push escalation below 25.");
+            NewConflict.DefeatCondition = TEXT("Capital lost, takeover risk reaches trigger, or military readiness collapses while border pressure is critical.");
+            WarSystem.ActiveConflicts.Add(NewConflict);
+            Existing = &WarSystem.ActiveConflicts.Last();
+        }
+        if (Existing)
+        {
+            Existing->LastUpdatedTurn = State.Turn;
+            Existing->ConflictType = InvasionPressure >= 65 ? TEXT("Invasion War") : TEXT("Border Conflict");
+            Existing->EscalationLevel = FMath::Clamp(1 + InvasionPressure / 20 + HighestTension / 30 + ReadinessGap / 10, 1, 5);
+            Existing->WarScore = FMath::Clamp(State.PlayerCountry.MilitaryReadiness + State.PlayerCountry.DiplomaticStanding / 2 - InvasionPressure - HighestTension / 2, -100, 100);
+            Existing->VictoryProgress = FMath::Clamp(50 + Existing->WarScore / 2 - InvasionPressure / 3, 0, 100);
+            Existing->DefeatRisk = FMath::Clamp(InvasionPressure + ReadinessGap * 2 + HighestTension / 3 - State.PlayerCountry.Stability / 4, 0, 100);
+            Existing->Status = Existing->DefeatRisk >= 80 ? TEXT("Critical") : (Existing->EscalationLevel >= 4 ? TEXT("Escalating") : TEXT("Active"));
+            Existing->Participants = {
+                { State.PlayerCountry.CountryName, TEXT("Defender"), TEXT("Player"), FMath::Clamp(State.PlayerCountry.MilitaryReadiness, 0, 100), FMath::Clamp(100 - State.RtsWorld.Backflow.WarFatigue, 0, 100), State.RtsWorld.Backflow.TotalCasualties },
+                { PrimaryOpponent, TEXT("Aggressor"), TEXT("Opponent"), FMath::Clamp(45 + HighestTension / 2, 0, 100), FMath::Clamp(45 + InvasionPressure / 2, 0, 100), 0 }
+            };
+            Existing->Fronts.Reset();
+            Existing->Fronts.Add({ TEXT("Primary Border Front"), TEXT("Border Region"), FString::Printf(TEXT("%s border"), *PrimaryOpponent), FMath::Clamp(BorderPressure + InvasionPressure / 2, 0, 100), FMath::Clamp(100 - InvasionPressure + State.PlayerCountry.MilitaryReadiness / 3, 0, 100), Existing->Status });
+            if (State.RtsWorld.Ownership.ContestedProvinces > 0)
+            {
+                Existing->Fronts.Add({ TEXT("Contested Province Front"), TEXT("Contested Provinces"), TEXT("Unresolved province control"), FMath::Clamp(State.RtsWorld.Ownership.ContestedProvinces * 12, 0, 100), FMath::Clamp(55 - State.RtsWorld.Ownership.ContestedProvinces * 5, 0, 100), TEXT("Contested") });
+            }
+            Existing->ActiveModifiers = {
+                FString::Printf(TEXT("Invasion pressure %d"), InvasionPressure),
+                FString::Printf(TEXT("Opponent tension %d"), HighestTension),
+                FString::Printf(TEXT("Readiness %d"), State.PlayerCountry.MilitaryReadiness),
+                FString::Printf(TEXT("War fatigue %d"), State.RtsWorld.Backflow.WarFatigue)
+            };
+        }
+    }
+
+    WarSystem.ActiveConflictCount = WarSystem.ActiveConflicts.Num();
+    WarSystem.EscalationPressure = 0;
+    WarSystem.WarFatigue = State.RtsWorld.Backflow.WarFatigue;
+    WarSystem.TotalCasualties = State.RtsWorld.Backflow.TotalCasualties;
+    for (const FDemocracyWarConflictState& Conflict : WarSystem.ActiveConflicts)
+    {
+        WarSystem.EscalationPressure += Conflict.EscalationLevel * 12 + Conflict.DefeatRisk / 5;
+    }
+    WarSystem.EscalationPressure = FMath::Clamp(WarSystem.EscalationPressure, 0, 100);
+    WarSystem.ReadinessStatus = State.PlayerCountry.MilitaryReadiness >= State.InvasionRisk.MilitaryReadinessWarningThreshold ? TEXT("Ready") : TEXT("Readiness Warning");
+    WarSystem.Summary = WarSystem.ActiveConflictCount > 0
+        ? FString::Printf(TEXT("War state: %d active conflict(s), escalation pressure %d, fatigue %d, casualties %d."), WarSystem.ActiveConflictCount, WarSystem.EscalationPressure, WarSystem.WarFatigue, WarSystem.TotalCasualties)
+        : FString::Printf(TEXT("War state: no active wars. Border pressure %d, invasion risk %d, readiness %d."), BorderPressure, InvasionPressure, State.PlayerCountry.MilitaryReadiness);
+    return WarSystem;
 }
 
 FDemocracySimulationToRtsContractState FDemocracyGameStateFactory::BuildSimulationToRtsContractState(const FDemocracySimulationState& State)
@@ -2453,6 +2705,10 @@ FDemocracySimulationToRtsContractState FDemocracyGameStateFactory::BuildSimulati
         Contract.Regions.Add(Input);
     }
 
+    for (const FDemocracyWarConflictState& Conflict : State.WarSystem.ActiveConflicts)
+    {
+        Contract.ActiveWars.Add(FString::Printf(TEXT("%s | %s | escalation %d | victory %d | defeat risk %d"), *Conflict.ConflictName, *Conflict.Status, Conflict.EscalationLevel, Conflict.VictoryProgress, Conflict.DefeatRisk));
+    }
     if (Contract.ActiveWars.Num() == 0 && State.InvasionRisk.CurrentInvasionRisk >= State.InvasionRisk.BorderPressureWarningThreshold)
     {
         Contract.ActiveWars.Add(FString::Printf(TEXT("Unassigned border pressure risk %d"), State.InvasionRisk.CurrentInvasionRisk));
@@ -2666,6 +2922,7 @@ FDemocracySimulationState FDemocracyGameStateFactory::CreateInitialState(
     State.RtsWorld.Ownership = BuildMapOwnershipState(State.WorldMap, StateName, State.Turn, State.RtsWorld.ControlledTerritories);
     State.RtsWorld.ControlledTerritories = State.RtsWorld.Ownership.PlayerControlledProvinces;
     State.RtsWorld.BorderTerritories = State.RtsWorld.Ownership.BorderProvinceCount;
+    State.WarSystem = FDemocracyGameStateFactory::BuildWarConflictState(State);
     State.SimulationToRtsContract = FDemocracyGameStateFactory::BuildSimulationToRtsContractState(State);
     State.CommandAuthority = BuildCommandAuthorityState(State);
 

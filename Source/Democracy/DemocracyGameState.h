@@ -696,6 +696,68 @@ struct FDemocracyRtsDiplomacyInputState
     FString ToJson(int32 IndentSpaces = 2) const;
 };
 
+struct FDemocracyWarParticipantState
+{
+    FString CountryName;
+    FString Role = TEXT("Defender");
+    FString Alignment = TEXT("Player");
+    int32 Commitment = 50;
+    int32 WarSupport = 50;
+    int32 Casualties = 0;
+
+    FString ToJson(int32 IndentSpaces = 2) const;
+};
+
+struct FDemocracyWarFrontState
+{
+    FString FrontName;
+    FString RegionName;
+    FString ContestedBorder;
+    int32 Pressure = 0;
+    int32 PlayerControl = 50;
+    FString Status = TEXT("Quiet");
+
+    FString ToJson(int32 IndentSpaces = 2) const;
+};
+
+struct FDemocracyWarConflictState
+{
+    FString ConflictId;
+    FString ConflictName;
+    FString ConflictType = TEXT("Border Tension");
+    FString Status = TEXT("Active");
+    FString PrimaryObjective;
+    FString EnemyObjective;
+    int32 StartedTurn = 1;
+    int32 LastUpdatedTurn = 1;
+    int32 EscalationLevel = 1;
+    int32 WarScore = 0;
+    int32 VictoryProgress = 0;
+    int32 DefeatRisk = 0;
+    FString VictoryCondition;
+    FString DefeatCondition;
+    TArray<FDemocracyWarParticipantState> Participants;
+    TArray<FDemocracyWarFrontState> Fronts;
+    TArray<FString> ActiveModifiers;
+
+    FString ToJson(int32 IndentSpaces = 2) const;
+};
+
+struct FDemocracyWarSystemState
+{
+    int32 LastUpdatedTurn = 1;
+    int32 ActiveConflictCount = 0;
+    int32 EscalationPressure = 0;
+    int32 WarFatigue = 0;
+    int32 TotalCasualties = 0;
+    FString ReadinessStatus = TEXT("No active durable war state yet.");
+    FString Summary = TEXT("War/conflict system has not been initialized yet.");
+    TArray<FDemocracyWarConflictState> ActiveConflicts;
+    TArray<FDemocracyWarConflictState> ConflictHistory;
+
+    FString ToJson(int32 IndentSpaces = 2) const;
+};
+
 struct FDemocracySimulationToRtsContractState
 {
     int32 LastUpdatedTurn = 1;
@@ -808,6 +870,7 @@ struct FDemocracySimulationState
     FDemocracyWorldMapState WorldMap;
     FDemocracyDiplomacyMatrixState DiplomacyMatrix;
     FDemocracyRtsWorldState RtsWorld;
+    FDemocracyWarSystemState WarSystem;
     FDemocracySimulationToRtsContractState SimulationToRtsContract;
     FDemocracyCommandAuthorityState CommandAuthority;
     FDemocracyObjectiveState ObjectiveState;
@@ -818,6 +881,7 @@ struct FDemocracySimulationState
 class FDemocracyGameStateFactory
 {
 public:
+    static FDemocracyWarSystemState BuildWarConflictState(const FDemocracySimulationState& State);
     static FDemocracySimulationToRtsContractState BuildSimulationToRtsContractState(const FDemocracySimulationState& State);
 
     static FDemocracySimulationState CreateInitialState(
