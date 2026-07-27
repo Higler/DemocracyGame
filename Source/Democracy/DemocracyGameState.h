@@ -946,14 +946,28 @@ struct FDemocracyObjectiveState
     int32 DemocraticCountryCount = 0;
     int32 DictatorshipCountryCount = 0;
     int32 OtherGovernmentCount = 0;
+    int32 TotalTrackedCountryCount = 0;
+    int32 DemocracyConversionProgress = 0;
+    int32 DictatorshipsRemainingForVictory = 0;
     bool bSoftVictoryAchieved = false;
     int32 SoftVictoryTurn = 0;
+    int32 PostVictoryTurnsElapsed = 0;
     bool bSimulationContinuesAfterVictory = true;
+    bool bPostVictoryContinuationActive = false;
+    bool bRegressionMonitoringActive = false;
+    bool bRegressionWarningActive = false;
     int32 RegressionRisk = 0;
+    FString VictoryCondition = TEXT("Convert all dictatorships to democracy.");
+    FString PostVictoryObjective = TEXT("Prevent democratic regression while time continues.");
+    FString MultiplayerServerObjective = TEXT("Ongoing server state with no final win condition.");
+    bool bMultiplayerOngoingNoFinalWin = false;
+    int32 ServerDemocracySlots = 0;
+    int32 ServerDictatorshipSlots = 0;
     FString LongTermObjective = TEXT("Stabilize the state and convert dictatorships through diplomacy, policy pressure, and influence.");
     FString ObjectiveSummary = TEXT("Objective state has not been evaluated yet.");
     TArray<FString> ActiveObjectiveNotes;
     TArray<FString> AllianceRules;
+    TArray<FString> ObjectiveHooks;
 
     FString ToJson(int32 IndentSpaces = 2) const;
 };

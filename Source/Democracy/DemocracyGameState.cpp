@@ -2754,14 +2754,28 @@ FString FDemocracyObjectiveState::ToJson(int32 IndentSpaces) const
         TEXT("%s\"democraticCountryCount\": %d,\n")
         TEXT("%s\"dictatorshipCountryCount\": %d,\n")
         TEXT("%s\"otherGovernmentCount\": %d,\n")
+        TEXT("%s\"totalTrackedCountryCount\": %d,\n")
+        TEXT("%s\"democracyConversionProgress\": %d,\n")
+        TEXT("%s\"dictatorshipsRemainingForVictory\": %d,\n")
         TEXT("%s\"softVictoryAchieved\": %s,\n")
         TEXT("%s\"softVictoryTurn\": %d,\n")
+        TEXT("%s\"postVictoryTurnsElapsed\": %d,\n")
         TEXT("%s\"simulationContinuesAfterVictory\": %s,\n")
+        TEXT("%s\"postVictoryContinuationActive\": %s,\n")
+        TEXT("%s\"regressionMonitoringActive\": %s,\n")
+        TEXT("%s\"regressionWarningActive\": %s,\n")
         TEXT("%s\"regressionRisk\": %d,\n")
+        TEXT("%s\"victoryCondition\": \"%s\",\n")
+        TEXT("%s\"postVictoryObjective\": \"%s\",\n")
+        TEXT("%s\"multiplayerServerObjective\": \"%s\",\n")
+        TEXT("%s\"multiplayerOngoingNoFinalWin\": %s,\n")
+        TEXT("%s\"serverDemocracySlots\": %d,\n")
+        TEXT("%s\"serverDictatorshipSlots\": %d,\n")
         TEXT("%s\"longTermObjective\": \"%s\",\n")
         TEXT("%s\"objectiveSummary\": \"%s\",\n")
         TEXT("%s\"activeObjectiveNotes\": %s,\n")
-        TEXT("%s\"allianceRules\": %s\n")
+        TEXT("%s\"allianceRules\": %s,\n")
+        TEXT("%s\"objectiveHooks\": %s\n")
         TEXT("%s}"),
         *Pad, *JsonEscape(Mode),
         *Pad, *JsonEscape(PlayerGovernmentType),
@@ -2771,14 +2785,28 @@ FString FDemocracyObjectiveState::ToJson(int32 IndentSpaces) const
         *Pad, DemocraticCountryCount,
         *Pad, DictatorshipCountryCount,
         *Pad, OtherGovernmentCount,
+        *Pad, TotalTrackedCountryCount,
+        *Pad, DemocracyConversionProgress,
+        *Pad, DictatorshipsRemainingForVictory,
         *Pad, bSoftVictoryAchieved ? TEXT("true") : TEXT("false"),
         *Pad, SoftVictoryTurn,
+        *Pad, PostVictoryTurnsElapsed,
         *Pad, bSimulationContinuesAfterVictory ? TEXT("true") : TEXT("false"),
+        *Pad, bPostVictoryContinuationActive ? TEXT("true") : TEXT("false"),
+        *Pad, bRegressionMonitoringActive ? TEXT("true") : TEXT("false"),
+        *Pad, bRegressionWarningActive ? TEXT("true") : TEXT("false"),
         *Pad, RegressionRisk,
+        *Pad, *JsonEscape(VictoryCondition),
+        *Pad, *JsonEscape(PostVictoryObjective),
+        *Pad, *JsonEscape(MultiplayerServerObjective),
+        *Pad, bMultiplayerOngoingNoFinalWin ? TEXT("true") : TEXT("false"),
+        *Pad, ServerDemocracySlots,
+        *Pad, ServerDictatorshipSlots,
         *Pad, *JsonEscape(LongTermObjective),
         *Pad, *JsonEscape(ObjectiveSummary),
         *Pad, *StringArrayToJson(ActiveObjectiveNotes),
         *Pad, *StringArrayToJson(AllianceRules),
+        *Pad, *StringArrayToJson(ObjectiveHooks),
         *Indent(IndentSpaces - 2));
 }
 FString FDemocracySimulationState::ToJson(int32 IndentSpaces) const

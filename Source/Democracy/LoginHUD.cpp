@@ -4102,7 +4102,14 @@ namespace
         Objective.DemocraticCountryCount = DemocraticCount;
         Objective.DictatorshipCountryCount = DictatorshipCount;
         Objective.OtherGovernmentCount = OtherCount;
+        Objective.TotalTrackedCountryCount = DemocraticCount + DictatorshipCount + OtherCount;
+        Objective.DictatorshipsRemainingForVictory = DictatorshipCount;
+        Objective.DemocracyConversionProgress = Objective.TotalTrackedCountryCount > 0 ? FMath::Clamp((DemocraticCount * 100) / Objective.TotalTrackedCountryCount, 0, 100) : 0;
+        Objective.VictoryCondition = TEXT("Single-player: convert all dictatorships to democracy.");
+        Objective.PostVictoryObjective = TEXT("Keep democratic systems stable after victory and prevent authoritarian regression.");
+        Objective.MultiplayerServerObjective = TEXT("Multiplayer: persistent server-state objectives with no final win condition.");
         Objective.bSimulationContinuesAfterVictory = true;
+        Objective.ObjectiveHooks.Reset();
         Objective.AllianceRules = {
             TEXT("Democracies can form alliances only with democracies."),
             TEXT("Dictatorships can form alliances only with dictatorships."),
@@ -4113,18 +4120,28 @@ namespace
         const bool bMultiplayerMode = Objective.Mode.Equals(TEXT("Multiplayer"), ESearchCase::IgnoreCase);
         if (bMultiplayerMode)
         {
+            Objective.bMultiplayerOngoingNoFinalWin = true;
+            Objective.bSoftVictoryAchieved = false;
+            Objective.SoftVictoryTurn = 0;
+            Objective.PostVictoryTurnsElapsed = 0;
+            Objective.bPostVictoryContinuationActive = false;
+            Objective.bRegressionMonitoringActive = false;
+            Objective.bRegressionWarningActive = false;
             Objective.LongTermObjective = TEXT("Persistent multiplayer: survive, expand influence, manage alliances, and evolve government alignment without a final victory screen.");
+            Objective.ObjectiveHooks = { TEXT("server_state_objectives"), TEXT("no_final_win_condition"), TEXT("alignment_slots"), TEXT("side_switch_consequences") };
             if (Objective.GovernmentTransitionTurnsRemaining > 0)
             {
                 Objective.ActiveObjectiveNotes.Add(FString::Printf(TEXT("Government transition toward %s is in progress: %d%% complete, %d turns remaining."), *Objective.GovernmentTransitionTarget, Objective.GovernmentTransitionProgress, Objective.GovernmentTransitionTurnsRemaining));
             }
-            Objective.ObjectiveSummary = FString::Printf(TEXT("Multiplayer objective: ongoing server state. Current alignment: %s. Server slots and save authority remain server controlled. Alliances are limited to matching government types."), *Objective.PlayerGovernmentType);
+            Objective.ObjectiveSummary = FString::Printf(TEXT("Multiplayer objective: ongoing server state with no final victory. Current alignment: %s. Server slots and save authority remain server controlled. Alliances are limited to matching government types."), *Objective.PlayerGovernmentType);
             return;
         }
 
         Objective.Mode = TEXT("SinglePlayer");
+        Objective.bMultiplayerOngoingNoFinalWin = false;
         Objective.PlayerGovernmentType = TEXT("Democracy");
         Objective.LongTermObjective = TEXT("Convert every dictatorship to democracy, then keep the world stable enough to prevent democratic backsliding.");
+        Objective.ObjectiveHooks.Add(TEXT("single_player_conversion_victory"));
         if (DictatorshipCount <= 0)
         {
             if (!Objective.bSoftVictoryAchieved)
@@ -4132,9 +4149,15 @@ namespace
                 Objective.bSoftVictoryAchieved = true;
                 Objective.SoftVictoryTurn = State.Turn;
             }
+            Objective.PostVictoryTurnsElapsed = FMath::Max(0, State.Turn - Objective.SoftVictoryTurn);
+            Objective.bPostVictoryContinuationActive = true;
+            Objective.bRegressionMonitoringActive = true;
             Objective.RegressionRisk = FMath::Clamp((100 - State.PlayerCountry.Stability) / 3 + State.PlayerCountry.Unrest / 4 + FMath::Max(0, 45 - State.PlayerCountry.DiplomaticStanding) / 3, 0, 100);
-            Objective.ObjectiveSummary = FString::Printf(TEXT("Soft victory achieved on turn %d: all known dictatorships have converted to democracy. Time continues; regression risk is %d%%."), Objective.SoftVictoryTurn, Objective.RegressionRisk);
-            if (Objective.RegressionRisk >= 35)
+            Objective.bRegressionWarningActive = Objective.RegressionRisk >= 35;
+            Objective.ObjectiveHooks.Add(TEXT("post_victory_continuation"));
+            Objective.ObjectiveHooks.Add(TEXT("regression_monitoring"));
+            Objective.ObjectiveSummary = FString::Printf(TEXT("Soft victory achieved on turn %d: all known dictatorships have converted to democracy. Time continues; post-victory turn %d, regression risk is %d%%."), Objective.SoftVictoryTurn, Objective.PostVictoryTurnsElapsed, Objective.RegressionRisk);
+            if (Objective.bRegressionWarningActive)
             {
                 Objective.ActiveObjectiveNotes.Add(TEXT("Regression risk is elevated. Improve stability, lower unrest, and maintain democratic diplomatic pressure."));
             }
@@ -4143,8 +4166,13 @@ namespace
         {
             Objective.bSoftVictoryAchieved = false;
             Objective.SoftVictoryTurn = 0;
+            Objective.PostVictoryTurnsElapsed = 0;
+            Objective.bPostVictoryContinuationActive = false;
+            Objective.bRegressionMonitoringActive = false;
             Objective.RegressionRisk = FMath::Clamp(State.PlayerCountry.Unrest / 5 + FMath::Max(0, 45 - State.PlayerCountry.DiplomaticStanding) / 4, 0, 100);
-            Objective.ObjectiveSummary = FString::Printf(TEXT("Single-player objective: convert %d dictatorship%s to democracy. Democratic countries: %d. Other governments: %d."), DictatorshipCount, DictatorshipCount == 1 ? TEXT("") : TEXT("s"), DemocraticCount, OtherCount);
+            Objective.bRegressionWarningActive = Objective.RegressionRisk >= 50;
+            Objective.ObjectiveHooks.Add(TEXT("conversion_progress_tracking"));
+            Objective.ObjectiveSummary = FString::Printf(TEXT("Single-player objective: convert %d dictatorship%s to democracy. Democratic countries: %d/%d (%d%%). Other governments: %d."), DictatorshipCount, DictatorshipCount == 1 ? TEXT("") : TEXT("s"), DemocraticCount, Objective.TotalTrackedCountryCount, Objective.DemocracyConversionProgress, OtherCount);
             Objective.ActiveObjectiveNotes.Add(TEXT("Use diplomacy, policy credibility, advisor meetings, press releases, and crisis management to move authoritarian states toward democracy."));
         }
     }
@@ -6793,12 +6821,23 @@ FString ALoginHUD::BuildObjectiveStatusText() const
     }
 
     const FDemocracyObjectiveState& Objective = LoadedSaveState.RuntimeState.ObjectiveState;
-    FString Text = FString::Printf(TEXT("%s\nDemocracies: %d | Dictatorships: %d | Other: %d | Regression risk: %d%%"),
+    FString Text = FString::Printf(TEXT("%s\nMode: %s | Conversion: %d%% | Democracies: %d/%d | Dictatorships remaining: %d | Other: %d | Regression risk: %d%%"),
         *Objective.ObjectiveSummary,
+        *Objective.Mode,
+        Objective.DemocracyConversionProgress,
         Objective.DemocraticCountryCount,
-        Objective.DictatorshipCountryCount,
+        Objective.TotalTrackedCountryCount,
+        Objective.DictatorshipsRemainingForVictory,
         Objective.OtherGovernmentCount,
         Objective.RegressionRisk);
+    if (Objective.bSoftVictoryAchieved)
+    {
+        Text += FString::Printf(TEXT("\nVictory hook: achieved on turn %d | post-victory turns %d | continuation %s | regression monitoring %s."), Objective.SoftVictoryTurn, Objective.PostVictoryTurnsElapsed, Objective.bPostVictoryContinuationActive ? TEXT("active") : TEXT("inactive"), Objective.bRegressionMonitoringActive ? TEXT("active") : TEXT("inactive"));
+    }
+    if (Objective.bMultiplayerOngoingNoFinalWin)
+    {
+        Text += FString::Printf(TEXT("\nMultiplayer hook: ongoing server-state objective, no final win condition. Democracy slots %d | Dictatorship slots %d."), Objective.ServerDemocracySlots, Objective.ServerDictatorshipSlots);
+    }
     if (Objective.GovernmentTransitionTurnsRemaining > 0)
     {
         Text += FString::Printf(TEXT("\nTransition: %s %d%% complete, %d turns remaining."), *Objective.GovernmentTransitionTarget, Objective.GovernmentTransitionProgress, Objective.GovernmentTransitionTurnsRemaining);
@@ -6806,6 +6845,10 @@ FString ALoginHUD::BuildObjectiveStatusText() const
     if (Objective.ActiveObjectiveNotes.Num() > 0)
     {
         Text += FString::Printf(TEXT("\n%s"), *FString::Join(Objective.ActiveObjectiveNotes, TEXT("\n")));
+    }
+    if (Objective.ObjectiveHooks.Num() > 0)
+    {
+        Text += FString::Printf(TEXT("\nHooks: %s"), *FString::Join(Objective.ObjectiveHooks, TEXT(", ")));
     }
     return Text;
 }
