@@ -94,3 +94,10 @@ Opening Office Briefing
 - Add dialogue stepper/skip controls and runtime substitution for [Country Name], [Difficulty], [Climate], and address title placeholders.
 - Replace primitive office blockout with authored office meshes before final cinematic work.
 
+RTS Placeholder / Permanent Asset Needs
+- Current RTS mechanics should use generic placeholder meshes/markers first for all building, unit, army, province, supply-route, and fog-of-war visuals.
+- Permanent RTS city/base building set: command center, barracks, agriculture hub/farm, fuel depot/oil site, lumber yard, metal refinery/mine, warehouse, research/communications center, perimeter defense post, forward rally point, roads, and construction scaffolds.
+- Permanent RTS unit set: infantry squad, scout team, patrol vehicle, logistics convoy, recon aircraft, static defense/turret/battery, damaged/disabled variants, and army group banner/marker.
+- Permanent world-map tactical icons: known/scouted/hidden/contested province overlays, rally point, patrol route, supply route open/broken, battle marker, province captured/lost, capital threatened, resource disruption, and construction complete.
+- Multiplayer/server authority UI indicators: server-owned state badge, pending validation spinner, rejected command alert, reconciliation notice, and anti-cheat validation warning.
+- RTS HUD icon set: food, fuel, wood, metals, selected unit/building, build menu, army orders, minimap, alerts, return-to-office, casualties, war fatigue, budget strain, diplomacy damage, stability/unrest impact.

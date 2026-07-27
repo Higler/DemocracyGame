@@ -3665,14 +3665,14 @@ FDemocracyRtsSaveBoundaryState FDemocracyGameStateFactory::BuildRtsSaveBoundaryS
 {
     FDemocracyRtsSaveBoundaryState Boundary = State.RtsSaveBoundary;
     Boundary.LastUpdatedTurn = State.Turn;
-    Boundary.BoundaryVersion = TEXT("RTSSaveBoundary.v1");
+    Boundary.BoundaryVersion = TEXT("RTSSaveBoundary.v2");
     const bool bMultiplayer = State.ObjectiveState.Mode.Equals(TEXT("Multiplayer"), ESearchCase::IgnoreCase);
     Boundary.SimulationAuthority = TEXT("Simulation owns national policy, diplomacy, economy, approval, stability, unrest, advisors, events, objectives, press history, meetings, development, and failure risks.");
     Boundary.RtsAuthority = TEXT("RTS owns unit positions, unit orders, battle resolution, local tactical objectives, province control changes, battlefield construction, resource extraction sites, and army logistics.");
     Boundary.SaveAuthority = bMultiplayer
         ? TEXT("Multiplayer saves are not trusted locally; the server stores authoritative simulation, RTS, war, diplomacy, and ownership state.")
         : TEXT("Single-player saves store simulation state, RTS ownership/backflow, and this boundary locally with autosave and backup protection.");
-    Boundary.MultiplayerAuthority = TEXT("Server authority owns player slots, government side, side-switch timers, country ownership, war declarations, RTS outcomes, resources, and anti-cheat validation.");
+    Boundary.MultiplayerAuthority = TEXT("Server authority owns player slots, government side, side-switch timers, army positions, battle results, province ownership/controller changes, resources, construction completion, war declarations, RTS outcomes, and anti-cheat validation.");
     Boundary.SimulationOwnedFields = {
         TEXT("playerCountry policies/resources/treasury/economy/approval/stability/unrest"),
         TEXT("diplomacyMatrix relationships/treaties/sanctions/trade"),
@@ -3681,11 +3681,11 @@ FDemocracyRtsSaveBoundaryState FDemocracyGameStateFactory::BuildRtsSaveBoundaryS
         TEXT("objectiveState and government transition progress")
     };
     Boundary.RtsOwnedFields = {
-        TEXT("unit positions, unit health, formations, orders, and army groups"),
-        TEXT("battle instances, local objectives, casualties, and tactical victory state"),
-        TEXT("province controller deltas and contested borders"),
-        TEXT("battlefield construction, farms, mines, cities, roads, and resource extraction nodes"),
-        TEXT("local RTS fog-of-war, pathing, supply lines, and deployment state")
+        TEXT("army positions, unit health, formations, movement orders, rally/defend/scout/reinforce orders, and army groups"),
+        TEXT("battle instances, battle results, local objectives, casualties, and tactical victory state"),
+        TEXT("province controller deltas, province ownership changes, occupations, contested borders, and capital-control changes"),
+        TEXT("battlefield construction, construction queue completion, farms, mines, cities, roads, resource extraction nodes, and build timers"),
+        TEXT("local RTS fog-of-war, pathing, supply lines, deployment state, resource collection, and tactical alerts")
     };
     Boundary.SharedHandshakeFields = {
         TEXT("rtsWorld.ownership provides the durable map ownership snapshot"),
@@ -3702,11 +3702,11 @@ FDemocracyRtsSaveBoundaryState FDemocracyGameStateFactory::BuildRtsSaveBoundaryS
         TEXT("authorized strategic commands such as mobilize, defend, negotiate, embargo, trade, aid, emergency")
     };
     Boundary.RtsImportsToSimulation = {
-        TEXT("territory gained/lost and province controller changes"),
-        TEXT("battle casualties, war fatigue, and military readiness pressure"),
-        TEXT("resource disruption, supply route damage, budget strain, and infrastructure damage"),
-        TEXT("diplomatic damage, border escalation, invasion risk, and stability shifts"),
-        TEXT("battle completion, ceasefire, surrender, occupation, or capital-threat results")
+        TEXT("territory gained/lost, province controller changes, province ownership changes, and occupation/capture results"),
+        TEXT("battle results, battle casualties, war fatigue, morale/readiness pressure, and damaged/disabled armies"),
+        TEXT("resource disruption, supply route damage, budget strain, construction completion, and infrastructure damage"),
+        TEXT("diplomatic damage, border escalation, invasion risk, stability shifts, and unrest impact"),
+        TEXT("battle completion, ceasefire, surrender, occupation, capital-threat, supply-break, and anti-cheat validation results")
     };
     Boundary.ForbiddenSimulationWrites = {
         TEXT("Simulation office must not directly write unit positions or individual battle results."),
@@ -3723,12 +3723,15 @@ FDemocracyRtsSaveBoundaryState FDemocracyGameStateFactory::BuildRtsSaveBoundaryS
     };
     Boundary.ServerAuthoritativeFields = {
         TEXT("saves: account-linked multiplayer save data, autosave snapshots, protected recovery points, and server revision ids"),
-        TEXT("country ownership: country slots, province ownership/controller changes, capital control, occupations, and contested borders"),
+        TEXT("army positions: current province, destination province, movement orders, rally points, patrol/scout state, reinforcement state, morale, supply status, and accepted command timestamps"),
+        TEXT("battle results: deterministic/server combat rolls, casualties, damaged/disabled armies, winners/losers, battle completion, and anti-cheat replay validation"),
+        TEXT("province ownership: country slots, province ownership/controller changes, capital control, occupations, contested borders, capture timestamps, and rollback history"),
+        TEXT("resources: authoritative resource totals, production, consumption, shortages, imports/exports, reserves, resource disruption, and anti-cheat reconciliation"),
+        TEXT("construction completion: build/upgrade queues, timer progress, completed buildings, cancelled builds, refunds, damage/disabled state, and server revision ids"),
         TEXT("wars: declarations, participants, objectives, escalation, fronts, ceasefires, surrender, casualties, and victory/defeat resolution"),
-        TEXT("diplomacy: alliances, treaties, sanctions, trade partner status, border tension, hostile/rival status, and diplomatic cooldowns"),
+        TEXT("diplomacy: alliances, treaties, sanctions, trade partner status, border tension, hostile/rival status, diplomatic cooldowns, and side restrictions"),
         TEXT("government transitions: democracy/dictatorship selection, side-switch timers, transition progress, consequences, and slot limits"),
-        TEXT("resources: authoritative resource totals, production, consumption, shortages, imports/exports, reserves, and anti-cheat reconciliation"),
-        TEXT("RTS results: battle lost/won, province captured/lost, capital threatened, supply route broken, resource disruption, and backflow queue imports")
+        TEXT("RTS results: battle lost/won, province captured/lost, capital threatened, supply route broken, resource disruption, construction completion, and backflow queue imports")
     };
     Boundary.ClientRequestOnlyFields = {
         TEXT("local client may request policy, diplomacy, trade, aid, embargo, mobilization, emergency, and meeting actions but server validates final state"),
@@ -3738,9 +3741,9 @@ FDemocracyRtsSaveBoundaryState FDemocracyGameStateFactory::BuildRtsSaveBoundaryS
     };
     Boundary.ServerValidationNotes = {
         TEXT("Reject client-submitted multiplayer save mutations unless generated by a signed server transaction."),
-        TEXT("Validate every country ownership, war, diplomacy, government transition, resource, and RTS-result mutation against server state and turn/revision."),
+        TEXT("Validate every army position, battle result, province ownership, construction completion, resource, war, diplomacy, government transition, and RTS-result mutation against server state and turn/revision."),
         TEXT("Run RTS outcome imports through rtsWorld.backflow so simulation attention, logs, warnings, and autosave recovery remain consistent."),
-        TEXT("Never trust local resource totals, battle results, province captures, government side switches, diplomacy changes, or war resolution in multiplayer."),
+        TEXT("Never trust local army positions, resource totals, construction completions, battle results, province captures, government side switches, diplomacy changes, or war resolution in multiplayer."),
         TEXT("Keep single-player local authority separate from multiplayer server authority to avoid accidentally enabling client-side cheating.")
     };
     Boundary.BoundaryValidationNotes = {
@@ -4185,14 +4188,14 @@ FDemocracySimulationState FDemocracyGameStateFactory::CreateInitialState(
     State.RtsWorld.CityBase.BaseSummary = TEXT("Initial placeholder city/base supports resource buildings, defense, storage, research, and command structures. Visual assets stay replaceable while mechanics are tested.");
     State.RtsWorld.CityBase.RuntimeNotes = { TEXT("Building layout is data-only for now."), TEXT("Permanent assets should replace placeholder meshes after RTS mechanics stabilize."), TEXT("Any build/upgrade completion must report through RTS backflow before simulation consequences apply.") };
     State.RtsWorld.CityBase.Buildings = {
-        { TEXT("capital_command"), TEXT("Government Command Center"), TEXT("Command"), TEXT("Authority"), TEXT("Generic civic HQ placeholder; future government/capital building asset"), 1, 0, 140, 0, 0, 18, true, false, TEXT("Operational"), {}, { TEXT("capital"), TEXT("command"), TEXT("required") } },
+        { TEXT("capital_command"), TEXT("Government Command Center"), TEXT("Command"), TEXT("Authority"), TEXT("Generic cube/civic HQ placeholder; replace with final government/capital RTS building asset"), 1, 0, 140, 0, 0, 18, true, false, TEXT("Operational"), {}, { TEXT("capital"), TEXT("command"), TEXT("required") } },
         { TEXT("barracks"), TEXT("Defense Barracks"), TEXT("Military"), TEXT("Readiness"), TEXT("RTS_Modern_Combat_Vehicle_Pack_Free for later vehicle/army staging visuals"), 1, 75, 120, 2, 0, 28, true, false, TEXT("Operational"), { TEXT("Government Command Center") }, { TEXT("military"), TEXT("defense") } },
-        { TEXT("farm_hub"), TEXT("Agriculture Hub"), TEXT("Resource"), TEXT("Food"), TEXT("Generic farm/field placeholder"), 1, 45, 80, 1, 8, 0, true, false, TEXT("Operational"), {}, { TEXT("food"), TEXT("production") } },
-        { TEXT("fuel_depot"), TEXT("Fuel Depot"), TEXT("Resource"), TEXT("Fuel"), TEXT("Generic fuel/oil storage placeholder"), 1, 55, 95, 2, 5, 4, true, false, TEXT("Operational"), {}, { TEXT("fuel"), TEXT("logistics") } },
-        { TEXT("lumber_yard"), TEXT("Lumber Yard"), TEXT("Resource"), TEXT("Wood"), TEXT("Generic lumber/warehouse placeholder"), 1, 40, 70, 1, 6, 0, true, false, TEXT("Operational"), {}, { TEXT("wood"), TEXT("construction") } },
-        { TEXT("metal_refinery"), TEXT("Metal Refinery"), TEXT("Resource"), TEXT("Metals"), TEXT("Generic industrial refinery placeholder"), 1, 70, 110, 2, 5, 2, true, false, TEXT("Operational"), {}, { TEXT("metals"), TEXT("industry") } },
-        { TEXT("warehouse"), TEXT("Strategic Warehouse"), TEXT("Storage"), TEXT("Reserve"), TEXT("Warehouse/freight placeholder"), 1, 50, 90, 1, 0, 6, true, false, TEXT("Operational"), {}, { TEXT("storage"), TEXT("supplies") } },
-        { TEXT("research_center"), TEXT("Development Center"), TEXT("Technology"), TEXT("Research"), TEXT("Generic lab/communications placeholder"), 1, 80, 140, 3, 2, 0, true, false, TEXT("Operational"), { TEXT("Government Command Center") }, { TEXT("technology"), TEXT("upgrades") } },
+        { TEXT("farm_hub"), TEXT("Agriculture Hub"), TEXT("Resource"), TEXT("Food"), TEXT("Generic cube/farm marker placeholder; replace with final farm/food-production RTS asset"), 1, 45, 80, 1, 8, 0, true, false, TEXT("Operational"), {}, { TEXT("food"), TEXT("production") } },
+        { TEXT("fuel_depot"), TEXT("Fuel Depot"), TEXT("Resource"), TEXT("Fuel"), TEXT("Generic cube/fuel marker placeholder; replace with final fuel/oil RTS asset"), 1, 55, 95, 2, 5, 4, true, false, TEXT("Operational"), {}, { TEXT("fuel"), TEXT("logistics") } },
+        { TEXT("lumber_yard"), TEXT("Lumber Yard"), TEXT("Resource"), TEXT("Wood"), TEXT("Generic cube/lumber marker placeholder; replace with final lumber/wood RTS asset"), 1, 40, 70, 1, 6, 0, true, false, TEXT("Operational"), {}, { TEXT("wood"), TEXT("construction") } },
+        { TEXT("metal_refinery"), TEXT("Metal Refinery"), TEXT("Resource"), TEXT("Metals"), TEXT("Generic cube/industrial marker placeholder; replace with final metals/refinery RTS asset"), 1, 70, 110, 2, 5, 2, true, false, TEXT("Operational"), {}, { TEXT("metals"), TEXT("industry") } },
+        { TEXT("warehouse"), TEXT("Strategic Warehouse"), TEXT("Storage"), TEXT("Reserve"), TEXT("Generic cube/warehouse marker placeholder; replace with final warehouse/storage RTS asset"), 1, 50, 90, 1, 0, 6, true, false, TEXT("Operational"), {}, { TEXT("storage"), TEXT("supplies") } },
+        { TEXT("research_center"), TEXT("Development Center"), TEXT("Technology"), TEXT("Research"), TEXT("Generic cube/research marker placeholder; replace with final research/communications RTS asset"), 1, 80, 140, 3, 2, 0, true, false, TEXT("Operational"), { TEXT("Government Command Center") }, { TEXT("technology"), TEXT("upgrades") } },
         { TEXT("defense_post"), TEXT("Perimeter Defense Post"), TEXT("Defense"), TEXT("Security"), TEXT("RTS_Modern_Combat_Vehicle_Pack_Free for later defensive vehicle visuals"), 1, 65, 115, 2, 0, 32, true, false, TEXT("Operational"), { TEXT("Defense Barracks") }, { TEXT("defense"), TEXT("border") } }
     };
     for (FDemocracyRtsBuildingState& Building : State.RtsWorld.CityBase.Buildings)
@@ -4207,9 +4210,9 @@ FDemocracySimulationState FDemocracyGameStateFactory::CreateInitialState(
     State.RtsWorld.UnitCatalog = {
         { TEXT("infantry_security_team"), TEXT("Security Infantry Team"), TEXT("Infantry"), TEXT("General-purpose ground control and building defense."), TEXT("barracks"), TEXT("Arctic/Navy military soldier packs for later character visuals"), 25, 1, 1, 12, 10, 4, 1, 0, 2, true, false, { TEXT("Defense Barracks") }, { TEXT("infantry"), TEXT("ground"), TEXT("capture") } },
         { TEXT("vehicle_patrol_unit"), TEXT("Patrol Vehicle Unit"), TEXT("Vehicles"), TEXT("Fast ground response for border defense and patrols."), TEXT("barracks"), TEXT("RTS_Modern_Combat_Vehicle_Pack_Free"), 65, 2, 2, 22, 18, 8, 2, 0, 3, true, false, { TEXT("Defense Barracks"), TEXT("Fuel Depot") }, { TEXT("vehicle"), TEXT("ground"), TEXT("rapid-response") } },
-        { TEXT("air_recon_wing"), TEXT("Recon Aircraft Wing"), TEXT("Aircraft"), TEXT("Air scouting and strategic visibility placeholder."), TEXT("research_center"), TEXT("Generic aircraft placeholder until air assets are selected"), 95, 3, 3, 18, 12, 12, 5, 0, 14, true, false, { TEXT("Development Center"), TEXT("Fuel Depot") }, { TEXT("aircraft"), TEXT("recon"), TEXT("visibility") } },
+        { TEXT("air_recon_wing"), TEXT("Recon Aircraft Wing"), TEXT("Aircraft"), TEXT("Air scouting and strategic visibility placeholder."), TEXT("research_center"), TEXT("Generic aircraft marker placeholder until final recon aircraft RTS asset is selected"), 95, 3, 3, 18, 12, 12, 5, 0, 14, true, false, { TEXT("Development Center"), TEXT("Fuel Depot") }, { TEXT("aircraft"), TEXT("recon"), TEXT("visibility") } },
         { TEXT("logistics_convoy"), TEXT("Logistics Convoy"), TEXT("Logistics/Supply"), TEXT("Moves supplies, restores supply routes, and supports deployed forces."), TEXT("warehouse"), TEXT("Vehicle_Variety_Pack_Volume_2"), 55, 2, 2, 4, 14, 6, 1, 18, 1, true, false, { TEXT("Strategic Warehouse"), TEXT("Fuel Depot") }, { TEXT("supply"), TEXT("logistics"), TEXT("support") } },
-        { TEXT("scout_team"), TEXT("Scout Team"), TEXT("Scouts"), TEXT("Low-cost reconnaissance, border warning, and map discovery."), TEXT("barracks"), TEXT("Light infantry placeholder"), 20, 1, 1, 6, 8, 7, 1, 0, 10, true, false, { TEXT("Defense Barracks") }, { TEXT("scout"), TEXT("recon"), TEXT("early-warning") } },
+        { TEXT("scout_team"), TEXT("Scout Team"), TEXT("Scouts"), TEXT("Low-cost reconnaissance, border warning, and map discovery."), TEXT("barracks"), TEXT("Generic scout marker placeholder until final scout infantry RTS asset is selected"), 20, 1, 1, 6, 8, 7, 1, 0, 10, true, false, { TEXT("Defense Barracks") }, { TEXT("scout"), TEXT("recon"), TEXT("early-warning") } },
         { TEXT("static_defense_battery"), TEXT("Static Defense Battery"), TEXT("Defensive Units"), TEXT("Base and province defensive firepower; cannot be used for offensive pushes."), TEXT("defense_post"), TEXT("RTS_Modern_Combat_Vehicle_Pack_Free or future turret asset"), 80, 2, 2, 24, 34, 0, 4, 0, 0, true, true, { TEXT("Perimeter Defense Post") }, { TEXT("defense"), TEXT("static"), TEXT("anti-invasion") } }
     };
     State.RtsWorld.CityBase.BuildQueue = { TEXT("Upgrade Strategic Warehouse"), TEXT("Build Forward Rally Point") };
