@@ -744,13 +744,84 @@ struct FDemocracyMapOwnershipState
     FString ToJson(int32 IndentSpaces = 2) const;
 };
 
+struct FDemocracyRtsScopeBoundaryState
+{
+    FString ScopeVersion = TEXT("RTSScope.v1");
+    FString ScopeSummary = TEXT("RTS owns tactical execution and city/base activity; simulation owns national governance and strategic authority.");
+    TArray<FString> RtsOwns;
+    TArray<FString> SimulationOwns;
+    TArray<FString> BlockedUntilRts;
+    TArray<FString> BackflowRequired;
+    TArray<FString> CandidateAssetPacks;
+
+    FString ToJson(int32 IndentSpaces = 2) const;
+};
+
+struct FDemocracyRtsViewModeState
+{
+    FString ViewId;
+    FString DisplayName;
+    FString Purpose;
+    bool bImplementedPlaceholder = true;
+    bool bDefaultView = false;
+    TArray<FString> Interactions;
+    TArray<FString> VisibleLayers;
+
+    FString ToJson(int32 IndentSpaces = 2) const;
+};
+
+struct FDemocracyRtsBuildingState
+{
+    FString BuildingId;
+    FString DisplayName;
+    FString BuildingType;
+    FString ResourceFocus;
+    FString CandidateAssetHint;
+    int32 Level = 1;
+    int32 BuildCost = 0;
+    int32 UpgradeCost = 0;
+    int32 BuildTimeTurns = 1;
+    int32 ProductionPerTick = 0;
+    int32 DefenseValue = 0;
+    bool bConstructed = true;
+    bool bUpgradeQueued = false;
+    FString Status = TEXT("Operational");
+    TArray<FString> Prerequisites;
+    TArray<FString> RuntimeTags;
+
+    FString ToJson(int32 IndentSpaces = 2) const;
+};
+
+struct FDemocracyRtsCityBaseState
+{
+    FString BaseId = TEXT("capital-base");
+    FString DisplayName = TEXT("Capital Command District");
+    FString LinkedCountryName;
+    FString LinkedProvinceId;
+    FString ViewModeId = TEXT("city_base");
+    int32 GridWidth = 12;
+    int32 GridHeight = 18;
+    int32 BuildQueueCount = 0;
+    int32 UpgradeQueueCount = 0;
+    FString BaseSummary = TEXT("Placeholder RTS city/base layout is ready for buildings, production, and upgrades.");
+    TArray<FDemocracyRtsBuildingState> Buildings;
+    TArray<FString> BuildQueue;
+    TArray<FString> RuntimeNotes;
+
+    FString ToJson(int32 IndentSpaces = 2) const;
+};
+
 struct FDemocracyRtsWorldState
 {
     int32 SimulationSecond = 0;
     int32 ControlledTerritories = 1;
     int32 BorderTerritories = 2;
     int32 KnownRivalCountries = 3;
+    FString ActiveViewMode = TEXT("world_map");
     TArray<FString> ActiveStrategicLayers;
+    FDemocracyRtsScopeBoundaryState ScopeBoundary;
+    TArray<FDemocracyRtsViewModeState> ViewModes;
+    FDemocracyRtsCityBaseState CityBase;
     TArray<FDemocracyRivalCountryState> Rivals;
     FDemocracyRtsBackflowState Backflow;
     FDemocracyMapOwnershipState Ownership;

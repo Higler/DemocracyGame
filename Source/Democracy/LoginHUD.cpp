@@ -1456,6 +1456,20 @@ namespace
         Lines.Add(FString::Printf(TEXT("Territories %d controlled | border territories %d | pending outcomes %d | applied history %d"), RtsWorld.ControlledTerritories, RtsWorld.BorderTerritories, Backflow.PendingOutcomes.Num(), Backflow.OutcomeHistory.Num()));
         Lines.Add(FString::Printf(TEXT("Import queue: attention %d | battle losses %d | province changes %d | capital threats %d | supply breaks %d"), Backflow.PendingAttentionCount, Backflow.BattleLossCount, Backflow.ProvinceCaptureCount, Backflow.CapitalThreatCount, Backflow.SupplyRouteBreakCount));
         Lines.Add(FString::Printf(TEXT("Ownership: %d countries | %d provinces | player controlled %d | contested %d | border provinces %d"), RtsWorld.Ownership.TotalCountries, RtsWorld.Ownership.TotalProvinces, RtsWorld.Ownership.PlayerControlledProvinces, RtsWorld.Ownership.ContestedProvinces, RtsWorld.Ownership.BorderProvinceCount));
+        Lines.Add(FString::Printf(TEXT("RTS foundation: active view %s | modes %d | base %s | buildings %d | queue %d"), *RtsWorld.ActiveViewMode, RtsWorld.ViewModes.Num(), *RtsWorld.CityBase.DisplayName, RtsWorld.CityBase.Buildings.Num(), RtsWorld.CityBase.BuildQueueCount));
+        Lines.Add(RtsWorld.ScopeBoundary.ScopeSummary);
+        const int32 ViewModeDisplayCount = FMath::Min(RtsWorld.ViewModes.Num(), 2);
+        for (int32 Index = 0; Index < ViewModeDisplayCount; ++Index)
+        {
+            const FDemocracyRtsViewModeState& ViewMode = RtsWorld.ViewModes[Index];
+            Lines.Add(FString::Printf(TEXT("View mode | %s | %s | layers: %s"), *ViewMode.DisplayName, *ViewMode.Purpose, *FString::Join(ViewMode.VisibleLayers, TEXT(", "))));
+        }
+        const int32 BuildingDisplayCount = FMath::Min(RtsWorld.CityBase.Buildings.Num(), 5);
+        for (int32 Index = 0; Index < BuildingDisplayCount; ++Index)
+        {
+            const FDemocracyRtsBuildingState& Building = RtsWorld.CityBase.Buildings[Index];
+            Lines.Add(FString::Printf(TEXT("Base building | %s L%d | %s | prod %d | defense %d"), *Building.DisplayName, Building.Level, *Building.ResourceFocus, Building.ProductionPerTick, Building.DefenseValue));
+        }
         Lines.Add(FString::Printf(TEXT("Totals: territory %+d | casualties %d | fatigue %d | disruption %d | budget strain %d | diplomatic damage %d"), Backflow.TotalTerritoryDelta, Backflow.TotalCasualties, Backflow.WarFatigue, Backflow.ResourceDisruptionPressure, Backflow.BudgetStrainPressure, Backflow.DiplomaticDamagePressure));
         Lines.Add(Backflow.LastImportQueueSummary);
         Lines.Add(Backflow.LastOutcomeSummary);
@@ -5915,6 +5929,10 @@ TSharedRef<SWidget> ALoginHUD::BuildOfficeWorldRtsScreen()
         [BuildInfoRow(TEXT("World"), bHasLoadedRuntimeState ? FString::Printf(TEXT("%d continents | %d countries"), LoadedSaveState.RuntimeState.WorldMap.Continents.Num(), LoadedSaveState.RuntimeState.WorldMap.TotalCountryCount) : TEXT("Unavailable"))]
         + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 4.0f)
         [BuildInfoRow(TEXT("Strategic Layer"), TEXT("Globe view for countries, alliances, treaties, border tension, and invasion state. Direct troop movement, battles, and resource harvesting belong to the future RTS layer."))]
+        + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 4.0f)
+        [BuildInfoRow(TEXT("RTS View Modes"), bHasLoadedRuntimeState ? FString::Printf(TEXT("Active: %s | available modes: %d | city/base buildings: %d"), *LoadedSaveState.RuntimeState.RtsWorld.ActiveViewMode, LoadedSaveState.RuntimeState.RtsWorld.ViewModes.Num(), LoadedSaveState.RuntimeState.RtsWorld.CityBase.Buildings.Num()) : TEXT("Unavailable"))]
+        + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 4.0f)
+        [BuildInfoRow(TEXT("City/Base Placeholder"), bHasLoadedRuntimeState ? LoadedSaveState.RuntimeState.RtsWorld.CityBase.BaseSummary : TEXT("Unavailable"))]
         + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 4.0f)
         [BuildInfoRow(TEXT("Diplomacy Matrix"), BuildDiplomacyStatusText())]
         + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 8.0f)

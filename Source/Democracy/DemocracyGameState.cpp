@@ -2346,14 +2346,158 @@ FString FDemocracyMapOwnershipState::ToJson(int32 IndentSpaces) const
         *Indent(IndentSpaces - 2));
 }
 
+FString FDemocracyRtsScopeBoundaryState::ToJson(int32 IndentSpaces) const
+{
+    const FString Pad = Indent(IndentSpaces);
+    return FString::Printf(
+        TEXT("{\n")
+        TEXT("%s\"scopeVersion\": \"%s\",\n")
+        TEXT("%s\"scopeSummary\": \"%s\",\n")
+        TEXT("%s\"rtsOwns\": %s,\n")
+        TEXT("%s\"simulationOwns\": %s,\n")
+        TEXT("%s\"blockedUntilRts\": %s,\n")
+        TEXT("%s\"backflowRequired\": %s,\n")
+        TEXT("%s\"candidateAssetPacks\": %s\n")
+        TEXT("%s}"),
+        *Pad, *JsonEscape(ScopeVersion),
+        *Pad, *JsonEscape(ScopeSummary),
+        *Pad, *StringArrayToJson(RtsOwns),
+        *Pad, *StringArrayToJson(SimulationOwns),
+        *Pad, *StringArrayToJson(BlockedUntilRts),
+        *Pad, *StringArrayToJson(BackflowRequired),
+        *Pad, *StringArrayToJson(CandidateAssetPacks),
+        *Indent(IndentSpaces - 2));
+}
+
+FString FDemocracyRtsViewModeState::ToJson(int32 IndentSpaces) const
+{
+    const FString Pad = Indent(IndentSpaces);
+    return FString::Printf(
+        TEXT("{\n")
+        TEXT("%s\"viewId\": \"%s\",\n")
+        TEXT("%s\"displayName\": \"%s\",\n")
+        TEXT("%s\"purpose\": \"%s\",\n")
+        TEXT("%s\"implementedPlaceholder\": %s,\n")
+        TEXT("%s\"defaultView\": %s,\n")
+        TEXT("%s\"interactions\": %s,\n")
+        TEXT("%s\"visibleLayers\": %s\n")
+        TEXT("%s}"),
+        *Pad, *JsonEscape(ViewId),
+        *Pad, *JsonEscape(DisplayName),
+        *Pad, *JsonEscape(Purpose),
+        *Pad, bImplementedPlaceholder ? TEXT("true") : TEXT("false"),
+        *Pad, bDefaultView ? TEXT("true") : TEXT("false"),
+        *Pad, *StringArrayToJson(Interactions),
+        *Pad, *StringArrayToJson(VisibleLayers),
+        *Indent(IndentSpaces - 2));
+}
+
+FString FDemocracyRtsBuildingState::ToJson(int32 IndentSpaces) const
+{
+    const FString Pad = Indent(IndentSpaces);
+    return FString::Printf(
+        TEXT("{\n")
+        TEXT("%s\"buildingId\": \"%s\",\n")
+        TEXT("%s\"displayName\": \"%s\",\n")
+        TEXT("%s\"buildingType\": \"%s\",\n")
+        TEXT("%s\"resourceFocus\": \"%s\",\n")
+        TEXT("%s\"candidateAssetHint\": \"%s\",\n")
+        TEXT("%s\"level\": %d,\n")
+        TEXT("%s\"buildCost\": %d,\n")
+        TEXT("%s\"upgradeCost\": %d,\n")
+        TEXT("%s\"buildTimeTurns\": %d,\n")
+        TEXT("%s\"productionPerTick\": %d,\n")
+        TEXT("%s\"defenseValue\": %d,\n")
+        TEXT("%s\"constructed\": %s,\n")
+        TEXT("%s\"upgradeQueued\": %s,\n")
+        TEXT("%s\"status\": \"%s\",\n")
+        TEXT("%s\"prerequisites\": %s,\n")
+        TEXT("%s\"runtimeTags\": %s\n")
+        TEXT("%s}"),
+        *Pad, *JsonEscape(BuildingId),
+        *Pad, *JsonEscape(DisplayName),
+        *Pad, *JsonEscape(BuildingType),
+        *Pad, *JsonEscape(ResourceFocus),
+        *Pad, *JsonEscape(CandidateAssetHint),
+        *Pad, Level,
+        *Pad, BuildCost,
+        *Pad, UpgradeCost,
+        *Pad, BuildTimeTurns,
+        *Pad, ProductionPerTick,
+        *Pad, DefenseValue,
+        *Pad, bConstructed ? TEXT("true") : TEXT("false"),
+        *Pad, bUpgradeQueued ? TEXT("true") : TEXT("false"),
+        *Pad, *JsonEscape(Status),
+        *Pad, *StringArrayToJson(Prerequisites),
+        *Pad, *StringArrayToJson(RuntimeTags),
+        *Indent(IndentSpaces - 2));
+}
+
+FString FDemocracyRtsCityBaseState::ToJson(int32 IndentSpaces) const
+{
+    const FString Pad = Indent(IndentSpaces);
+    const FString EntryPad = Indent(IndentSpaces + 2);
+    FString BuildingJson = TEXT("[");
+    for (int32 Index = 0; Index < Buildings.Num(); ++Index)
+    {
+        BuildingJson += FString::Printf(TEXT("\n%s%s"), *EntryPad, *Buildings[Index].ToJson(IndentSpaces + 4));
+        if (Index < Buildings.Num() - 1)
+        {
+            BuildingJson += TEXT(",");
+        }
+    }
+    BuildingJson += FString::Printf(TEXT("\n%s]"), *Pad);
+
+    return FString::Printf(
+        TEXT("{\n")
+        TEXT("%s\"baseId\": \"%s\",\n")
+        TEXT("%s\"displayName\": \"%s\",\n")
+        TEXT("%s\"linkedCountryName\": \"%s\",\n")
+        TEXT("%s\"linkedProvinceId\": \"%s\",\n")
+        TEXT("%s\"viewModeId\": \"%s\",\n")
+        TEXT("%s\"gridWidth\": %d,\n")
+        TEXT("%s\"gridHeight\": %d,\n")
+        TEXT("%s\"buildQueueCount\": %d,\n")
+        TEXT("%s\"upgradeQueueCount\": %d,\n")
+        TEXT("%s\"baseSummary\": \"%s\",\n")
+        TEXT("%s\"buildings\": %s,\n")
+        TEXT("%s\"buildQueue\": %s,\n")
+        TEXT("%s\"runtimeNotes\": %s\n")
+        TEXT("%s}"),
+        *Pad, *JsonEscape(BaseId),
+        *Pad, *JsonEscape(DisplayName),
+        *Pad, *JsonEscape(LinkedCountryName),
+        *Pad, *JsonEscape(LinkedProvinceId),
+        *Pad, *JsonEscape(ViewModeId),
+        *Pad, GridWidth,
+        *Pad, GridHeight,
+        *Pad, BuildQueueCount,
+        *Pad, UpgradeQueueCount,
+        *Pad, *JsonEscape(BaseSummary),
+        *Pad, *BuildingJson,
+        *Pad, *StringArrayToJson(BuildQueue),
+        *Pad, *StringArrayToJson(RuntimeNotes),
+        *Indent(IndentSpaces - 2));
+}
 FString FDemocracyRtsWorldState::ToJson(int32 IndentSpaces) const
 {
     const FString Pad = Indent(IndentSpaces);
-    const FString RivalPad = Indent(IndentSpaces + 2);
+    const FString EntryPad = Indent(IndentSpaces + 2);
+    FString ViewModeJson = TEXT("[");
+    for (int32 Index = 0; Index < ViewModes.Num(); ++Index)
+    {
+        ViewModeJson += FString::Printf(TEXT("\n%s%s"), *EntryPad, *ViewModes[Index].ToJson(IndentSpaces + 4));
+        if (Index < ViewModes.Num() - 1)
+        {
+            ViewModeJson += TEXT(",");
+        }
+    }
+    ViewModeJson += FString::Printf(TEXT("\n%s]"), *Pad);
+
     FString RivalJson = TEXT("[");
     for (int32 Index = 0; Index < Rivals.Num(); ++Index)
     {
-        RivalJson += FString::Printf(TEXT("\n%s%s"), *RivalPad, *Rivals[Index].ToJson(IndentSpaces + 4));
+        RivalJson += FString::Printf(TEXT("\n%s%s"), *EntryPad, *Rivals[Index].ToJson(IndentSpaces + 4));
         if (Index < Rivals.Num() - 1)
         {
             RivalJson += TEXT(",");
@@ -2367,7 +2511,11 @@ FString FDemocracyRtsWorldState::ToJson(int32 IndentSpaces) const
         TEXT("%s\"controlledTerritories\": %d,\n")
         TEXT("%s\"borderTerritories\": %d,\n")
         TEXT("%s\"knownRivalCountries\": %d,\n")
+        TEXT("%s\"activeViewMode\": \"%s\",\n")
         TEXT("%s\"activeStrategicLayers\": %s,\n")
+        TEXT("%s\"scopeBoundary\": %s,\n")
+        TEXT("%s\"viewModes\": %s,\n")
+        TEXT("%s\"cityBase\": %s,\n")
         TEXT("%s\"rivals\": %s,\n")
         TEXT("%s\"backflow\": %s,\n")
         TEXT("%s\"ownership\": %s\n")
@@ -2376,7 +2524,11 @@ FString FDemocracyRtsWorldState::ToJson(int32 IndentSpaces) const
         *Pad, ControlledTerritories,
         *Pad, BorderTerritories,
         *Pad, KnownRivalCountries,
+        *Pad, *JsonEscape(ActiveViewMode),
         *Pad, *StringArrayToJson(ActiveStrategicLayers),
+        *Pad, *ScopeBoundary.ToJson(IndentSpaces + 2),
+        *Pad, *ViewModeJson,
+        *Pad, *CityBase.ToJson(IndentSpaces + 2),
         *Pad, *RivalJson,
         *Pad, *Backflow.ToJson(IndentSpaces + 2),
         *Pad, *Ownership.ToJson(IndentSpaces + 2),
@@ -3501,8 +3653,56 @@ FDemocracySimulationState FDemocracyGameStateFactory::CreateInitialState(
     State.RtsWorld.ControlledTerritories = DifficultyProfile.CountrySizeScore * 3;
     State.RtsWorld.BorderTerritories = DifficultyProfile.CountrySizeScore + 1;
     State.RtsWorld.KnownRivalCountries = FMath::Clamp(DifficultyProfile.CountrySizeScore + 1, 2, 5);
-    State.RtsWorld.ActiveStrategicLayers = { TEXT("Territory"), TEXT("Resources"), TEXT("Diplomacy"), TEXT("Military Pressure") };
+    State.RtsWorld.ActiveStrategicLayers = { TEXT("Territory"), TEXT("Resources"), TEXT("Diplomacy"), TEXT("Military Pressure"), TEXT("City/Base"), TEXT("World Map") };
+    State.RtsWorld.ActiveViewMode = TEXT("world_map");
+    State.RtsWorld.ScopeBoundary.ScopeVersion = TEXT("RTSScope.v1");
+    State.RtsWorld.ScopeBoundary.ScopeSummary = TEXT("Simulation office grants strategic authority; RTS resolves city/base work, world-map movement, battles, province control, and tactical resource disruption.");
+    State.RtsWorld.ScopeBoundary.RtsOwns = { TEXT("City/base layout, building placement, upgrade queues, local production, unit positions, army movement, battles, scouting, supply routes, province capture, and tactical timers."), TEXT("World-map view state, tactical overlays, selected province/city/base targets, and resolved combat/build results."), TEXT("RTS outcome queue items that must be imported back into simulation before national consequences are final.") };
+    State.RtsWorld.ScopeBoundary.SimulationOwns = { TEXT("Policies, advisors, diplomacy, treaties, sanctions, economy, budget, public approval, stability, unrest, demographics, events, objectives, autosaves, and fail-state protection."), TEXT("Strategic permissions such as mobilization, emergency powers, war declarations, alliance aid, sanctions, trade, and ceasefire negotiation."), TEXT("Player-facing briefings and dashboard summaries that explain why RTS actions are available or blocked.") };
+    State.RtsWorld.ScopeBoundary.BlockedUntilRts = { TEXT("Direct troop movement from the office"), TEXT("Manual battle targeting"), TEXT("Manual farm/mine/logging/oil harvesting"), TEXT("Permanent city construction placement"), TEXT("Live unit pathfinding and combat") };
+    State.RtsWorld.ScopeBoundary.BackflowRequired = { TEXT("Territory gained or lost"), TEXT("Province captured or contested"), TEXT("Casualties"), TEXT("Resource disruption"), TEXT("War fatigue"), TEXT("Diplomatic damage"), TEXT("Stability and unrest shifts"), TEXT("Invasion risk"), TEXT("Budget strain"), TEXT("Supply-route failure") };
+    State.RtsWorld.ScopeBoundary.CandidateAssetPacks = { TEXT("FabLibrary/RTS_Modern_Combat_Vehicle_Pack_Free-f9509a39"), TEXT("FabLibrary/Tactical_Crowd_AI_Toolkit__GPU_Influence_Maps-d81cbf03"), TEXT("FabLibrary/Vehicle_Variety_Pack_Volume_2-591e3b3f"), TEXT("FabLibrary/Arctic_Military_Soldier___Cold_Weather_Combat_Character"), TEXT("FabLibrary/Naval_Tactical_Soldier___Maritime_Military_Character") };
 
+    FDemocracyRtsViewModeState CityView;
+    CityView.ViewId = TEXT("city_base");
+    CityView.DisplayName = TEXT("City / Base View");
+    CityView.Purpose = TEXT("Manage the capital/base layout, building state, production, storage, defenses, and upgrade queues.");
+    CityView.bImplementedPlaceholder = true;
+    CityView.bDefaultView = false;
+    CityView.Interactions = { TEXT("Select building"), TEXT("Inspect production"), TEXT("Queue construction placeholder"), TEXT("Queue upgrade placeholder"), TEXT("Inspect city defense") };
+    CityView.VisibleLayers = { TEXT("Buildings"), TEXT("Production"), TEXT("Storage"), TEXT("Defenses"), TEXT("Upgrade timers") };
+
+    FDemocracyRtsViewModeState WorldView;
+    WorldView.ViewId = TEXT("world_map");
+    WorldView.DisplayName = TEXT("World / Map View");
+    WorldView.Purpose = TEXT("Inspect Planet Dulia countries, provinces, alliances, rivals, fronts, armies, rally points, and strategic pressure.");
+    WorldView.bImplementedPlaceholder = true;
+    WorldView.bDefaultView = true;
+    WorldView.Interactions = { TEXT("Select country"), TEXT("Select province"), TEXT("Inspect army placeholder"), TEXT("Set rally point placeholder"), TEXT("View border pressure") };
+    WorldView.VisibleLayers = { TEXT("Country ownership"), TEXT("Province control"), TEXT("Government type"), TEXT("Alliances"), TEXT("War fronts"), TEXT("Supply routes placeholder") };
+    State.RtsWorld.ViewModes = { CityView, WorldView };
+
+    State.RtsWorld.CityBase.BaseId = TEXT("capital-base");
+    State.RtsWorld.CityBase.DisplayName = TEXT("Capital Command District");
+    State.RtsWorld.CityBase.LinkedCountryName = StateName;
+    State.RtsWorld.CityBase.ViewModeId = TEXT("city_base");
+    State.RtsWorld.CityBase.GridWidth = 12;
+    State.RtsWorld.CityBase.GridHeight = 18;
+    State.RtsWorld.CityBase.BaseSummary = TEXT("Initial placeholder city/base supports resource buildings, defense, storage, research, and command structures. Visual assets stay replaceable while mechanics are tested.");
+    State.RtsWorld.CityBase.RuntimeNotes = { TEXT("Building layout is data-only for now."), TEXT("Permanent assets should replace placeholder meshes after RTS mechanics stabilize."), TEXT("Any build/upgrade completion must report through RTS backflow before simulation consequences apply.") };
+    State.RtsWorld.CityBase.Buildings = {
+        { TEXT("capital_command"), TEXT("Government Command Center"), TEXT("Command"), TEXT("Authority"), TEXT("Generic civic HQ placeholder; future government/capital building asset"), 1, 0, 140, 0, 0, 18, true, false, TEXT("Operational"), {}, { TEXT("capital"), TEXT("command"), TEXT("required") } },
+        { TEXT("barracks"), TEXT("Defense Barracks"), TEXT("Military"), TEXT("Readiness"), TEXT("RTS_Modern_Combat_Vehicle_Pack_Free for later vehicle/army staging visuals"), 1, 75, 120, 2, 0, 28, true, false, TEXT("Operational"), { TEXT("Government Command Center") }, { TEXT("military"), TEXT("defense") } },
+        { TEXT("farm_hub"), TEXT("Agriculture Hub"), TEXT("Resource"), TEXT("Food"), TEXT("Generic farm/field placeholder"), 1, 45, 80, 1, 8, 0, true, false, TEXT("Operational"), {}, { TEXT("food"), TEXT("production") } },
+        { TEXT("fuel_depot"), TEXT("Fuel Depot"), TEXT("Resource"), TEXT("Fuel"), TEXT("Generic fuel/oil storage placeholder"), 1, 55, 95, 2, 5, 4, true, false, TEXT("Operational"), {}, { TEXT("fuel"), TEXT("logistics") } },
+        { TEXT("lumber_yard"), TEXT("Lumber Yard"), TEXT("Resource"), TEXT("Wood"), TEXT("Generic lumber/warehouse placeholder"), 1, 40, 70, 1, 6, 0, true, false, TEXT("Operational"), {}, { TEXT("wood"), TEXT("construction") } },
+        { TEXT("metal_refinery"), TEXT("Metal Refinery"), TEXT("Resource"), TEXT("Metals"), TEXT("Generic industrial refinery placeholder"), 1, 70, 110, 2, 5, 2, true, false, TEXT("Operational"), {}, { TEXT("metals"), TEXT("industry") } },
+        { TEXT("warehouse"), TEXT("Strategic Warehouse"), TEXT("Storage"), TEXT("Reserve"), TEXT("Warehouse/freight placeholder"), 1, 50, 90, 1, 0, 6, true, false, TEXT("Operational"), {}, { TEXT("storage"), TEXT("supplies") } },
+        { TEXT("research_center"), TEXT("Development Center"), TEXT("Technology"), TEXT("Research"), TEXT("Generic lab/communications placeholder"), 1, 80, 140, 3, 2, 0, true, false, TEXT("Operational"), { TEXT("Government Command Center") }, { TEXT("technology"), TEXT("upgrades") } },
+        { TEXT("defense_post"), TEXT("Perimeter Defense Post"), TEXT("Defense"), TEXT("Security"), TEXT("RTS_Modern_Combat_Vehicle_Pack_Free for later defensive vehicle visuals"), 1, 65, 115, 2, 0, 32, true, false, TEXT("Operational"), { TEXT("Defense Barracks") }, { TEXT("defense"), TEXT("border") } }
+    };
+    State.RtsWorld.CityBase.BuildQueueCount = State.RtsWorld.CityBase.BuildQueue.Num();
+    State.RtsWorld.CityBase.UpgradeQueueCount = 0;
     State.RtsWorld.Rivals = {
         { TEXT("Northmark"), TEXT("Pragmatic"), TEXT("Cautious"), 42 + DifficultyProfile.CountrySizeScore * 6, 12 + DifficultyProfile.CountrySizeScore * 4, 18 },
         { TEXT("Eastmere"), TEXT("Commercial"), TEXT("Neutral"), 38 + DifficultyProfile.CountrySizeScore * 5, 8 + DifficultyProfile.CountrySizeScore * 3, 30 },
@@ -3516,6 +3716,10 @@ FDemocracySimulationState FDemocracyGameStateFactory::CreateInitialState(
     State.RtsWorld.Backflow.DiplomaticDamagePressure = 0;
     State.RtsWorld.Backflow.LastOutcomeSummary = TEXT("RTS backflow is ready. Future tactical results will feed territory, casualties, resources, fatigue, diplomacy, stability, invasion risk, and budget strain back into simulation.");
     State.RtsWorld.Ownership = BuildMapOwnershipState(State.WorldMap, StateName, State.Turn, State.RtsWorld.ControlledTerritories);
+    if (State.RtsWorld.Ownership.Provinces.Num() > 0)
+    {
+        State.RtsWorld.CityBase.LinkedProvinceId = State.RtsWorld.Ownership.Provinces[0].ProvinceId;
+    }
     State.RtsWorld.ControlledTerritories = State.RtsWorld.Ownership.PlayerControlledProvinces;
     State.RtsWorld.BorderTerritories = State.RtsWorld.Ownership.BorderProvinceCount;
     State.GovernmentDiplomacyRules = FDemocracyGameStateFactory::BuildGovernmentDiplomacyRulesState(State);
