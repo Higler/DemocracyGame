@@ -507,6 +507,49 @@ struct FDemocracyDiplomacyMatrixState
 
     FString ToJson(int32 IndentSpaces = 2) const;
 };
+
+struct FDemocracyGovernmentDiplomacyRuleState
+{
+    FString RuleId;
+    FString RuleName;
+    FString RuleType;
+    FString Description;
+    bool bEnabled = true;
+    int32 TrustThreshold = 0;
+    int32 BorderTensionThreshold = 0;
+    int32 StabilityCost = 0;
+    int32 UnrestCost = 0;
+    int32 DiplomacyCost = 0;
+    int32 TurnsRequired = 0;
+    TArray<FString> AllowedGovernmentTypes;
+    TArray<FString> BlockedGovernmentTypes;
+    TArray<FString> Consequences;
+
+    FString ToJson(int32 IndentSpaces = 2) const;
+};
+
+struct FDemocracyGovernmentDiplomacyRulesState
+{
+    int32 LastUpdatedTurn = 1;
+    FString PlayerGovernmentType = TEXT("Democracy");
+    FString TargetGovernmentType;
+    int32 TransitionProgress = 0;
+    int32 TransitionTurnsRemaining = 0;
+    int32 TransitionStabilityCost = 0;
+    int32 TransitionUnrestCost = 0;
+    int32 TransitionDiplomacyCost = 0;
+    int32 AllowedAllianceCount = 0;
+    int32 BlockedAllianceCount = 0;
+    int32 ActiveTreatyCount = 0;
+    int32 ActiveSanctionsCount = 0;
+    int32 HighBorderTensionCount = 0;
+    FString Summary = TEXT("Government/diplomacy rules have not been evaluated yet.");
+    TArray<FDemocracyGovernmentDiplomacyRuleState> Rules;
+    TArray<FString> ActiveRestrictions;
+    TArray<FString> SideSwitchConsequences;
+
+    FString ToJson(int32 IndentSpaces = 2) const;
+};
 struct FDemocracyCountryState
 {
     FString CountryName;
@@ -889,6 +932,7 @@ struct FDemocracySimulationState
     FDemocracyDecisionHistoryState DecisionHistory;
     FDemocracyWorldMapState WorldMap;
     FDemocracyDiplomacyMatrixState DiplomacyMatrix;
+    FDemocracyGovernmentDiplomacyRulesState GovernmentDiplomacyRules;
     FDemocracyRtsWorldState RtsWorld;
     FDemocracyRtsSaveBoundaryState RtsSaveBoundary;
     FDemocracyWarSystemState WarSystem;
@@ -902,6 +946,7 @@ struct FDemocracySimulationState
 class FDemocracyGameStateFactory
 {
 public:
+    static FDemocracyGovernmentDiplomacyRulesState BuildGovernmentDiplomacyRulesState(const FDemocracySimulationState& State);
     static FDemocracyRtsSaveBoundaryState BuildRtsSaveBoundaryState(const FDemocracySimulationState& State);
     static FDemocracyWarSystemState BuildWarConflictState(const FDemocracySimulationState& State);
     static FDemocracySimulationToRtsContractState BuildSimulationToRtsContractState(const FDemocracySimulationState& State);
@@ -913,6 +958,8 @@ public:
         const FString& Climate,
         const FDifficultyProfile& DifficultyProfile);
 };
+
+
 
 
 

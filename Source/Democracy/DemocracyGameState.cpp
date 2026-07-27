@@ -485,6 +485,42 @@ namespace
     }
 
 
+
+    bool IsGovernmentRuleDemocracy(const FString& GovernmentType)
+    {
+        return GovernmentType.Contains(TEXT("Democracy"), ESearchCase::IgnoreCase) ||
+            GovernmentType.Contains(TEXT("Democratic"), ESearchCase::IgnoreCase) ||
+            GovernmentType.Contains(TEXT("Republic"), ESearchCase::IgnoreCase);
+    }
+
+    bool IsGovernmentRuleDictatorship(const FString& GovernmentType)
+    {
+        return GovernmentType.Contains(TEXT("Dictatorship"), ESearchCase::IgnoreCase) ||
+            GovernmentType.Contains(TEXT("Authoritarian"), ESearchCase::IgnoreCase) ||
+            GovernmentType.Contains(TEXT("Autocracy"), ESearchCase::IgnoreCase) ||
+            GovernmentType.Contains(TEXT("Regime"), ESearchCase::IgnoreCase) ||
+            GovernmentType.Contains(TEXT("Hostile Bloc"), ESearchCase::IgnoreCase);
+    }
+
+    FString GovernmentRuleAlignment(const FString& GovernmentType)
+    {
+        if (IsGovernmentRuleDemocracy(GovernmentType))
+        {
+            return TEXT("Democracy");
+        }
+        if (IsGovernmentRuleDictatorship(GovernmentType))
+        {
+            return TEXT("Dictatorship");
+        }
+        return TEXT("Non-Aligned");
+    }
+
+    bool IsSameGovernmentRuleAlignment(const FString& Left, const FString& Right)
+    {
+        const FString LeftAlignment = GovernmentRuleAlignment(Left);
+        const FString RightAlignment = GovernmentRuleAlignment(Right);
+        return !LeftAlignment.Equals(TEXT("Non-Aligned"), ESearchCase::IgnoreCase) && LeftAlignment.Equals(RightAlignment, ESearchCase::IgnoreCase);
+    }
     FString ProvinceResourceFocus(int32 ProvinceIndex, const FString& Climate)
     {
         static const TCHAR* Focuses[] = { TEXT("Food"), TEXT("Fuel"), TEXT("Wood"), TEXT("Metals"), TEXT("Water") };
@@ -890,6 +926,98 @@ FString FDemocracyDiplomacyMatrixState::ToJson(int32 IndentSpaces) const
         *Pad, AverageBorderTension,
         *Pad, *JsonEscape(Summary),
         *Pad, *RelationshipJson,
+        *Indent(IndentSpaces - 2));
+}
+
+FString FDemocracyGovernmentDiplomacyRuleState::ToJson(int32 IndentSpaces) const
+{
+    const FString Pad = Indent(IndentSpaces);
+    return FString::Printf(
+        TEXT("{\n")
+        TEXT("%s\"ruleId\": \"%s\",\n")
+        TEXT("%s\"ruleName\": \"%s\",\n")
+        TEXT("%s\"ruleType\": \"%s\",\n")
+        TEXT("%s\"description\": \"%s\",\n")
+        TEXT("%s\"enabled\": %s,\n")
+        TEXT("%s\"trustThreshold\": %d,\n")
+        TEXT("%s\"borderTensionThreshold\": %d,\n")
+        TEXT("%s\"stabilityCost\": %d,\n")
+        TEXT("%s\"unrestCost\": %d,\n")
+        TEXT("%s\"diplomacyCost\": %d,\n")
+        TEXT("%s\"turnsRequired\": %d,\n")
+        TEXT("%s\"allowedGovernmentTypes\": %s,\n")
+        TEXT("%s\"blockedGovernmentTypes\": %s,\n")
+        TEXT("%s\"consequences\": %s\n")
+        TEXT("%s}"),
+        *Pad, *JsonEscape(RuleId),
+        *Pad, *JsonEscape(RuleName),
+        *Pad, *JsonEscape(RuleType),
+        *Pad, *JsonEscape(Description),
+        *Pad, bEnabled ? TEXT("true") : TEXT("false"),
+        *Pad, TrustThreshold,
+        *Pad, BorderTensionThreshold,
+        *Pad, StabilityCost,
+        *Pad, UnrestCost,
+        *Pad, DiplomacyCost,
+        *Pad, TurnsRequired,
+        *Pad, *StringArrayToJson(AllowedGovernmentTypes),
+        *Pad, *StringArrayToJson(BlockedGovernmentTypes),
+        *Pad, *StringArrayToJson(Consequences),
+        *Indent(IndentSpaces - 2));
+}
+
+FString FDemocracyGovernmentDiplomacyRulesState::ToJson(int32 IndentSpaces) const
+{
+    const FString Pad = Indent(IndentSpaces);
+    const FString RulePad = Indent(IndentSpaces + 2);
+    FString RuleJson = TEXT("[");
+    for (int32 Index = 0; Index < Rules.Num(); ++Index)
+    {
+        RuleJson += FString::Printf(TEXT("\n%s%s"), *RulePad, *Rules[Index].ToJson(IndentSpaces + 4));
+        if (Index < Rules.Num() - 1)
+        {
+            RuleJson += TEXT(",");
+        }
+    }
+    RuleJson += FString::Printf(TEXT("\n%s]"), *Pad);
+
+    return FString::Printf(
+        TEXT("{\n")
+        TEXT("%s\"lastUpdatedTurn\": %d,\n")
+        TEXT("%s\"playerGovernmentType\": \"%s\",\n")
+        TEXT("%s\"targetGovernmentType\": \"%s\",\n")
+        TEXT("%s\"transitionProgress\": %d,\n")
+        TEXT("%s\"transitionTurnsRemaining\": %d,\n")
+        TEXT("%s\"transitionStabilityCost\": %d,\n")
+        TEXT("%s\"transitionUnrestCost\": %d,\n")
+        TEXT("%s\"transitionDiplomacyCost\": %d,\n")
+        TEXT("%s\"allowedAllianceCount\": %d,\n")
+        TEXT("%s\"blockedAllianceCount\": %d,\n")
+        TEXT("%s\"activeTreatyCount\": %d,\n")
+        TEXT("%s\"activeSanctionsCount\": %d,\n")
+        TEXT("%s\"highBorderTensionCount\": %d,\n")
+        TEXT("%s\"summary\": \"%s\",\n")
+        TEXT("%s\"rules\": %s,\n")
+        TEXT("%s\"activeRestrictions\": %s,\n")
+        TEXT("%s\"sideSwitchConsequences\": %s\n")
+        TEXT("%s}"),
+        *Pad, LastUpdatedTurn,
+        *Pad, *JsonEscape(PlayerGovernmentType),
+        *Pad, *JsonEscape(TargetGovernmentType),
+        *Pad, TransitionProgress,
+        *Pad, TransitionTurnsRemaining,
+        *Pad, TransitionStabilityCost,
+        *Pad, TransitionUnrestCost,
+        *Pad, TransitionDiplomacyCost,
+        *Pad, AllowedAllianceCount,
+        *Pad, BlockedAllianceCount,
+        *Pad, ActiveTreatyCount,
+        *Pad, ActiveSanctionsCount,
+        *Pad, HighBorderTensionCount,
+        *Pad, *JsonEscape(Summary),
+        *Pad, *RuleJson,
+        *Pad, *StringArrayToJson(ActiveRestrictions),
+        *Pad, *StringArrayToJson(SideSwitchConsequences),
         *Indent(IndentSpaces - 2));
 }
 FString FDemocracyCountryState::ToJson(int32 IndentSpaces) const
@@ -2518,6 +2646,7 @@ FString FDemocracySimulationState::ToJson(int32 IndentSpaces) const
         TEXT("%s\"decisionHistory\": %s,\n")
         TEXT("%s\"worldMap\": %s,\n")
         TEXT("%s\"diplomacyMatrix\": %s,\n")
+        TEXT("%s\"governmentDiplomacyRules\": %s,\n")
         TEXT("%s\"rtsWorld\": %s,\n")
         TEXT("%s\"rtsSaveBoundary\": %s,\n")
         TEXT("%s\"warSystem\": %s,\n")
@@ -2545,6 +2674,7 @@ FString FDemocracySimulationState::ToJson(int32 IndentSpaces) const
         *Pad, *DecisionHistory.ToJson(IndentSpaces + 2),
         *Pad, *WorldMap.ToJson(IndentSpaces + 2),
         *Pad, *DiplomacyMatrix.ToJson(IndentSpaces + 2),
+        *Pad, *GovernmentDiplomacyRules.ToJson(IndentSpaces + 2),
         *Pad, *RtsWorld.ToJson(IndentSpaces + 2),
         *Pad, *RtsSaveBoundary.ToJson(IndentSpaces + 2),
         *Pad, *WarSystem.ToJson(IndentSpaces + 2),
@@ -2554,6 +2684,138 @@ FString FDemocracySimulationState::ToJson(int32 IndentSpaces) const
         *Indent(IndentSpaces - 2));
 }
 
+
+FDemocracyGovernmentDiplomacyRulesState FDemocracyGameStateFactory::BuildGovernmentDiplomacyRulesState(const FDemocracySimulationState& State)
+{
+    FDemocracyGovernmentDiplomacyRulesState RulesState = State.GovernmentDiplomacyRules;
+    RulesState.LastUpdatedTurn = State.Turn;
+    RulesState.PlayerGovernmentType = State.ObjectiveState.PlayerGovernmentType.IsEmpty() ? TEXT("Democracy") : State.ObjectiveState.PlayerGovernmentType;
+    RulesState.TargetGovernmentType = State.ObjectiveState.GovernmentTransitionTarget;
+    RulesState.TransitionProgress = State.ObjectiveState.GovernmentTransitionProgress;
+    RulesState.TransitionTurnsRemaining = State.ObjectiveState.GovernmentTransitionTurnsRemaining;
+    RulesState.TransitionStabilityCost = RulesState.TransitionTurnsRemaining > 0 ? FMath::Clamp(6 + State.PlayerCountry.CountrySizeScore * 2, 8, 18) : 0;
+    RulesState.TransitionUnrestCost = RulesState.TransitionTurnsRemaining > 0 ? FMath::Clamp(4 + State.PlayerCountry.CountrySizeScore * 3, 7, 20) : 0;
+    RulesState.TransitionDiplomacyCost = RulesState.TransitionTurnsRemaining > 0 ? FMath::Clamp(5 + State.PlayerCountry.CountrySizeScore * 2, 7, 16) : 0;
+    RulesState.AllowedAllianceCount = 0;
+    RulesState.BlockedAllianceCount = 0;
+    RulesState.ActiveTreatyCount = 0;
+    RulesState.ActiveSanctionsCount = 0;
+    RulesState.HighBorderTensionCount = 0;
+    RulesState.Rules.Reset();
+    RulesState.ActiveRestrictions.Reset();
+    RulesState.SideSwitchConsequences.Reset();
+
+    FDemocracyGovernmentDiplomacyRuleState AllianceRule;
+    AllianceRule.RuleId = TEXT("alliance_same_alignment");
+    AllianceRule.RuleName = TEXT("Alliance Alignment Lock");
+    AllianceRule.RuleType = TEXT("Alliance");
+    AllianceRule.Description = TEXT("Democracies can ally only with democracies; dictatorships can ally only with dictatorships. Non-aligned governments may trade or negotiate but cannot become formal allies until aligned.");
+    AllianceRule.AllowedGovernmentTypes = { TEXT("Democracy with Democracy"), TEXT("Dictatorship with Dictatorship") };
+    AllianceRule.BlockedGovernmentTypes = { TEXT("Democracy with Dictatorship"), TEXT("Dictatorship with Democracy"), TEXT("Non-Aligned formal alliances") };
+    AllianceRule.Consequences = { TEXT("Invalid alliances are downgraded to neutral/treaty contact."), TEXT("Alliance outreach must target the same government alignment."), TEXT("Multiplayer sides inherit this lock when players choose or switch governments.") };
+    RulesState.Rules.Add(AllianceRule);
+
+    FDemocracyGovernmentDiplomacyRuleState TreatyRule;
+    TreatyRule.RuleId = TEXT("treaty_requires_trust");
+    TreatyRule.RuleName = TEXT("Treaty Trust Gate");
+    TreatyRule.RuleType = TEXT("Treaty");
+    TreatyRule.Description = TEXT("Treaties require stable relations before signing; low trust or high border tension blocks new treaties even when governments match.");
+    TreatyRule.TrustThreshold = 45;
+    TreatyRule.BorderTensionThreshold = 65;
+    TreatyRule.Consequences = { TEXT("Treaties improve trade and diplomatic standing."), TEXT("Broken treaties reduce trust and can create border tension."), TEXT("Treaties do not override the alliance alignment lock.") };
+    RulesState.Rules.Add(TreatyRule);
+
+    FDemocracyGovernmentDiplomacyRuleState SanctionsRule;
+    SanctionsRule.RuleId = TEXT("sanctions_escalate_tension");
+    SanctionsRule.RuleName = TEXT("Sanctions Escalation");
+    SanctionsRule.RuleType = TEXT("Sanction");
+    SanctionsRule.Description = TEXT("Sanctions are allowed against hostile, rival, or high-tension states, but they reduce trade and can increase border tension.");
+    SanctionsRule.BorderTensionThreshold = 55;
+    SanctionsRule.Consequences = { TEXT("Sanctions lower trade value and trust."), TEXT("Repeated sanctions can push rivals toward hostile status."), TEXT("Sanctions can be useful pressure against dictatorships but carry invasion-risk cost.") };
+    RulesState.Rules.Add(SanctionsRule);
+
+    FDemocracyGovernmentDiplomacyRuleState BorderRule;
+    BorderRule.RuleId = TEXT("border_tension_warning");
+    BorderRule.RuleName = TEXT("Border Tension Escalation");
+    BorderRule.RuleType = TEXT("Border Tension");
+    BorderRule.Description = TEXT("Border tension at 60 or higher is a strategic warning; 75 or higher feeds active war and invasion risk systems.");
+    BorderRule.BorderTensionThreshold = 60;
+    BorderRule.Consequences = { TEXT("High tension appears in advisor warnings and RTS contract enemies."), TEXT("Very high tension can create durable war/conflict state."), TEXT("Negotiation, trade, and aid can reduce tension over time.") };
+    RulesState.Rules.Add(BorderRule);
+
+    FDemocracyGovernmentDiplomacyRuleState SwitchRule;
+    SwitchRule.RuleId = TEXT("government_side_switch");
+    SwitchRule.RuleName = TEXT("Government Side Switch");
+    SwitchRule.RuleType = TEXT("Government Transition");
+    SwitchRule.Description = TEXT("Changing between democracy and dictatorship takes time and applies stability, unrest, diplomacy, alliance, treaty, and trust consequences.");
+    SwitchRule.StabilityCost = FMath::Clamp(6 + State.PlayerCountry.CountrySizeScore * 2, 8, 18);
+    SwitchRule.UnrestCost = FMath::Clamp(4 + State.PlayerCountry.CountrySizeScore * 3, 7, 20);
+    SwitchRule.DiplomacyCost = FMath::Clamp(5 + State.PlayerCountry.CountrySizeScore * 2, 7, 16);
+    SwitchRule.TurnsRequired = FMath::Clamp(3 + State.PlayerCountry.CountrySizeScore, 4, 8);
+    SwitchRule.AllowedGovernmentTypes = { TEXT("Democracy"), TEXT("Dictatorship") };
+    SwitchRule.Consequences = { TEXT("Existing incompatible alliances become blocked during transition."), TEXT("Treaty partners lose trust until the new government is stable."), TEXT("Domestic stability drops and unrest rises while institutions are rewritten."), TEXT("Multiplayer side changes occupy a timed server slot and cannot be instant.") };
+    RulesState.Rules.Add(SwitchRule);
+
+    const FString PlayerAlignment = GovernmentRuleAlignment(RulesState.PlayerGovernmentType);
+    for (const FDemocracyDiplomacyRelationshipState& Relationship : State.DiplomacyMatrix.Relationships)
+    {
+        const bool bAlliance = Relationship.RelationshipStatus.Equals(TEXT("Ally"), ESearchCase::IgnoreCase);
+        if (bAlliance)
+        {
+            if (IsSameGovernmentRuleAlignment(RulesState.PlayerGovernmentType, Relationship.GovernmentType))
+            {
+                ++RulesState.AllowedAllianceCount;
+            }
+            else
+            {
+                ++RulesState.BlockedAllianceCount;
+            }
+        }
+        if (Relationship.ActiveTreaties.Num() > 0 || !Relationship.TreatyStatus.Equals(TEXT("None"), ESearchCase::IgnoreCase))
+        {
+            ++RulesState.ActiveTreatyCount;
+        }
+        if (Relationship.bSanctionsActive)
+        {
+            ++RulesState.ActiveSanctionsCount;
+        }
+        if (Relationship.BorderTension >= 60)
+        {
+            ++RulesState.HighBorderTensionCount;
+        }
+    }
+
+    RulesState.ActiveRestrictions = {
+        FString::Printf(TEXT("Player alignment: %s. Formal alliances are limited to matching democracy/dictatorship alignment."), *PlayerAlignment),
+        TEXT("Treaties require trust 45+ and border tension below 65 before they can be signed or upgraded."),
+        TEXT("Sanctions require hostile/rival posture or border tension 55+, and they reduce trade/trust while raising escalation risk."),
+        TEXT("Border tension 60+ is a warning; 75+ exports as active war/invasion pressure to RTS."),
+        FString::Printf(TEXT("Current blocked alliances from alignment mismatch: %d."), RulesState.BlockedAllianceCount)
+    };
+
+    RulesState.SideSwitchConsequences = {
+        FString::Printf(TEXT("Changing government side takes %d turns by default for this country size."), SwitchRule.TurnsRequired),
+        FString::Printf(TEXT("During transition apply approximately -%d stability, +%d unrest, and -%d diplomatic standing unless mitigated."), SwitchRule.StabilityCost, SwitchRule.UnrestCost, SwitchRule.DiplomacyCost),
+        TEXT("Allies with the old side become restricted until relationships are renegotiated."),
+        TEXT("Treaties remain records but can lose trust or be suspended when the new alignment conflicts with the partner."),
+        TEXT("Multiplayer side switching is server-timed and cannot be completed by editing local save data.")
+    };
+    if (RulesState.TransitionTurnsRemaining > 0)
+    {
+        RulesState.SideSwitchConsequences.Add(FString::Printf(TEXT("Active transition to %s: %d%% complete, %d turns remaining."), *RulesState.TargetGovernmentType, RulesState.TransitionProgress, RulesState.TransitionTurnsRemaining));
+    }
+
+    RulesState.Summary = FString::Printf(TEXT("Government/diplomacy rules turn %d: player %s (%s), alliances allowed %d, blocked %d, treaties %d, sanctions %d, high border tensions %d."),
+        State.Turn,
+        *RulesState.PlayerGovernmentType,
+        *PlayerAlignment,
+        RulesState.AllowedAllianceCount,
+        RulesState.BlockedAllianceCount,
+        RulesState.ActiveTreatyCount,
+        RulesState.ActiveSanctionsCount,
+        RulesState.HighBorderTensionCount);
+    return RulesState;
+}
 FDemocracyRtsSaveBoundaryState FDemocracyGameStateFactory::BuildRtsSaveBoundaryState(const FDemocracySimulationState& State)
 {
     FDemocracyRtsSaveBoundaryState Boundary = State.RtsSaveBoundary;
@@ -3035,6 +3297,7 @@ FDemocracySimulationState FDemocracyGameStateFactory::CreateInitialState(
     State.RtsWorld.Ownership = BuildMapOwnershipState(State.WorldMap, StateName, State.Turn, State.RtsWorld.ControlledTerritories);
     State.RtsWorld.ControlledTerritories = State.RtsWorld.Ownership.PlayerControlledProvinces;
     State.RtsWorld.BorderTerritories = State.RtsWorld.Ownership.BorderProvinceCount;
+    State.GovernmentDiplomacyRules = FDemocracyGameStateFactory::BuildGovernmentDiplomacyRulesState(State);
     State.RtsSaveBoundary = FDemocracyGameStateFactory::BuildRtsSaveBoundaryState(State);
     State.WarSystem = FDemocracyGameStateFactory::BuildWarConflictState(State);
     State.SimulationToRtsContract = FDemocracyGameStateFactory::BuildSimulationToRtsContractState(State);
@@ -3044,6 +3307,9 @@ FDemocracySimulationState FDemocracyGameStateFactory::CreateInitialState(
 
     return State;
 }
+
+
+
 
 
 

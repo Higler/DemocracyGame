@@ -184,6 +184,7 @@ private:
     FString BuildDecisionHistoryStatusText() const;
     FString BuildObjectiveStatusText() const;
     FString BuildDiplomacyStatusText() const;
+    FString BuildGovernmentDiplomacyRulesStatusText() const;
     FString BuildRtsBackflowStatusText() const;
     FString BuildWarConflictStatusText() const;
     FString BuildRtsSaveBoundaryStatusText() const;
@@ -298,6 +299,8 @@ private:
     void HandleBrightnessChanged(float NewValue);
     void HandleUiScaleChanged(float NewValue);
 };
+
+
 
 
 

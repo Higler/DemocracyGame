@@ -4908,6 +4908,8 @@ TSharedRef<SWidget> ALoginHUD::BuildOfficeComputerMenuScreen()
     [BuildInfoRow(TEXT("Objectives"), BuildObjectiveStatusText())];
     Body->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
     [BuildInfoRow(TEXT("Diplomacy"), BuildDiplomacyStatusText())];
+    Body->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 8.0f)
+    [BuildInfoRow(TEXT("Government / Diplomacy Rules"), BuildGovernmentDiplomacyRulesStatusText())];
     Body->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
     [BuildInfoRow(TEXT("Command Authority"), BuildCommandAuthorityStatusText())];
     Body->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
@@ -5564,6 +5566,8 @@ TSharedRef<SWidget> ALoginHUD::BuildOfficeWorldRtsScreen()
         [BuildInfoRow(TEXT("Strategic Layer"), TEXT("Globe view for countries, alliances, treaties, border tension, and invasion state. Direct troop movement, battles, and resource harvesting belong to the future RTS layer."))]
         + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 4.0f)
         [BuildInfoRow(TEXT("Diplomacy Matrix"), BuildDiplomacyStatusText())]
+        + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 8.0f)
+        [BuildInfoRow(TEXT("Government / Diplomacy Rules"), BuildGovernmentDiplomacyRulesStatusText())]
         + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 4.0f)
         [BuildInfoRow(TEXT("Map Ownership"), BuildMapOwnershipStatusText())]
         + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 4.0f)
@@ -6316,6 +6320,43 @@ FString ALoginHUD::BuildDiplomacyStatusText() const
         }
     }
     return Text;
+}
+FString ALoginHUD::BuildGovernmentDiplomacyRulesStatusText() const
+{
+    if (!bHasLoadedRuntimeState)
+    {
+        return TEXT("Government/diplomacy rules unavailable until a save is loaded.");
+    }
+
+    const FDemocracyGovernmentDiplomacyRulesState& Rules = LoadedSaveState.RuntimeState.GovernmentDiplomacyRules;
+    TArray<FString> Lines;
+    Lines.Add(Rules.Summary);
+    Lines.Add(FString::Printf(TEXT("Transition: target %s | progress %d%% | turns remaining %d | costs stability %d, unrest +%d, diplomacy %d"),
+        Rules.TargetGovernmentType.IsEmpty() ? TEXT("none") : *Rules.TargetGovernmentType,
+        Rules.TransitionProgress,
+        Rules.TransitionTurnsRemaining,
+        Rules.TransitionStabilityCost,
+        Rules.TransitionUnrestCost,
+        Rules.TransitionDiplomacyCost));
+    Lines.Add(FString::Printf(TEXT("Rules: alliances allowed %d | blocked %d | treaties %d | sanctions %d | high border tension %d"),
+        Rules.AllowedAllianceCount,
+        Rules.BlockedAllianceCount,
+        Rules.ActiveTreatyCount,
+        Rules.ActiveSanctionsCount,
+        Rules.HighBorderTensionCount));
+    if (Rules.ActiveRestrictions.Num() > 0)
+    {
+        Lines.Add(FString::Printf(TEXT("Restrictions: %s"), *FString::Join(Rules.ActiveRestrictions, TEXT(" | "))));
+    }
+    if (Rules.SideSwitchConsequences.Num() > 0)
+    {
+        Lines.Add(FString::Printf(TEXT("Side-switch consequences: %s"), *FString::Join(Rules.SideSwitchConsequences, TEXT(" | "))));
+    }
+    for (const FDemocracyGovernmentDiplomacyRuleState& Rule : Rules.Rules)
+    {
+        Lines.Add(FString::Printf(TEXT("%s [%s]: %s"), *Rule.RuleName, *Rule.RuleType, *Rule.Description));
+    }
+    return FString::Join(Lines, TEXT("\n"));
 }
 FString ALoginHUD::BuildRtsBackflowStatusText() const
 {
@@ -9441,6 +9482,11 @@ void ALoginHUD::HandleUiScaleChanged(float NewValue)
 {
     UiScale = FMath::Clamp(NewValue, 0.50f, 1.50f);
 }
+
+
+
+
+
 
 
 
