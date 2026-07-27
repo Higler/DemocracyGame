@@ -2618,6 +2618,95 @@ FString FDemocracyRtsBattleResolutionState::ToJson(int32 IndentSpaces) const
         *Pad, *JsonEscape(BattleId), *Pad, *JsonEscape(ArmyId), *Pad, *JsonEscape(ProvinceId), *Pad, *JsonEscape(OpponentCountry), *Pad, *JsonEscape(TerrainType), *Pad, PlayerScore, *Pad, OpponentScore, *Pad, ReadinessModifier, *Pad, TerrainModifier, *Pad, SupplyModifier, *Pad, TechModifier, *Pad, MoraleModifier, *Pad, *JsonEscape(Result), *Pad, *JsonEscape(Summary), *Indent(IndentSpaces - 2));
 }
 
+FString FDemocracyRtsFogProvinceState::ToJson(int32 IndentSpaces) const
+{
+    const FString Pad = Indent(IndentSpaces);
+    return FString::Printf(
+        TEXT("{\n")
+        TEXT("%s\"provinceId\": \"%s\",\n")
+        TEXT("%s\"visibilityState\": \"%s\",\n")
+        TEXT("%s\"lastScoutedTurn\": %d,\n")
+        TEXT("%s\"scoutStrength\": %d,\n")
+        TEXT("%s\"known\": %s,\n")
+        TEXT("%s\"contested\": %s,\n")
+        TEXT("%s\"lastKnownOwner\": \"%s\",\n")
+        TEXT("%s\"lastKnownController\": \"%s\",\n")
+        TEXT("%s\"intelSummary\": \"%s\"\n")
+        TEXT("%s}"),
+        *Pad, *JsonEscape(ProvinceId),
+        *Pad, *JsonEscape(VisibilityState),
+        *Pad, LastScoutedTurn,
+        *Pad, ScoutStrength,
+        *Pad, bKnown ? TEXT("true") : TEXT("false"),
+        *Pad, bContested ? TEXT("true") : TEXT("false"),
+        *Pad, *JsonEscape(LastKnownOwner),
+        *Pad, *JsonEscape(LastKnownController),
+        *Pad, *JsonEscape(IntelSummary),
+        *Indent(IndentSpaces - 2));
+}
+
+FString FDemocracyRtsFogOfWarState::ToJson(int32 IndentSpaces) const
+{
+    const FString Pad = Indent(IndentSpaces);
+    const FString EntryPad = Indent(IndentSpaces + 2);
+    FString ProvinceJson = TEXT("[");
+    for (int32 Index = 0; Index < Provinces.Num(); ++Index)
+    {
+        ProvinceJson += FString::Printf(TEXT("\n%s%s"), *EntryPad, *Provinces[Index].ToJson(IndentSpaces + 4));
+        if (Index < Provinces.Num() - 1) { ProvinceJson += TEXT(","); }
+    }
+    ProvinceJson += FString::Printf(TEXT("\n%s]"), *Pad);
+    return FString::Printf(
+        TEXT("{\n")
+        TEXT("%s\"lastUpdatedTurn\": %d,\n")
+        TEXT("%s\"knownProvinceCount\": %d,\n")
+        TEXT("%s\"scoutedProvinceCount\": %d,\n")
+        TEXT("%s\"hiddenProvinceCount\": %d,\n")
+        TEXT("%s\"contestedProvinceCount\": %d,\n")
+        TEXT("%s\"summary\": \"%s\",\n")
+        TEXT("%s\"provinces\": %s\n")
+        TEXT("%s}"),
+        *Pad, LastUpdatedTurn,
+        *Pad, KnownProvinceCount,
+        *Pad, ScoutedProvinceCount,
+        *Pad, HiddenProvinceCount,
+        *Pad, ContestedProvinceCount,
+        *Pad, *JsonEscape(Summary),
+        *Pad, *ProvinceJson,
+        *Indent(IndentSpaces - 2));
+}
+
+FString FDemocracyRtsHudState::ToJson(int32 IndentSpaces) const
+{
+    const FString Pad = Indent(IndentSpaces);
+    return FString::Printf(
+        TEXT("{\n")
+        TEXT("%s\"selectedUnitOrBuilding\": \"%s\",\n")
+        TEXT("%s\"selectedType\": \"%s\",\n")
+        TEXT("%s\"buildMenuSummary\": \"%s\",\n")
+        TEXT("%s\"armyOrderSummary\": \"%s\",\n")
+        TEXT("%s\"minimapSummary\": \"%s\",\n")
+        TEXT("%s\"alertSummary\": \"%s\",\n")
+        TEXT("%s\"resourceSummary\": \"%s\",\n")
+        TEXT("%s\"returnToOfficeAvailable\": %s,\n")
+        TEXT("%s\"buildMenuOptions\": %s,\n")
+        TEXT("%s\"armyOrderButtons\": %s,\n")
+        TEXT("%s\"alerts\": %s\n")
+        TEXT("%s}"),
+        *Pad, *JsonEscape(SelectedUnitOrBuilding),
+        *Pad, *JsonEscape(SelectedType),
+        *Pad, *JsonEscape(BuildMenuSummary),
+        *Pad, *JsonEscape(ArmyOrderSummary),
+        *Pad, *JsonEscape(MinimapSummary),
+        *Pad, *JsonEscape(AlertSummary),
+        *Pad, *JsonEscape(ResourceSummary),
+        *Pad, bReturnToOfficeAvailable ? TEXT("true") : TEXT("false"),
+        *Pad, *StringArrayToJson(BuildMenuOptions),
+        *Pad, *StringArrayToJson(ArmyOrderButtons),
+        *Pad, *StringArrayToJson(Alerts),
+        *Indent(IndentSpaces - 2));
+}
+
 FString FDemocracyRtsConstructionQueueEntryState::ToJson(int32 IndentSpaces) const
 {
     const FString Pad = Indent(IndentSpaces);
@@ -2908,6 +2997,8 @@ FString FDemocracyRtsWorldState::ToJson(int32 IndentSpaces) const
         TEXT("%s\"movementOrders\": %s,\n")
         TEXT("%s\"supplyRoutes\": %s,\n")
         TEXT("%s\"battleHistory\": %s,\n")
+        TEXT("%s\"fogOfWar\": %s,\n")
+        TEXT("%s\"hud\": %s,\n")
         TEXT("%s\"resourceCollection\": %s,\n")
         TEXT("%s\"worldInteraction\": %s,\n")
         TEXT("%s\"rivals\": %s,\n")
@@ -2928,6 +3019,8 @@ FString FDemocracyRtsWorldState::ToJson(int32 IndentSpaces) const
         *Pad, *OrderJson,
         *Pad, *SupplyJson,
         *Pad, *BattleJson,
+        *Pad, *FogOfWar.ToJson(IndentSpaces + 2),
+        *Pad, *Hud.ToJson(IndentSpaces + 2),
         *Pad, *ResourceCollection.ToJson(IndentSpaces + 2),
         *Pad, *WorldInteraction.ToJson(IndentSpaces + 2),
         *Pad, *RivalJson,
@@ -4233,6 +4326,42 @@ FDemocracySimulationState FDemocracyGameStateFactory::CreateInitialState(
         { TEXT("supply_capital_guard"), TEXT("army_capital_guard"), HomeProvinceId, FirstBorderTargetId.IsEmpty() ? HomeProvinceId : FirstBorderTargetId, 92, 0, 0, false, TEXT("Capital supply route is open."), { TEXT("Fuel shortage"), TEXT("border disruption"), TEXT("distance from capital") } }
     };
     State.RtsWorld.BattleHistory.Reset();
+    State.RtsWorld.FogOfWar.Provinces.Reset();
+    State.RtsWorld.FogOfWar.LastUpdatedTurn = State.Turn;
+    State.RtsWorld.FogOfWar.KnownProvinceCount = 0;
+    State.RtsWorld.FogOfWar.ScoutedProvinceCount = 0;
+    State.RtsWorld.FogOfWar.HiddenProvinceCount = 0;
+    State.RtsWorld.FogOfWar.ContestedProvinceCount = 0;
+    for (const FDemocracyProvinceOwnershipState& Province : State.RtsWorld.Ownership.Provinces)
+    {
+        FDemocracyRtsFogProvinceState FogProvince;
+        FogProvince.ProvinceId = Province.ProvinceId;
+        FogProvince.bKnown = Province.bPlayerControlled || Province.bBorderProvince;
+        FogProvince.VisibilityState = Province.bPlayerControlled ? TEXT("Known") : (Province.bBorderProvince ? TEXT("Scouted") : TEXT("Hidden"));
+        FogProvince.LastScoutedTurn = FogProvince.bKnown ? State.Turn : 0;
+        FogProvince.ScoutStrength = Province.bPlayerControlled ? 100 : (Province.bBorderProvince ? 35 : 0);
+        FogProvince.bContested = !Province.CurrentOwnerCountryName.Equals(Province.CurrentControllerCountryName, ESearchCase::IgnoreCase);
+        FogProvince.LastKnownOwner = FogProvince.bKnown ? Province.CurrentOwnerCountryName : TEXT("Unknown");
+        FogProvince.LastKnownController = FogProvince.bKnown ? Province.CurrentControllerCountryName : TEXT("Unknown");
+        FogProvince.IntelSummary = FogProvince.bKnown ? FString::Printf(TEXT("%s: %s | %s | %s | controller %s."), *FogProvince.VisibilityState, *Province.ProvinceName, *Province.TerrainType, *Province.ResourceFocus, *FogProvince.LastKnownController) : TEXT("Hidden province. Scout to reveal ownership, resources, terrain, and threats.");
+        if (FogProvince.VisibilityState.Equals(TEXT("Known"), ESearchCase::IgnoreCase)) { ++State.RtsWorld.FogOfWar.KnownProvinceCount; }
+        else if (FogProvince.VisibilityState.Equals(TEXT("Scouted"), ESearchCase::IgnoreCase)) { ++State.RtsWorld.FogOfWar.ScoutedProvinceCount; }
+        else if (FogProvince.VisibilityState.Equals(TEXT("Contested"), ESearchCase::IgnoreCase)) { ++State.RtsWorld.FogOfWar.ContestedProvinceCount; }
+        else { ++State.RtsWorld.FogOfWar.HiddenProvinceCount; }
+        State.RtsWorld.FogOfWar.Provinces.Add(FogProvince);
+    }
+    State.RtsWorld.FogOfWar.Summary = FString::Printf(TEXT("Fog of war initialized: known %d | scouted %d | contested %d | hidden %d."), State.RtsWorld.FogOfWar.KnownProvinceCount, State.RtsWorld.FogOfWar.ScoutedProvinceCount, State.RtsWorld.FogOfWar.ContestedProvinceCount, State.RtsWorld.FogOfWar.HiddenProvinceCount);
+    State.RtsWorld.Hud.SelectedUnitOrBuilding = TEXT("army_capital_guard");
+    State.RtsWorld.Hud.SelectedType = TEXT("Army");
+    State.RtsWorld.Hud.BuildMenuOptions = { TEXT("Government Command Center"), TEXT("Defense Barracks"), TEXT("Agriculture Hub"), TEXT("Fuel Depot"), TEXT("Lumber Yard"), TEXT("Metal Refinery"), TEXT("Strategic Warehouse"), TEXT("Development Center"), TEXT("Perimeter Defense Post") };
+    State.RtsWorld.Hud.ArmyOrderButtons = { TEXT("Move"), TEXT("Defend"), TEXT("Rally"), TEXT("Patrol/Scout"), TEXT("Reinforce") };
+    State.RtsWorld.Hud.ResourceSummary = FString::Printf(TEXT("Food %+d | fuel %+d | wood %+d | metals %+d | disruption 0"), State.RtsWorld.ResourceCollection.FoodSentToSimulation, State.RtsWorld.ResourceCollection.FuelSentToSimulation, State.RtsWorld.ResourceCollection.WoodSentToSimulation, State.RtsWorld.ResourceCollection.MetalsSentToSimulation);
+    State.RtsWorld.Hud.BuildMenuSummary = FString::Printf(TEXT("Build menu: %d building types | queue %d | upgrades %d."), State.RtsWorld.CityBase.Buildings.Num(), State.RtsWorld.CityBase.BuildQueueCount, State.RtsWorld.CityBase.UpgradeQueueCount);
+    State.RtsWorld.Hud.ArmyOrderSummary = TEXT("Selected army Capital Guard Army | order Defend | morale 74 | supply 92.");
+    State.RtsWorld.Hud.MinimapSummary = FString::Printf(TEXT("Minimap: %d provinces | known %d | scouted %d | hidden %d | contested %d."), State.RtsWorld.Ownership.TotalProvinces, State.RtsWorld.FogOfWar.KnownProvinceCount, State.RtsWorld.FogOfWar.ScoutedProvinceCount, State.RtsWorld.FogOfWar.HiddenProvinceCount, State.RtsWorld.FogOfWar.ContestedProvinceCount);
+    State.RtsWorld.Hud.AlertSummary = TEXT("No RTS alerts.");
+    State.RtsWorld.Hud.Alerts.Reset();
+    State.RtsWorld.Hud.bReturnToOfficeAvailable = true;
 
     SelectableTargets.Insert({ StateName + TEXT("_country"), StateName, TEXT("Country"), StateName, TEXT(""), TEXT("Inspect Country"), State.RtsWorld.ControlledTerritories, true, true, { TEXT("Select"), TEXT("Open diplomacy"), TEXT("View provinces"), TEXT("Show government type") } }, 0);
     SelectableTargets.Add({ TEXT("capital_command_target"), TEXT("Capital Command"), TEXT("Capital"), StateName, HomeProvinceId, TEXT("Inspect Capital"), 90, true, false, { TEXT("Select"), TEXT("Open city/base"), TEXT("View defenses"), TEXT("Set rally point") } });

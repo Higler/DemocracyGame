@@ -1452,6 +1452,133 @@ namespace
         return nullptr;
     }
 
+    FDemocracyRtsFogProvinceState* FindMutableFogProvince(FDemocracyRtsFogOfWarState& Fog, const FString& ProvinceId)
+    {
+        for (FDemocracyRtsFogProvinceState& FogProvince : Fog.Provinces)
+        {
+            if (FogProvince.ProvinceId.Equals(ProvinceId, ESearchCase::IgnoreCase))
+            {
+                return &FogProvince;
+            }
+        }
+        return nullptr;
+    }
+
+    void EnsureRtsFogAndHudInitialized(FDemocracySimulationState& State)
+    {
+        FDemocracyRtsFogOfWarState& Fog = State.RtsWorld.FogOfWar;
+        if (Fog.Provinces.Num() == 0 && State.RtsWorld.Ownership.Provinces.Num() > 0)
+        {
+            for (const FDemocracyProvinceOwnershipState& Province : State.RtsWorld.Ownership.Provinces)
+            {
+                FDemocracyRtsFogProvinceState Entry;
+                Entry.ProvinceId = Province.ProvinceId;
+                Entry.bKnown = Province.bPlayerControlled || Province.bBorderProvince;
+                Entry.VisibilityState = Province.bPlayerControlled ? TEXT("Known") : (Province.bBorderProvince ? TEXT("Scouted") : TEXT("Hidden"));
+                Entry.LastScoutedTurn = Entry.bKnown ? State.Turn : 0;
+                Entry.ScoutStrength = Province.bPlayerControlled ? 100 : (Province.bBorderProvince ? 35 : 0);
+                Entry.bContested = !Province.CurrentOwnerCountryName.Equals(Province.CurrentControllerCountryName, ESearchCase::IgnoreCase);
+                Entry.LastKnownOwner = Entry.bKnown ? Province.CurrentOwnerCountryName : TEXT("Unknown");
+                Entry.LastKnownController = Entry.bKnown ? Province.CurrentControllerCountryName : TEXT("Unknown");
+                Entry.IntelSummary = Entry.bKnown ? FString::Printf(TEXT("%s intel: %s, %s, controller %s."), *Entry.VisibilityState, *Province.ProvinceName, *Province.TerrainType, *Entry.LastKnownController) : TEXT("Hidden province. Scout to reveal ownership, resources, and terrain.");
+                Fog.Provinces.Add(Entry);
+            }
+        }
+    }
+
+    void RefreshRtsFogOfWar(FDemocracySimulationState& State)
+    {
+        EnsureRtsFogAndHudInitialized(State);
+        FDemocracyRtsFogOfWarState& Fog = State.RtsWorld.FogOfWar;
+        Fog.KnownProvinceCount = 0;
+        Fog.ScoutedProvinceCount = 0;
+        Fog.HiddenProvinceCount = 0;
+        Fog.ContestedProvinceCount = 0;
+
+        for (FDemocracyRtsFogProvinceState& FogProvince : Fog.Provinces)
+        {
+            if (const FDemocracyProvinceOwnershipState* Province = FindRtsProvinceById(State, FogProvince.ProvinceId))
+            {
+                const bool bArmyPresent = [&]()
+                {
+                    for (const FDemocracyRtsArmyGroupState& Army : State.RtsWorld.ArmyGroups)
+                    {
+                        if (Army.CurrentProvinceId.Equals(Province->ProvinceId, ESearchCase::IgnoreCase) || Army.OrderTargetProvinceId.Equals(Province->ProvinceId, ESearchCase::IgnoreCase))
+                        {
+                            return true;
+                        }
+                    }
+                    return false;
+                }();
+                const bool bContested = !Province->CurrentOwnerCountryName.Equals(Province->CurrentControllerCountryName, ESearchCase::IgnoreCase) || State.RtsWorld.Ownership.ContestedProvinces > 0;
+                if (Province->bPlayerControlled)
+                {
+                    FogProvince.VisibilityState = TEXT("Known");
+                    FogProvince.bKnown = true;
+                    FogProvince.ScoutStrength = FMath::Max(FogProvince.ScoutStrength, 100);
+                }
+                else if (bArmyPresent || Province->bBorderProvince || FogProvince.ScoutStrength >= 45)
+                {
+                    FogProvince.VisibilityState = bContested ? TEXT("Contested") : TEXT("Scouted");
+                    FogProvince.bKnown = true;
+                    FogProvince.ScoutStrength = FMath::Clamp(FMath::Max(FogProvince.ScoutStrength, bArmyPresent ? 70 : 45), 0, 100);
+                }
+                else
+                {
+                    FogProvince.VisibilityState = TEXT("Hidden");
+                    FogProvince.bKnown = false;
+                    FogProvince.ScoutStrength = FMath::Clamp(FogProvince.ScoutStrength - 1, 0, 100);
+                }
+
+                FogProvince.bContested = bContested || FogProvince.VisibilityState.Equals(TEXT("Contested"), ESearchCase::IgnoreCase);
+                if (FogProvince.bKnown)
+                {
+                    FogProvince.LastScoutedTurn = State.Turn;
+                    FogProvince.LastKnownOwner = Province->CurrentOwnerCountryName;
+                    FogProvince.LastKnownController = Province->CurrentControllerCountryName;
+                    FogProvince.IntelSummary = FString::Printf(TEXT("%s: %s | %s | resource %s | owner %s | controller %s."), *FogProvince.VisibilityState, *Province->ProvinceName, *Province->TerrainType, *Province->ResourceFocus, *Province->CurrentOwnerCountryName, *Province->CurrentControllerCountryName);
+                }
+                else
+                {
+                    FogProvince.LastKnownOwner = TEXT("Unknown");
+                    FogProvince.LastKnownController = TEXT("Unknown");
+                    FogProvince.IntelSummary = TEXT("Hidden province. Scout to reveal ownership, resources, terrain, and threats.");
+                }
+            }
+
+            if (FogProvince.VisibilityState.Equals(TEXT("Known"), ESearchCase::IgnoreCase)) { ++Fog.KnownProvinceCount; }
+            else if (FogProvince.VisibilityState.Equals(TEXT("Scouted"), ESearchCase::IgnoreCase)) { ++Fog.ScoutedProvinceCount; }
+            else if (FogProvince.VisibilityState.Equals(TEXT("Contested"), ESearchCase::IgnoreCase)) { ++Fog.ContestedProvinceCount; }
+            else { ++Fog.HiddenProvinceCount; }
+        }
+        Fog.LastUpdatedTurn = State.Turn;
+        Fog.Summary = FString::Printf(TEXT("Fog of war: known %d | scouted %d | contested %d | hidden %d."), Fog.KnownProvinceCount, Fog.ScoutedProvinceCount, Fog.ContestedProvinceCount, Fog.HiddenProvinceCount);
+    }
+
+    void RefreshRtsHudState(FDemocracySimulationState& State)
+    {
+        FDemocracyRtsHudState& Hud = State.RtsWorld.Hud;
+        Hud.SelectedUnitOrBuilding = State.RtsWorld.WorldInteraction.ActiveSelectionId.IsEmpty() ? TEXT("None") : State.RtsWorld.WorldInteraction.ActiveSelectionId;
+        Hud.SelectedType = State.RtsWorld.WorldInteraction.ActiveSelectionType.IsEmpty() ? TEXT("None") : State.RtsWorld.WorldInteraction.ActiveSelectionType;
+        Hud.ResourceSummary = FString::Printf(TEXT("Food %+d | fuel %+d | wood %+d | metals %+d | disruption %d"), State.RtsWorld.ResourceCollection.FoodSentToSimulation, State.RtsWorld.ResourceCollection.FuelSentToSimulation, State.RtsWorld.ResourceCollection.WoodSentToSimulation, State.RtsWorld.ResourceCollection.MetalsSentToSimulation, State.RtsWorld.ResourceCollection.DisruptionPenalty);
+        Hud.BuildMenuOptions.Reset();
+        for (const FDemocracyRtsBuildingState& Building : State.RtsWorld.CityBase.Buildings)
+        {
+            if (Hud.BuildMenuOptions.Num() >= 6) { break; }
+            Hud.BuildMenuOptions.Add(FString::Printf(TEXT("%s L%d cost %d upgrade %d"), *Building.DisplayName, Building.Level, Building.BuildCost, Building.UpgradeCost));
+        }
+        Hud.ArmyOrderButtons = { TEXT("Move"), TEXT("Defend"), TEXT("Rally"), TEXT("Patrol/Scout"), TEXT("Reinforce") };
+        Hud.BuildMenuSummary = FString::Printf(TEXT("Build menu: %d building types | queue %d | upgrades %d."), State.RtsWorld.CityBase.Buildings.Num(), State.RtsWorld.CityBase.BuildQueueCount, State.RtsWorld.CityBase.UpgradeQueueCount);
+        Hud.ArmyOrderSummary = State.RtsWorld.ArmyGroups.Num() > 0 ? FString::Printf(TEXT("Selected army %s | order %s | morale %d | supply %d."), *State.RtsWorld.ArmyGroups[0].DisplayName, *State.RtsWorld.ArmyGroups[0].ActiveOrderType, State.RtsWorld.ArmyGroups[0].Morale, State.RtsWorld.ArmyGroups[0].SupplyStatus) : TEXT("No army selected.");
+        Hud.MinimapSummary = FString::Printf(TEXT("Minimap: %d provinces | known %d | scouted %d | hidden %d | contested %d."), State.RtsWorld.Ownership.TotalProvinces, State.RtsWorld.FogOfWar.KnownProvinceCount, State.RtsWorld.FogOfWar.ScoutedProvinceCount, State.RtsWorld.FogOfWar.HiddenProvinceCount, State.RtsWorld.FogOfWar.ContestedProvinceCount);
+        Hud.Alerts.Reset();
+        if (State.RtsWorld.Backflow.PendingOutcomes.Num() > 0) { Hud.Alerts.Add(FString::Printf(TEXT("%d RTS result(s) need simulation attention."), State.RtsWorld.Backflow.PendingOutcomes.Num())); }
+        for (const FDemocracyRtsSupplyRouteState& Route : State.RtsWorld.SupplyRoutes) { if (Route.bBroken) { Hud.Alerts.Add(FString::Printf(TEXT("Supply broken: %s"), *Route.ArmyId)); } }
+        if (State.RtsWorld.FogOfWar.ContestedProvinceCount > 0) { Hud.Alerts.Add(FString::Printf(TEXT("%d contested province(s) visible."), State.RtsWorld.FogOfWar.ContestedProvinceCount)); }
+        Hud.AlertSummary = Hud.Alerts.Num() > 0 ? FString::Join(Hud.Alerts, TEXT(" | ")) : TEXT("No RTS alerts.");
+        Hud.bReturnToOfficeAvailable = true;
+    }
+
     int32 RtsTerrainBattleModifier(const FString& TerrainType, const FString& OrderType)
     {
         if (TerrainType.Contains(TEXT("Mountain")) || TerrainType.Contains(TEXT("Highlands")))
@@ -1542,7 +1669,8 @@ namespace
         Outcome.WarFatigueDelta = FMath::Clamp(Outcome.Casualties / 18 + (Battle.Result.Equals(TEXT("Battle Lost"), ESearchCase::IgnoreCase) ? 5 : 2), 3, 18);
         Outcome.BudgetStrain = FMath::Clamp(Outcome.Casualties / 15 + FMath::Max(0, -Battle.SupplyModifier), 5, 24);
         Outcome.DiplomaticDamage = Battle.Result.Equals(TEXT("Province Captured"), ESearchCase::IgnoreCase) ? 7 : 4;
-        Outcome.ConsequenceTags = { TEXT("rts"), TEXT("deterministic-battle"), Battle.Result, Battle.TerrainType, TEXT("province-control") };
+        Outcome.Summary = FString::Printf(TEXT("%s Casualties %d | territory %+d | resource disruption %+d | war fatigue %+d | stability %+d | unrest pressure %+d | budget strain %+d | diplomacy damage %+d | invasion risk %+d."), *Battle.Summary, Outcome.Casualties, Outcome.TerritoryDelta, Outcome.ResourceDisruption, Outcome.WarFatigueDelta, Outcome.StabilityDelta, FMath::Max(0, -Outcome.StabilityDelta), Outcome.BudgetStrain, Outcome.DiplomaticDamage, Outcome.InvasionRiskDelta);
+        Outcome.ConsequenceTags = { TEXT("rts"), TEXT("deterministic-battle"), Battle.Result, Battle.TerrainType, TEXT("province-control"), TEXT("casualties"), TEXT("resource-disruption"), TEXT("war-fatigue"), TEXT("budget-strain"), TEXT("diplomatic-damage") };
         PopulateRtsOutcomeAttentionFields(State, Outcome);
         return Outcome;
     }
@@ -1652,6 +1780,15 @@ namespace
                         State.RtsWorld.BattleHistory.RemoveAt(0, State.RtsWorld.BattleHistory.Num() - 20);
                     }
                     QueueRtsOutcomeImport(State, MakeRtsOutcomeFromBattle(State, Battle));
+                    if (FDemocracyRtsFogProvinceState* FogProvince = FindMutableFogProvince(State.RtsWorld.FogOfWar, Order.TargetProvinceId))
+                    {
+                        FogProvince->VisibilityState = Battle.Result.Equals(TEXT("Province Captured"), ESearchCase::IgnoreCase) ? TEXT("Known") : TEXT("Contested");
+                        FogProvince->bKnown = true;
+                        FogProvince->bContested = !Battle.Result.Equals(TEXT("Province Captured"), ESearchCase::IgnoreCase);
+                        FogProvince->ScoutStrength = FMath::Clamp(FogProvince->ScoutStrength + 35, 0, 100);
+                        FogProvince->LastScoutedTurn = State.Turn;
+                        FogProvince->IntelSummary = Battle.Summary;
+                    }
                     Army->MovementState = Battle.Result;
                     Army->Morale = FMath::Clamp(Army->Morale + (Battle.Result.Equals(TEXT("Province Captured"), ESearchCase::IgnoreCase) ? 4 : -4), 0, 100);
                     Order.StatusSummary = Battle.Summary;
@@ -1680,6 +1817,8 @@ namespace
             }
         }
         RefreshRtsBackflowCounters(Backflow);
+        RefreshRtsFogOfWar(State);
+        RefreshRtsHudState(State);
         return true;
     }
 
@@ -1692,6 +1831,9 @@ namespace
         Lines.Add(FString::Printf(TEXT("Ownership: %d countries | %d provinces | player controlled %d | contested %d | border provinces %d"), RtsWorld.Ownership.TotalCountries, RtsWorld.Ownership.TotalProvinces, RtsWorld.Ownership.PlayerControlledProvinces, RtsWorld.Ownership.ContestedProvinces, RtsWorld.Ownership.BorderProvinceCount));
         Lines.Add(FString::Printf(TEXT("RTS foundation: active view %s | modes %d | base %s | buildings %d | units %d | armies %d | queue %d"), *RtsWorld.ActiveViewMode, RtsWorld.ViewModes.Num(), *RtsWorld.CityBase.DisplayName, RtsWorld.CityBase.Buildings.Num(), RtsWorld.UnitCatalog.Num(), RtsWorld.ArmyGroups.Num(), RtsWorld.CityBase.BuildQueueCount));
         Lines.Add(FString::Printf(TEXT("RTS collection: food %+d | fuel %+d | wood %+d | metals %+d | penalty %d"), RtsWorld.ResourceCollection.FoodSentToSimulation, RtsWorld.ResourceCollection.FuelSentToSimulation, RtsWorld.ResourceCollection.WoodSentToSimulation, RtsWorld.ResourceCollection.MetalsSentToSimulation, RtsWorld.ResourceCollection.DisruptionPenalty));
+        Lines.Add(FString::Printf(TEXT("Backflow impacts: casualties %d | territory %+d | war fatigue %d | resource disruption %d | budget strain %d | diplomatic damage %d"), Backflow.TotalCasualties, Backflow.TotalTerritoryDelta, Backflow.WarFatigue, Backflow.ResourceDisruptionPressure, Backflow.BudgetStrainPressure, Backflow.DiplomaticDamagePressure));
+        Lines.Add(FString::Printf(TEXT("Fog: known %d | scouted %d | contested %d | hidden %d | %s"), RtsWorld.FogOfWar.KnownProvinceCount, RtsWorld.FogOfWar.ScoutedProvinceCount, RtsWorld.FogOfWar.ContestedProvinceCount, RtsWorld.FogOfWar.HiddenProvinceCount, *RtsWorld.FogOfWar.Summary));
+        Lines.Add(FString::Printf(TEXT("RTS HUD: selected %s %s | %s | alerts: %s"), *RtsWorld.Hud.SelectedType, *RtsWorld.Hud.SelectedUnitOrBuilding, *RtsWorld.Hud.ResourceSummary, *RtsWorld.Hud.AlertSummary));
         Lines.Add(FString::Printf(TEXT("World selection: %s %s | selectable targets %d"), *RtsWorld.WorldInteraction.ActiveSelectionType, *RtsWorld.WorldInteraction.ActiveSelectionId, RtsWorld.WorldInteraction.SelectableTargets.Num()));
         Lines.Add(RtsWorld.ScopeBoundary.ScopeSummary);
         const int32 ViewModeDisplayCount = FMath::Min(RtsWorld.ViewModes.Num(), 2);
@@ -6228,9 +6370,21 @@ TSharedRef<SWidget> ALoginHUD::BuildOfficeWorldRtsScreen()
         + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 4.0f)
         [BuildInfoRow(TEXT("RTS Backflow"), BuildRtsBackflowStatusText())]
         + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 4.0f)
+        [BuildInfoRow(TEXT("RTS HUD - Resources"), bHasLoadedRuntimeState ? LoadedSaveState.RuntimeState.RtsWorld.Hud.ResourceSummary : TEXT("Unavailable"))]
+        + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 4.0f)
+        [BuildInfoRow(TEXT("RTS HUD - Selected"), bHasLoadedRuntimeState ? FString::Printf(TEXT("%s: %s"), *LoadedSaveState.RuntimeState.RtsWorld.Hud.SelectedType, *LoadedSaveState.RuntimeState.RtsWorld.Hud.SelectedUnitOrBuilding) : TEXT("Unavailable"))]
+        + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 4.0f)
+        [BuildInfoRow(TEXT("RTS HUD - Build Menu"), bHasLoadedRuntimeState ? FString::Printf(TEXT("%s\nOptions: %s"), *LoadedSaveState.RuntimeState.RtsWorld.Hud.BuildMenuSummary, *FString::Join(LoadedSaveState.RuntimeState.RtsWorld.Hud.BuildMenuOptions, TEXT(", "))) : TEXT("Unavailable"))]
+        + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 4.0f)
+        [BuildInfoRow(TEXT("RTS HUD - Army Orders"), bHasLoadedRuntimeState ? FString::Printf(TEXT("%s\nOrders: %s"), *LoadedSaveState.RuntimeState.RtsWorld.Hud.ArmyOrderSummary, *FString::Join(LoadedSaveState.RuntimeState.RtsWorld.Hud.ArmyOrderButtons, TEXT(", "))) : TEXT("Unavailable"))]
+        + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 4.0f)
+        [BuildInfoRow(TEXT("RTS HUD - Minimap"), bHasLoadedRuntimeState ? LoadedSaveState.RuntimeState.RtsWorld.Hud.MinimapSummary : TEXT("Unavailable"))]
+        + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 4.0f)
+        [BuildInfoRow(TEXT("RTS HUD - Alerts"), bHasLoadedRuntimeState ? LoadedSaveState.RuntimeState.RtsWorld.Hud.AlertSummary : TEXT("Unavailable"))]
+        + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 4.0f)
         [BuildInfoRow(TEXT("Readiness"), BuildSimulationStatusText())]
         + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 12.0f)
-        [BuildButton(TEXT("Close"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleCloseOfficeOverlayClicked), 160.0f, 40.0f)], 620.0f);
+        [BuildButton(TEXT("Return To Office"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleCloseOfficeOverlayClicked), 210.0f, 40.0f)], 760.0f);
 }
 TSharedRef<SWidget> ALoginHUD::BuildOfficeAdvisorWarningsScreen()
 {
@@ -7875,6 +8029,9 @@ void ALoginHUD::RunSimulationTick()
     RecalculateEconomyBudget(State);
     RecalculateResourceProductionChains(State, PolicyModifiers, FoodUse, WaterUse, GasUse, WoodUse, MetalsUse);
     ApplyResourceShortageEffects(State);
+    TickRtsMovementOrdersAndSupply(State, bAdvancedTurn);
+    RefreshRtsFogOfWar(State);
+    RefreshRtsHudState(State);
     const bool bRtsBackflowApplied = ApplyPendingRtsBackflow(State);
 
     const bool bFoodShortage = GetResourceChainShortage(State.ResourceChains, TEXT("Food")) > 0;

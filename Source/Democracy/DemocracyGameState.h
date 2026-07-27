@@ -912,6 +912,51 @@ struct FDemocracyRtsBattleResolutionState
     FString ToJson(int32 IndentSpaces = 2) const;
 };
 
+struct FDemocracyRtsFogProvinceState
+{
+    FString ProvinceId;
+    FString VisibilityState = TEXT("Hidden");
+    int32 LastScoutedTurn = 0;
+    int32 ScoutStrength = 0;
+    bool bKnown = false;
+    bool bContested = false;
+    FString LastKnownOwner;
+    FString LastKnownController;
+    FString IntelSummary;
+
+    FString ToJson(int32 IndentSpaces = 2) const;
+};
+
+struct FDemocracyRtsFogOfWarState
+{
+    int32 LastUpdatedTurn = 0;
+    int32 KnownProvinceCount = 0;
+    int32 ScoutedProvinceCount = 0;
+    int32 HiddenProvinceCount = 0;
+    int32 ContestedProvinceCount = 0;
+    FString Summary = TEXT("Fog of war has not been initialized yet.");
+    TArray<FDemocracyRtsFogProvinceState> Provinces;
+
+    FString ToJson(int32 IndentSpaces = 2) const;
+};
+
+struct FDemocracyRtsHudState
+{
+    FString SelectedUnitOrBuilding;
+    FString SelectedType;
+    FString BuildMenuSummary = TEXT("No build menu data loaded.");
+    FString ArmyOrderSummary = TEXT("No army orders loaded.");
+    FString MinimapSummary = TEXT("No minimap data loaded.");
+    FString AlertSummary = TEXT("No RTS alerts.");
+    FString ResourceSummary = TEXT("No RTS resources loaded.");
+    bool bReturnToOfficeAvailable = true;
+    TArray<FString> BuildMenuOptions;
+    TArray<FString> ArmyOrderButtons;
+    TArray<FString> Alerts;
+
+    FString ToJson(int32 IndentSpaces = 2) const;
+};
+
 struct FDemocracyRtsConstructionQueueEntryState
 {
     FString QueueId;
@@ -1019,6 +1064,8 @@ struct FDemocracyRtsWorldState
     TArray<FDemocracyRtsMovementOrderState> MovementOrders;
     TArray<FDemocracyRtsSupplyRouteState> SupplyRoutes;
     TArray<FDemocracyRtsBattleResolutionState> BattleHistory;
+    FDemocracyRtsFogOfWarState FogOfWar;
+    FDemocracyRtsHudState Hud;
     FDemocracyRtsResourceCollectionState ResourceCollection;
     FDemocracyRtsWorldInteractionState WorldInteraction;
     TArray<FDemocracyRivalCountryState> Rivals;
