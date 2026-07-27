@@ -788,10 +788,41 @@ struct FDemocracyRtsBuildingState
     FString Status = TEXT("Operational");
     TArray<FString> Prerequisites;
     TArray<FString> RuntimeTags;
+    int32 MaxHealth = 100;
+    int32 CurrentHealth = 100;
+    int32 DamagePercent = 0;
+    int32 RepairCost = 0;
+    bool bDisabled = false;
+    FString DisabledReason;
 
     FString ToJson(int32 IndentSpaces = 2) const;
 };
 
+
+struct FDemocracyRtsUnitDefinitionState
+{
+    FString UnitId;
+    FString DisplayName;
+    FString UnitCategory;
+    FString Role;
+    FString ProducedByBuildingId;
+    FString CandidateAssetHint;
+    int32 BuildCost = 0;
+    int32 BuildTimeTurns = 1;
+    int32 SupplyCost = 1;
+    int32 AttackPower = 0;
+    int32 DefensePower = 0;
+    int32 Mobility = 0;
+    int32 Range = 0;
+    int32 CargoCapacity = 0;
+    int32 ReconValue = 0;
+    bool bUnlocked = true;
+    bool bDefensiveOnly = false;
+    TArray<FString> Prerequisites;
+    TArray<FString> TacticalTags;
+
+    FString ToJson(int32 IndentSpaces = 2) const;
+};
 struct FDemocracyRtsCityBaseState
 {
     FString BaseId = TEXT("capital-base");
@@ -822,6 +853,7 @@ struct FDemocracyRtsWorldState
     FDemocracyRtsScopeBoundaryState ScopeBoundary;
     TArray<FDemocracyRtsViewModeState> ViewModes;
     FDemocracyRtsCityBaseState CityBase;
+    TArray<FDemocracyRtsUnitDefinitionState> UnitCatalog;
     TArray<FDemocracyRivalCountryState> Rivals;
     FDemocracyRtsBackflowState Backflow;
     FDemocracyMapOwnershipState Ownership;

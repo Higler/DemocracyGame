@@ -2411,6 +2411,12 @@ FString FDemocracyRtsBuildingState::ToJson(int32 IndentSpaces) const
         TEXT("%s\"constructed\": %s,\n")
         TEXT("%s\"upgradeQueued\": %s,\n")
         TEXT("%s\"status\": \"%s\",\n")
+        TEXT("%s\"maxHealth\": %d,\n")
+        TEXT("%s\"currentHealth\": %d,\n")
+        TEXT("%s\"damagePercent\": %d,\n")
+        TEXT("%s\"repairCost\": %d,\n")
+        TEXT("%s\"disabled\": %s,\n")
+        TEXT("%s\"disabledReason\": \"%s\",\n")
         TEXT("%s\"prerequisites\": %s,\n")
         TEXT("%s\"runtimeTags\": %s\n")
         TEXT("%s}"),
@@ -2428,11 +2434,64 @@ FString FDemocracyRtsBuildingState::ToJson(int32 IndentSpaces) const
         *Pad, bConstructed ? TEXT("true") : TEXT("false"),
         *Pad, bUpgradeQueued ? TEXT("true") : TEXT("false"),
         *Pad, *JsonEscape(Status),
+        *Pad, MaxHealth,
+        *Pad, CurrentHealth,
+        *Pad, DamagePercent,
+        *Pad, RepairCost,
+        *Pad, bDisabled ? TEXT("true") : TEXT("false"),
+        *Pad, *JsonEscape(DisabledReason),
         *Pad, *StringArrayToJson(Prerequisites),
         *Pad, *StringArrayToJson(RuntimeTags),
         *Indent(IndentSpaces - 2));
 }
 
+
+FString FDemocracyRtsUnitDefinitionState::ToJson(int32 IndentSpaces) const
+{
+    const FString Pad = Indent(IndentSpaces);
+    return FString::Printf(
+        TEXT("{\n")
+        TEXT("%s\"unitId\": \"%s\",\n")
+        TEXT("%s\"displayName\": \"%s\",\n")
+        TEXT("%s\"unitCategory\": \"%s\",\n")
+        TEXT("%s\"role\": \"%s\",\n")
+        TEXT("%s\"producedByBuildingId\": \"%s\",\n")
+        TEXT("%s\"candidateAssetHint\": \"%s\",\n")
+        TEXT("%s\"buildCost\": %d,\n")
+        TEXT("%s\"buildTimeTurns\": %d,\n")
+        TEXT("%s\"supplyCost\": %d,\n")
+        TEXT("%s\"attackPower\": %d,\n")
+        TEXT("%s\"defensePower\": %d,\n")
+        TEXT("%s\"mobility\": %d,\n")
+        TEXT("%s\"range\": %d,\n")
+        TEXT("%s\"cargoCapacity\": %d,\n")
+        TEXT("%s\"reconValue\": %d,\n")
+        TEXT("%s\"unlocked\": %s,\n")
+        TEXT("%s\"defensiveOnly\": %s,\n")
+        TEXT("%s\"prerequisites\": %s,\n")
+        TEXT("%s\"tacticalTags\": %s\n")
+        TEXT("%s}"),
+        *Pad, *JsonEscape(UnitId),
+        *Pad, *JsonEscape(DisplayName),
+        *Pad, *JsonEscape(UnitCategory),
+        *Pad, *JsonEscape(Role),
+        *Pad, *JsonEscape(ProducedByBuildingId),
+        *Pad, *JsonEscape(CandidateAssetHint),
+        *Pad, BuildCost,
+        *Pad, BuildTimeTurns,
+        *Pad, SupplyCost,
+        *Pad, AttackPower,
+        *Pad, DefensePower,
+        *Pad, Mobility,
+        *Pad, Range,
+        *Pad, CargoCapacity,
+        *Pad, ReconValue,
+        *Pad, bUnlocked ? TEXT("true") : TEXT("false"),
+        *Pad, bDefensiveOnly ? TEXT("true") : TEXT("false"),
+        *Pad, *StringArrayToJson(Prerequisites),
+        *Pad, *StringArrayToJson(TacticalTags),
+        *Indent(IndentSpaces - 2));
+}
 FString FDemocracyRtsCityBaseState::ToJson(int32 IndentSpaces) const
 {
     const FString Pad = Indent(IndentSpaces);
@@ -2494,6 +2553,17 @@ FString FDemocracyRtsWorldState::ToJson(int32 IndentSpaces) const
     }
     ViewModeJson += FString::Printf(TEXT("\n%s]"), *Pad);
 
+    FString UnitJson = TEXT("[");
+    for (int32 Index = 0; Index < UnitCatalog.Num(); ++Index)
+    {
+        UnitJson += FString::Printf(TEXT("\n%s%s"), *EntryPad, *UnitCatalog[Index].ToJson(IndentSpaces + 4));
+        if (Index < UnitCatalog.Num() - 1)
+        {
+            UnitJson += TEXT(",");
+        }
+    }
+    UnitJson += FString::Printf(TEXT("\n%s]"), *Pad);
+
     FString RivalJson = TEXT("[");
     for (int32 Index = 0; Index < Rivals.Num(); ++Index)
     {
@@ -2516,6 +2586,7 @@ FString FDemocracyRtsWorldState::ToJson(int32 IndentSpaces) const
         TEXT("%s\"scopeBoundary\": %s,\n")
         TEXT("%s\"viewModes\": %s,\n")
         TEXT("%s\"cityBase\": %s,\n")
+        TEXT("%s\"unitCatalog\": %s,\n")
         TEXT("%s\"rivals\": %s,\n")
         TEXT("%s\"backflow\": %s,\n")
         TEXT("%s\"ownership\": %s\n")
@@ -2529,6 +2600,7 @@ FString FDemocracyRtsWorldState::ToJson(int32 IndentSpaces) const
         *Pad, *ScopeBoundary.ToJson(IndentSpaces + 2),
         *Pad, *ViewModeJson,
         *Pad, *CityBase.ToJson(IndentSpaces + 2),
+        *Pad, *UnitJson,
         *Pad, *RivalJson,
         *Pad, *Backflow.ToJson(IndentSpaces + 2),
         *Pad, *Ownership.ToJson(IndentSpaces + 2),
@@ -3700,6 +3772,23 @@ FDemocracySimulationState FDemocracyGameStateFactory::CreateInitialState(
         { TEXT("warehouse"), TEXT("Strategic Warehouse"), TEXT("Storage"), TEXT("Reserve"), TEXT("Warehouse/freight placeholder"), 1, 50, 90, 1, 0, 6, true, false, TEXT("Operational"), {}, { TEXT("storage"), TEXT("supplies") } },
         { TEXT("research_center"), TEXT("Development Center"), TEXT("Technology"), TEXT("Research"), TEXT("Generic lab/communications placeholder"), 1, 80, 140, 3, 2, 0, true, false, TEXT("Operational"), { TEXT("Government Command Center") }, { TEXT("technology"), TEXT("upgrades") } },
         { TEXT("defense_post"), TEXT("Perimeter Defense Post"), TEXT("Defense"), TEXT("Security"), TEXT("RTS_Modern_Combat_Vehicle_Pack_Free for later defensive vehicle visuals"), 1, 65, 115, 2, 0, 32, true, false, TEXT("Operational"), { TEXT("Defense Barracks") }, { TEXT("defense"), TEXT("border") } }
+    };
+    for (FDemocracyRtsBuildingState& Building : State.RtsWorld.CityBase.Buildings)
+    {
+        Building.MaxHealth = 100 + Building.Level * 25 + Building.DefenseValue;
+        Building.CurrentHealth = Building.MaxHealth;
+        Building.DamagePercent = 0;
+        Building.RepairCost = FMath::Max(10, Building.UpgradeCost / 3);
+        Building.bDisabled = false;
+        Building.DisabledReason = TEXT("");
+    }
+    State.RtsWorld.UnitCatalog = {
+        { TEXT("infantry_security_team"), TEXT("Security Infantry Team"), TEXT("Infantry"), TEXT("General-purpose ground control and building defense."), TEXT("barracks"), TEXT("Arctic/Navy military soldier packs for later character visuals"), 25, 1, 1, 12, 10, 4, 1, 0, 2, true, false, { TEXT("Defense Barracks") }, { TEXT("infantry"), TEXT("ground"), TEXT("capture") } },
+        { TEXT("vehicle_patrol_unit"), TEXT("Patrol Vehicle Unit"), TEXT("Vehicles"), TEXT("Fast ground response for border defense and patrols."), TEXT("barracks"), TEXT("RTS_Modern_Combat_Vehicle_Pack_Free"), 65, 2, 2, 22, 18, 8, 2, 0, 3, true, false, { TEXT("Defense Barracks"), TEXT("Fuel Depot") }, { TEXT("vehicle"), TEXT("ground"), TEXT("rapid-response") } },
+        { TEXT("air_recon_wing"), TEXT("Recon Aircraft Wing"), TEXT("Aircraft"), TEXT("Air scouting and strategic visibility placeholder."), TEXT("research_center"), TEXT("Generic aircraft placeholder until air assets are selected"), 95, 3, 3, 18, 12, 12, 5, 0, 14, true, false, { TEXT("Development Center"), TEXT("Fuel Depot") }, { TEXT("aircraft"), TEXT("recon"), TEXT("visibility") } },
+        { TEXT("logistics_convoy"), TEXT("Logistics Convoy"), TEXT("Logistics/Supply"), TEXT("Moves supplies, restores supply routes, and supports deployed forces."), TEXT("warehouse"), TEXT("Vehicle_Variety_Pack_Volume_2"), 55, 2, 2, 4, 14, 6, 1, 18, 1, true, false, { TEXT("Strategic Warehouse"), TEXT("Fuel Depot") }, { TEXT("supply"), TEXT("logistics"), TEXT("support") } },
+        { TEXT("scout_team"), TEXT("Scout Team"), TEXT("Scouts"), TEXT("Low-cost reconnaissance, border warning, and map discovery."), TEXT("barracks"), TEXT("Light infantry placeholder"), 20, 1, 1, 6, 8, 7, 1, 0, 10, true, false, { TEXT("Defense Barracks") }, { TEXT("scout"), TEXT("recon"), TEXT("early-warning") } },
+        { TEXT("static_defense_battery"), TEXT("Static Defense Battery"), TEXT("Defensive Units"), TEXT("Base and province defensive firepower; cannot be used for offensive pushes."), TEXT("defense_post"), TEXT("RTS_Modern_Combat_Vehicle_Pack_Free or future turret asset"), 80, 2, 2, 24, 34, 0, 4, 0, 0, true, true, { TEXT("Perimeter Defense Post") }, { TEXT("defense"), TEXT("static"), TEXT("anti-invasion") } }
     };
     State.RtsWorld.CityBase.BuildQueueCount = State.RtsWorld.CityBase.BuildQueue.Num();
     State.RtsWorld.CityBase.UpgradeQueueCount = 0;
