@@ -667,6 +667,62 @@ struct FDemocracyRtsWorldState
     FString ToJson(int32 IndentSpaces = 2) const;
 };
 
+struct FDemocracyRtsRegionInputState
+{
+    FString RegionName;
+    FString Climate;
+    FString ResourceFocus;
+    int32 Stability = 50;
+    int32 Unrest = 20;
+    int32 StrategicValue = 1;
+    bool bPlayerControlled = true;
+    bool bBorderRegion = false;
+
+    FString ToJson(int32 IndentSpaces = 2) const;
+};
+
+struct FDemocracyRtsDiplomacyInputState
+{
+    FString CountryName;
+    FString RelationshipStatus = TEXT("Neutral");
+    FString TreatyStatus = TEXT("None");
+    bool bAlly = false;
+    bool bEnemy = false;
+    bool bTradePartner = false;
+    bool bSanctionsActive = false;
+    int32 BorderTension = 0;
+    int32 Trust = 50;
+
+    FString ToJson(int32 IndentSpaces = 2) const;
+};
+
+struct FDemocracySimulationToRtsContractState
+{
+    int32 LastUpdatedTurn = 1;
+    FString ContractVersion = TEXT("SimToRTS.v1");
+    FString PlayerCountryName;
+    FString GovernmentType = TEXT("Democracy");
+    int32 Treasury = 0;
+    int32 MilitaryReadiness = 25;
+    int32 Technology = 1;
+    int32 Stability = 50;
+    int32 Unrest = 20;
+    int32 PublicApproval = 50;
+    int32 InvasionRisk = 0;
+    FDemocracyResourceInventory Resources;
+    TArray<FString> ActivePolicies;
+    TArray<FString> TechnologyUnlocks;
+    TArray<FString> Allies;
+    TArray<FString> Enemies;
+    TArray<FString> ActiveWars;
+    TArray<FString> StrategicPermissions;
+    TArray<FDemocracyRtsRegionInputState> Regions;
+    TArray<FDemocracyRtsDiplomacyInputState> Diplomacy;
+    FString ExportSummary = TEXT("Simulation-to-RTS contract has not been initialized yet.");
+
+    FString ToJson(int32 IndentSpaces = 2) const;
+};
+
 
 struct FDemocracyCommandAuthorityActionState
 {
@@ -752,6 +808,7 @@ struct FDemocracySimulationState
     FDemocracyWorldMapState WorldMap;
     FDemocracyDiplomacyMatrixState DiplomacyMatrix;
     FDemocracyRtsWorldState RtsWorld;
+    FDemocracySimulationToRtsContractState SimulationToRtsContract;
     FDemocracyCommandAuthorityState CommandAuthority;
     FDemocracyObjectiveState ObjectiveState;
 
@@ -761,6 +818,8 @@ struct FDemocracySimulationState
 class FDemocracyGameStateFactory
 {
 public:
+    static FDemocracySimulationToRtsContractState BuildSimulationToRtsContractState(const FDemocracySimulationState& State);
+
     static FDemocracySimulationState CreateInitialState(
         const FString& StateName,
         const FString& LeaderGender,

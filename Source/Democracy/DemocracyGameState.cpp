@@ -2090,6 +2090,127 @@ FString FDemocracyRtsWorldState::ToJson(int32 IndentSpaces) const
         *Indent(IndentSpaces - 2));
 }
 
+FString FDemocracyRtsRegionInputState::ToJson(int32 IndentSpaces) const
+{
+    const FString Pad = Indent(IndentSpaces);
+    return FString::Printf(
+        TEXT("{\n")
+        TEXT("%s\"regionName\": \"%s\",\n")
+        TEXT("%s\"climate\": \"%s\",\n")
+        TEXT("%s\"resourceFocus\": \"%s\",\n")
+        TEXT("%s\"stability\": %d,\n")
+        TEXT("%s\"unrest\": %d,\n")
+        TEXT("%s\"strategicValue\": %d,\n")
+        TEXT("%s\"playerControlled\": %s,\n")
+        TEXT("%s\"borderRegion\": %s\n")
+        TEXT("%s}"),
+        *Pad, *JsonEscape(RegionName),
+        *Pad, *JsonEscape(Climate),
+        *Pad, *JsonEscape(ResourceFocus),
+        *Pad, Stability,
+        *Pad, Unrest,
+        *Pad, StrategicValue,
+        *Pad, bPlayerControlled ? TEXT("true") : TEXT("false"),
+        *Pad, bBorderRegion ? TEXT("true") : TEXT("false"),
+        *Indent(IndentSpaces - 2));
+}
+
+FString FDemocracyRtsDiplomacyInputState::ToJson(int32 IndentSpaces) const
+{
+    const FString Pad = Indent(IndentSpaces);
+    return FString::Printf(
+        TEXT("{\n")
+        TEXT("%s\"countryName\": \"%s\",\n")
+        TEXT("%s\"relationshipStatus\": \"%s\",\n")
+        TEXT("%s\"treatyStatus\": \"%s\",\n")
+        TEXT("%s\"ally\": %s,\n")
+        TEXT("%s\"enemy\": %s,\n")
+        TEXT("%s\"tradePartner\": %s,\n")
+        TEXT("%s\"sanctionsActive\": %s,\n")
+        TEXT("%s\"borderTension\": %d,\n")
+        TEXT("%s\"trust\": %d\n")
+        TEXT("%s}"),
+        *Pad, *JsonEscape(CountryName),
+        *Pad, *JsonEscape(RelationshipStatus),
+        *Pad, *JsonEscape(TreatyStatus),
+        *Pad, bAlly ? TEXT("true") : TEXT("false"),
+        *Pad, bEnemy ? TEXT("true") : TEXT("false"),
+        *Pad, bTradePartner ? TEXT("true") : TEXT("false"),
+        *Pad, bSanctionsActive ? TEXT("true") : TEXT("false"),
+        *Pad, BorderTension,
+        *Pad, Trust,
+        *Indent(IndentSpaces - 2));
+}
+
+FString FDemocracySimulationToRtsContractState::ToJson(int32 IndentSpaces) const
+{
+    const FString Pad = Indent(IndentSpaces);
+    const FString RegionPad = Indent(IndentSpaces + 2);
+    FString RegionJson = TEXT("[");
+    for (int32 Index = 0; Index < Regions.Num(); ++Index)
+    {
+        RegionJson += FString::Printf(TEXT("\n%s%s"), *RegionPad, *Regions[Index].ToJson(IndentSpaces + 4));
+        if (Index < Regions.Num() - 1) RegionJson += TEXT(",");
+    }
+    RegionJson += FString::Printf(TEXT("\n%s]"), *Pad);
+
+    const FString DiplomacyPad = Indent(IndentSpaces + 2);
+    FString DiplomacyJson = TEXT("[");
+    for (int32 Index = 0; Index < Diplomacy.Num(); ++Index)
+    {
+        DiplomacyJson += FString::Printf(TEXT("\n%s%s"), *DiplomacyPad, *Diplomacy[Index].ToJson(IndentSpaces + 4));
+        if (Index < Diplomacy.Num() - 1) DiplomacyJson += TEXT(",");
+    }
+    DiplomacyJson += FString::Printf(TEXT("\n%s]"), *Pad);
+
+    return FString::Printf(
+        TEXT("{\n")
+        TEXT("%s\"lastUpdatedTurn\": %d,\n")
+        TEXT("%s\"contractVersion\": \"%s\",\n")
+        TEXT("%s\"playerCountryName\": \"%s\",\n")
+        TEXT("%s\"governmentType\": \"%s\",\n")
+        TEXT("%s\"treasury\": %d,\n")
+        TEXT("%s\"militaryReadiness\": %d,\n")
+        TEXT("%s\"technology\": %d,\n")
+        TEXT("%s\"stability\": %d,\n")
+        TEXT("%s\"unrest\": %d,\n")
+        TEXT("%s\"publicApproval\": %d,\n")
+        TEXT("%s\"invasionRisk\": %d,\n")
+        TEXT("%s\"resources\": %s,\n")
+        TEXT("%s\"activePolicies\": %s,\n")
+        TEXT("%s\"technologyUnlocks\": %s,\n")
+        TEXT("%s\"allies\": %s,\n")
+        TEXT("%s\"enemies\": %s,\n")
+        TEXT("%s\"activeWars\": %s,\n")
+        TEXT("%s\"strategicPermissions\": %s,\n")
+        TEXT("%s\"regions\": %s,\n")
+        TEXT("%s\"diplomacy\": %s,\n")
+        TEXT("%s\"exportSummary\": \"%s\"\n")
+        TEXT("%s}"),
+        *Pad, LastUpdatedTurn,
+        *Pad, *JsonEscape(ContractVersion),
+        *Pad, *JsonEscape(PlayerCountryName),
+        *Pad, *JsonEscape(GovernmentType),
+        *Pad, Treasury,
+        *Pad, MilitaryReadiness,
+        *Pad, Technology,
+        *Pad, Stability,
+        *Pad, Unrest,
+        *Pad, PublicApproval,
+        *Pad, InvasionRisk,
+        *Pad, *Resources.ToJson(IndentSpaces + 2),
+        *Pad, *StringArrayToJson(ActivePolicies),
+        *Pad, *StringArrayToJson(TechnologyUnlocks),
+        *Pad, *StringArrayToJson(Allies),
+        *Pad, *StringArrayToJson(Enemies),
+        *Pad, *StringArrayToJson(ActiveWars),
+        *Pad, *StringArrayToJson(StrategicPermissions),
+        *Pad, *RegionJson,
+        *Pad, *DiplomacyJson,
+        *Pad, *JsonEscape(ExportSummary),
+        *Indent(IndentSpaces - 2));
+}
+
 FString FDemocracyCommandAuthorityActionState::ToJson(int32 IndentSpaces) const
 {
     const FString Pad = Indent(IndentSpaces);
@@ -2212,6 +2333,7 @@ FString FDemocracySimulationState::ToJson(int32 IndentSpaces) const
         TEXT("%s\"worldMap\": %s,\n")
         TEXT("%s\"diplomacyMatrix\": %s,\n")
         TEXT("%s\"rtsWorld\": %s,\n")
+        TEXT("%s\"simulationToRtsContract\": %s,\n")
         TEXT("%s\"commandAuthority\": %s,\n")
         TEXT("%s\"objectiveState\": %s\n")
         TEXT("%s}"),
@@ -2236,9 +2358,119 @@ FString FDemocracySimulationState::ToJson(int32 IndentSpaces) const
         *Pad, *WorldMap.ToJson(IndentSpaces + 2),
         *Pad, *DiplomacyMatrix.ToJson(IndentSpaces + 2),
         *Pad, *RtsWorld.ToJson(IndentSpaces + 2),
+        *Pad, *SimulationToRtsContract.ToJson(IndentSpaces + 2),
         *Pad, *CommandAuthority.ToJson(IndentSpaces + 2),
         *Pad, *ObjectiveState.ToJson(IndentSpaces + 2),
         *Indent(IndentSpaces - 2));
+}
+
+FDemocracySimulationToRtsContractState FDemocracyGameStateFactory::BuildSimulationToRtsContractState(const FDemocracySimulationState& State)
+{
+    FDemocracySimulationToRtsContractState Contract;
+    const FDemocracyCountryState& Country = State.PlayerCountry;
+    Contract.LastUpdatedTurn = State.Turn;
+    Contract.PlayerCountryName = Country.CountryName;
+    Contract.GovernmentType = State.ObjectiveState.PlayerGovernmentType.IsEmpty() ? TEXT("Democracy") : State.ObjectiveState.PlayerGovernmentType;
+    Contract.Treasury = Country.Treasury;
+    Contract.MilitaryReadiness = Country.MilitaryReadiness;
+    Contract.Technology = Country.Technology;
+    Contract.Stability = Country.Stability;
+    Contract.Unrest = Country.Unrest;
+    Contract.PublicApproval = Country.PublicApproval;
+    Contract.InvasionRisk = State.InvasionRisk.CurrentInvasionRisk;
+    Contract.Resources = Country.Resources;
+    Contract.ActivePolicies = {
+        FString::Printf(TEXT("Economic:%s"), *Country.Policies.EconomicPolicy),
+        FString::Printf(TEXT("Environmental:%s"), *Country.Policies.EnvironmentalPolicy),
+        FString::Printf(TEXT("Military:%s"), *Country.Policies.MilitaryPolicy),
+        FString::Printf(TEXT("Diplomacy:%s"), *Country.Policies.DiplomacyPolicy),
+        FString::Printf(TEXT("Civil:%s"), *Country.Policies.CivilPolicy)
+    };
+    Contract.StrategicPermissions = {
+        TEXT("Simulation office may mobilize, defend, negotiate, embargo, trade, send aid, and declare emergencies."),
+        TEXT("RTS layer receives readiness, diplomacy, resources, regional stability, wars, technologies, and policy posture."),
+        TEXT("Direct troop movement, battles, construction, farms, mines, city upgrades, and manual resource transport remain RTS-only.")
+    };
+
+    for (const FDemocracyDevelopmentTrackState& Track : State.DevelopmentSystem.Tracks)
+    {
+        if (Track.Level > 0 || Track.Progress > 0)
+        {
+            Contract.TechnologyUnlocks.Add(FString::Printf(TEXT("%s L%d: %s"), *Track.TrackName, Track.Level, *FString::Join(Track.Unlocks, TEXT(", "))));
+        }
+    }
+
+    for (const FDemocracyDiplomacyRelationshipState& Relationship : State.DiplomacyMatrix.Relationships)
+    {
+        FDemocracyRtsDiplomacyInputState Input;
+        Input.CountryName = Relationship.CountryName;
+        Input.RelationshipStatus = Relationship.RelationshipStatus;
+        Input.TreatyStatus = Relationship.TreatyStatus;
+        Input.bAlly = Relationship.RelationshipStatus.Equals(TEXT("Ally"), ESearchCase::IgnoreCase);
+        Input.bEnemy = Relationship.RelationshipStatus.Equals(TEXT("Hostile"), ESearchCase::IgnoreCase) || Relationship.RelationshipStatus.Equals(TEXT("Rival"), ESearchCase::IgnoreCase) || Relationship.BorderTension >= 70;
+        Input.bTradePartner = Relationship.bTradePartner;
+        Input.bSanctionsActive = Relationship.bSanctionsActive;
+        Input.BorderTension = Relationship.BorderTension;
+        Input.Trust = Relationship.Trust;
+        Contract.Diplomacy.Add(Input);
+        if (Input.bAlly) Contract.Allies.Add(Relationship.CountryName);
+        if (Input.bEnemy) Contract.Enemies.Add(Relationship.CountryName);
+        if (Input.bEnemy && Relationship.BorderTension >= 75)
+        {
+            Contract.ActiveWars.Add(FString::Printf(TEXT("%s border conflict risk %d"), *Relationship.CountryName, Relationship.BorderTension));
+        }
+    }
+
+    for (const FDemocracyRegionState& Region : State.Demographics.Regions)
+    {
+        FDemocracyRtsRegionInputState Input;
+        Input.RegionName = Region.RegionName;
+        Input.Climate = Region.Climate;
+        Input.ResourceFocus = Region.FoodAccess < 45 ? TEXT("Food") : (Region.Infrastructure < 45 ? TEXT("Infrastructure") : TEXT("Population"));
+        Input.Stability = Region.Stability;
+        Input.Unrest = Region.Unrest;
+        Input.StrategicValue = FMath::Clamp((Region.PopulationShare / 8) + (Region.Infrastructure / 25) + (Region.Security / 25), 1, 10);
+        Input.bPlayerControlled = true;
+        Input.bBorderRegion = Region.Security < 45 || Region.Unrest > 50;
+        Contract.Regions.Add(Input);
+    }
+
+    for (const FDemocracyProvinceOwnershipState& Province : State.RtsWorld.Ownership.Provinces)
+    {
+        if (!Province.bPlayerControlled || Contract.Regions.Num() >= 24)
+        {
+            continue;
+        }
+        FDemocracyRtsRegionInputState Input;
+        Input.RegionName = Province.ProvinceName;
+        Input.Climate = Province.Climate;
+        Input.ResourceFocus = Province.ResourceFocus;
+        Input.Stability = Province.Stability;
+        Input.Unrest = Province.Unrest;
+        Input.StrategicValue = Province.StrategicValue;
+        Input.bPlayerControlled = Province.bPlayerControlled;
+        Input.bBorderRegion = Province.bBorderProvince;
+        Contract.Regions.Add(Input);
+    }
+
+    if (Contract.ActiveWars.Num() == 0 && State.InvasionRisk.CurrentInvasionRisk >= State.InvasionRisk.BorderPressureWarningThreshold)
+    {
+        Contract.ActiveWars.Add(FString::Printf(TEXT("Unassigned border pressure risk %d"), State.InvasionRisk.CurrentInvasionRisk));
+    }
+
+    Contract.ExportSummary = FString::Printf(TEXT("Sim-to-RTS v1 turn %d exports %s: resources F%d G%d W%d M%d, readiness %d, allies %d, enemies %d, active war risks %d, regions %d."),
+        State.Turn,
+        *Country.CountryName,
+        Country.Resources.Food,
+        Country.Resources.GasOil,
+        Country.Resources.Wood,
+        Country.Resources.Metals,
+        Country.MilitaryReadiness,
+        Contract.Allies.Num(),
+        Contract.Enemies.Num(),
+        Contract.ActiveWars.Num(),
+        Contract.Regions.Num());
+    return Contract;
 }
 
 FDemocracySimulationState FDemocracyGameStateFactory::CreateInitialState(
@@ -2434,6 +2666,7 @@ FDemocracySimulationState FDemocracyGameStateFactory::CreateInitialState(
     State.RtsWorld.Ownership = BuildMapOwnershipState(State.WorldMap, StateName, State.Turn, State.RtsWorld.ControlledTerritories);
     State.RtsWorld.ControlledTerritories = State.RtsWorld.Ownership.PlayerControlledProvinces;
     State.RtsWorld.BorderTerritories = State.RtsWorld.Ownership.BorderProvinceCount;
+    State.SimulationToRtsContract = FDemocracyGameStateFactory::BuildSimulationToRtsContractState(State);
     State.CommandAuthority = BuildCommandAuthorityState(State);
 
     return State;

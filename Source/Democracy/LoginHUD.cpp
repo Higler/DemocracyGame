@@ -1216,6 +1216,11 @@ namespace
         return FString::Join(Lines, TEXT("\n"));
     }
 
+    void RefreshSimulationToRtsContract(FDemocracySimulationState& State)
+    {
+        State.SimulationToRtsContract = FDemocracyGameStateFactory::BuildSimulationToRtsContractState(State);
+    }
+
     void RefreshCommandAuthority(FDemocracySimulationState& State)
     {
         if (State.CommandAuthority.Actions.Num() == 0)
@@ -4861,6 +4866,7 @@ TSharedRef<SWidget> ALoginHUD::BuildOfficeComputerMenuScreen()
 {
     if (bHasLoadedRuntimeState)
     {
+        RefreshSimulationToRtsContract(LoadedSaveState.RuntimeState);
         RefreshCommandAuthority(LoadedSaveState.RuntimeState);
     }
     const FDemocracySimulationState& State = LoadedSaveState.RuntimeState;
@@ -4897,6 +4903,8 @@ TSharedRef<SWidget> ALoginHUD::BuildOfficeComputerMenuScreen()
     [BuildInfoRow(TEXT("Command Authority"), BuildCommandAuthorityStatusText())];
     Body->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
     [BuildInfoRow(TEXT("RTS Backflow"), BuildRtsBackflowStatusText())];
+    Body->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
+    [BuildInfoRow(TEXT("Simulation-to-RTS Contract"), BuildSimulationToRtsContractStatusText())];
     Body->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
     [BuildInfoRow(TEXT("Difficulty Guidance"), GuidanceSummary)];
     Body->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
@@ -5530,6 +5538,10 @@ TSharedRef<SWidget> ALoginHUD::BuildOfficeDemographicsScreen()
 }
 TSharedRef<SWidget> ALoginHUD::BuildOfficeWorldRtsScreen()
 {
+    if (bHasLoadedRuntimeState)
+    {
+        RefreshSimulationToRtsContract(LoadedSaveState.RuntimeState);
+    }
     return BuildPanel(TEXT("World Strategy Globe"), TEXT("Prototype globe entry point for country-vs-country strategy."),
         SNew(SVerticalBox)
         + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 4.0f)
@@ -5540,6 +5552,8 @@ TSharedRef<SWidget> ALoginHUD::BuildOfficeWorldRtsScreen()
         [BuildInfoRow(TEXT("Diplomacy Matrix"), BuildDiplomacyStatusText())]
         + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 4.0f)
         [BuildInfoRow(TEXT("Map Ownership"), BuildMapOwnershipStatusText())]
+        + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 4.0f)
+        [BuildInfoRow(TEXT("Simulation-to-RTS Contract"), BuildSimulationToRtsContractStatusText())]
         + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 4.0f)
         [BuildInfoRow(TEXT("Command Authority"), BuildCommandAuthorityStatusText())]
         + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 4.0f)
@@ -6163,6 +6177,7 @@ bool ALoginHUD::LoadSinglePlayerSaveIntoRuntime(const FString& SavePath)
     InitializeEarlyGameBalanceTestData(LoadedSaveState.RuntimeState);
     RefreshObjectiveState(LoadedSaveState.RuntimeState, LoadedSaveState.Mode.IsEmpty() ? TEXT("SinglePlayer") : LoadedSaveState.Mode);
     RefreshFailureValidationState(LoadedSaveState.RuntimeState);
+    RefreshSimulationToRtsContract(LoadedSaveState.RuntimeState);
     LoadedSaveSummary = LoadedSaveState.ToSummaryText();
     SimulationTickSummary = BuildSimulationStatusText();
 
@@ -6291,6 +6306,51 @@ FString ALoginHUD::BuildRtsBackflowStatusText() const
     }
 
     return BuildRtsBackflowSummaryText(LoadedSaveState.RuntimeState.RtsWorld);
+}
+
+FString ALoginHUD::BuildSimulationToRtsContractStatusText() const
+{
+    if (!bHasLoadedRuntimeState)
+    {
+        return TEXT("Simulation-to-RTS contract unavailable until a save is loaded.");
+    }
+
+    const FDemocracySimulationToRtsContractState& Contract = LoadedSaveState.RuntimeState.SimulationToRtsContract;
+    TArray<FString> Lines;
+    Lines.Add(Contract.ExportSummary);
+    Lines.Add(FString::Printf(TEXT("Payload: %s | %s | treasury %d | readiness %d | tech %d | stability %d | unrest %d | invasion risk %d"),
+        *Contract.ContractVersion,
+        *Contract.GovernmentType,
+        Contract.Treasury,
+        Contract.MilitaryReadiness,
+        Contract.Technology,
+        Contract.Stability,
+        Contract.Unrest,
+        Contract.InvasionRisk));
+    Lines.Add(FString::Printf(TEXT("Resources: food %d | fuel %d | wood %d | metals %d | water %d"),
+        Contract.Resources.Food,
+        Contract.Resources.GasOil,
+        Contract.Resources.Wood,
+        Contract.Resources.Metals,
+        Contract.Resources.Water));
+    Lines.Add(FString::Printf(TEXT("Diplomacy: allies %d | enemies %d | active war risks %d | relation records %d"),
+        Contract.Allies.Num(),
+        Contract.Enemies.Num(),
+        Contract.ActiveWars.Num(),
+        Contract.Diplomacy.Num()));
+    Lines.Add(FString::Printf(TEXT("Regions exported: %d | policies %d | tech unlock lines %d"),
+        Contract.Regions.Num(),
+        Contract.ActivePolicies.Num(),
+        Contract.TechnologyUnlocks.Num()));
+    if (Contract.ActiveWars.Num() > 0)
+    {
+        Lines.Add(FString::Printf(TEXT("War/risk feed: %s"), *FString::Join(Contract.ActiveWars, TEXT("; "))));
+    }
+    if (Contract.StrategicPermissions.Num() > 0)
+    {
+        Lines.Add(FString::Printf(TEXT("Authority boundary: %s"), *Contract.StrategicPermissions.Last()));
+    }
+    return FString::Join(Lines, TEXT("\n"));
 }
 
 FString ALoginHUD::BuildMapOwnershipStatusText() const
@@ -6956,6 +7016,7 @@ void ALoginHUD::RunSimulationTick()
     State.AdvisorSystem.Reports = GenerateAdvisorReports(State);
     InitializeDiplomacyMatrixIfMissing(State);
     RefreshObjectiveState(State, LoadedSaveState.Mode.IsEmpty() ? TEXT("SinglePlayer") : LoadedSaveState.Mode);
+    RefreshSimulationToRtsContract(State);
 
     if (!bEventDeadlineApplied && !State.Phase.Equals(TEXT("Event Decision Pending"), ESearchCase::IgnoreCase))
     {
@@ -7756,6 +7817,7 @@ FReply ALoginHUD::HandleExecuteAuthorityCommand(FString CommandId, FString Surfa
     State.AdvisorSystem.GuidanceLevel = AdvisorGuidanceForDifficultyScore(Country.CountrySizeScore);
     State.AdvisorSystem.LastUpdatedTurn = State.Turn;
     State.AdvisorSystem.Reports = GenerateAdvisorReports(State);
+    RefreshSimulationToRtsContract(State);
     RefreshCommandAuthority(State);
     LogDecision(State, TEXT("Command Authority"), SelectedAction->Label, FString::Printf(TEXT("%s command executed from %s."), *SelectedAction->CommandType, *SurfaceName), State.CommandAuthority.LastCommandSummary, 38, { TEXT("command"), SelectedAction->CommandType, SelectedAction->AuthorityLayer });
 
@@ -8374,6 +8436,8 @@ FReply ALoginHUD::HandleSaveRuntimeStateClicked()
         RefreshLoginWidget();
         return FReply::Handled();
     }
+
+    RefreshSimulationToRtsContract(LoadedSaveState.RuntimeState);
 
     FString SaveError;
     if (FDemocracySaveGameRuntime::SaveSinglePlayerRuntimeState(LoadedSaveState, SaveError))
