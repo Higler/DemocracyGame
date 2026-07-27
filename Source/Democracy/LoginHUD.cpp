@@ -933,6 +933,51 @@ namespace
         State.RtsWorld.Backflow.LastOutcomeSummary = TEXT("RTS backflow bridge is initialized. No tactical result has been reported yet.");
     }
 
+    int32 RuntimeDesiredProvinceCountForCountry(const FDemocracyGeneratedCountryState& Country, bool bPlayerCountry, int32 PlayerProvinceTarget)
+    {
+        if (Country.DesiredProvinceCount > 0)
+        {
+            return FMath::Clamp(Country.DesiredProvinceCount, 2, 10);
+        }
+        return FMath::Clamp(3 + Country.PowerScore / 28 + Country.BorderPressure / 45 + (bPlayerCountry ? PlayerProvinceTarget / 5 : 0), 2, 10);
+    }
+
+    FString RuntimeProvinceResourceFocus(int32 ProvinceIndex, const FString& Climate)
+    {
+        static const TCHAR* Focuses[] = { TEXT("Food"), TEXT("Fuel"), TEXT("Wood"), TEXT("Metals"), TEXT("Water") };
+        if (Climate.Equals(TEXT("Northern Cold"), ESearchCase::IgnoreCase))
+        {
+            static const TCHAR* NorthernFocuses[] = { TEXT("Fuel"), TEXT("Metals"), TEXT("Wood"), TEXT("Water"), TEXT("Food") };
+            return NorthernFocuses[ProvinceIndex % 5];
+        }
+        if (Climate.Equals(TEXT("Southern Tropical"), ESearchCase::IgnoreCase))
+        {
+            static const TCHAR* SouthernFocuses[] = { TEXT("Food"), TEXT("Water"), TEXT("Wood"), TEXT("Fuel"), TEXT("Metals") };
+            return SouthernFocuses[ProvinceIndex % 5];
+        }
+        return Focuses[ProvinceIndex % 5];
+    }
+
+    FString RuntimeTerrainTypeForProvince(int32 ProvinceIndex, const FString& Climate, const FString& ResourceFocus)
+    {
+        if (Climate.Equals(TEXT("Northern Cold"), ESearchCase::IgnoreCase))
+        {
+            return ProvinceIndex % 3 == 0 ? TEXT("Mountain") : TEXT("Tundra");
+        }
+        if (Climate.Equals(TEXT("Southern Tropical"), ESearchCase::IgnoreCase))
+        {
+            return ResourceFocus.Equals(TEXT("Food"), ESearchCase::IgnoreCase) ? TEXT("Rainforest Farmland") : TEXT("Coastal Jungle");
+        }
+        if (ResourceFocus.Equals(TEXT("Metals"), ESearchCase::IgnoreCase))
+        {
+            return TEXT("Highlands");
+        }
+        if (ResourceFocus.Equals(TEXT("Fuel"), ESearchCase::IgnoreCase))
+        {
+            return TEXT("Basin");
+        }
+        return ProvinceIndex % 2 == 0 ? TEXT("Plains") : TEXT("Urban Corridor");
+    }
     void RefreshRuntimeMapOwnership(FDemocracyMapOwnershipState& Ownership)
     {
         Ownership.TotalCountries = Ownership.Countries.Num();
@@ -940,6 +985,9 @@ namespace
         Ownership.PlayerControlledProvinces = 0;
         Ownership.ContestedProvinces = 0;
         Ownership.BorderProvinceCount = 0;
+        Ownership.TotalMapRegionCount = Ownership.Continents.Num();
+        Ownership.TotalPopulationWeight = 0;
+        Ownership.TotalAreaWeight = 0;
         for (FDemocracyCountryOwnershipState& Country : Ownership.Countries)
         {
             Country.TotalProvinces = Country.ProvinceIds.Num();
@@ -961,6 +1009,8 @@ namespace
             if (Province.bPlayerControlled) ++Ownership.PlayerControlledProvinces;
             if (!Province.CurrentControllerCountryName.Equals(Province.OriginalCountryName, ESearchCase::IgnoreCase)) ++Ownership.ContestedProvinces;
             if (Province.bBorderProvince) ++Ownership.BorderProvinceCount;
+            Ownership.TotalPopulationWeight += Province.PopulationWeight;
+            Ownership.TotalAreaWeight += Province.AreaWeight;
             for (FDemocracyCountryOwnershipState& Country : Ownership.Countries)
             {
                 if (Country.CountryName.Equals(Province.OriginalCountryName, ESearchCase::IgnoreCase))
@@ -991,7 +1041,7 @@ namespace
                 }
             }
         }
-        Ownership.Summary = FString::Printf(TEXT("Ownership: %d countries, %d provinces, %d player controlled, %d contested, %d border provinces."), Ownership.TotalCountries, Ownership.TotalProvinces, Ownership.PlayerControlledProvinces, Ownership.ContestedProvinces, Ownership.BorderProvinceCount);
+        Ownership.Summary = FString::Printf(TEXT("%s ownership: %d durable countries, %d provinces, %d regions, %d player controlled, %d contested, %d border provinces."), *Ownership.PlanetName, Ownership.TotalCountries, Ownership.TotalProvinces, Ownership.TotalMapRegionCount, Ownership.PlayerControlledProvinces, Ownership.ContestedProvinces, Ownership.BorderProvinceCount);
     }
 
     void InitializeRuntimeMapOwnershipIfMissing(FDemocracySimulationState& State)
@@ -1005,6 +1055,9 @@ namespace
             return;
         }
         Ownership = FDemocracyMapOwnershipState();
+        Ownership.PlanetName = State.WorldMap.PlanetName;
+        Ownership.MapDataVersion = State.WorldMap.MapDataVersion;
+        Ownership.DurableCountryTarget = State.WorldMap.DurableCountryTarget;
         Ownership.LastUpdatedTurn = State.Turn;
         Ownership.PlayerCountryName = State.PlayerCountry.CountryName;
         int32 ProvinceBudget = FMath::Max(1, State.RtsWorld.ControlledTerritories);
@@ -1018,16 +1071,24 @@ namespace
             for (const FDemocracyGeneratedCountryState& Country : Continent.Countries)
             {
                 FDemocracyCountryOwnershipState CountryOwnership;
+                CountryOwnership.CountryId = Country.CountryId.IsEmpty() ? FString::Printf(TEXT("DUL-C%03d"), GlobalCountryIndex + 1) : Country.CountryId;
+                CountryOwnership.MapRegionId = Country.MapRegionId.IsEmpty() ? FString::Printf(TEXT("DUL-R%02d"), Ownership.Continents.Num() + 1) : Country.MapRegionId;
+                CountryOwnership.MapCountryIndex = Country.MapCountryIndex > 0 ? Country.MapCountryIndex : GlobalCountryIndex + 1;
+                CountryOwnership.PopulationWeight = Country.PopulationWeight;
+                CountryOwnership.AreaWeight = Country.AreaWeight;
                 CountryOwnership.CountryName = Country.CountryName;
                 CountryOwnership.ContinentName = Country.ContinentName;
                 CountryOwnership.GovernmentType = Country.PoliticalType;
                 CountryOwnership.bPlayerCountry = Country.CountryName.Equals(State.PlayerCountry.CountryName, ESearchCase::IgnoreCase);
                 ContinentOwnership.CountryNames.Add(Country.CountryName);
-                const int32 ProvinceCount = FMath::Clamp(2 + Country.PowerScore / 24 + Country.BorderPressure / 40, 2, 8);
+                const int32 ProvinceCount = RuntimeDesiredProvinceCountForCountry(Country, CountryOwnership.bPlayerCountry, State.RtsWorld.ControlledTerritories);
                 for (int32 ProvinceIndex = 0; ProvinceIndex < ProvinceCount; ++ProvinceIndex)
                 {
                     FDemocracyProvinceOwnershipState Province;
-                    Province.ProvinceId = FString::Printf(TEXT("%s-%03d-%02d"), *Country.ContinentName.Left(3).ToUpper(), GlobalCountryIndex + 1, ProvinceIndex + 1);
+                    Province.CountryId = CountryOwnership.CountryId;
+                    Province.MapRegionId = CountryOwnership.MapRegionId;
+                    Province.ProvinceIndex = ProvinceIndex + 1;
+                    Province.ProvinceId = FString::Printf(TEXT("%s-P%02d"), *CountryOwnership.CountryId, Province.ProvinceIndex);
                     Province.ProvinceName = ProvinceIndex == 0 ? FString::Printf(TEXT("%s Capital District"), *Country.CountryName) : FString::Printf(TEXT("%s Province %d"), *Country.CountryName, ProvinceIndex + 1);
                     Province.ContinentName = Country.ContinentName;
                     Province.OriginalCountryName = Country.CountryName;
@@ -1035,7 +1096,10 @@ namespace
                     Province.CurrentControllerCountryName = Country.CountryName;
                     Province.GovernmentType = Country.PoliticalType;
                     Province.Climate = Country.Climate;
-                    Province.ResourceFocus = ProvinceIndex % 5 == 0 ? TEXT("Food") : (ProvinceIndex % 5 == 1 ? TEXT("Fuel") : (ProvinceIndex % 5 == 2 ? TEXT("Wood") : (ProvinceIndex % 5 == 3 ? TEXT("Metals") : TEXT("Water"))));
+                    Province.ResourceFocus = RuntimeProvinceResourceFocus(ProvinceIndex + GlobalCountryIndex, Country.Climate);
+                    Province.TerrainType = RuntimeTerrainTypeForProvince(ProvinceIndex, Country.Climate, Province.ResourceFocus);
+                    Province.PopulationWeight = FMath::Max(1, Country.PopulationWeight / ProvinceCount + (ProvinceIndex == 0 ? 4 : 0));
+                    Province.AreaWeight = FMath::Max(1, Country.AreaWeight / ProvinceCount + (ProvinceIndex % 3));
                     Province.StrategicValue = FMath::Clamp(1 + Country.PowerScore / 25 + (ProvinceIndex == 0 ? 2 : 0), 1, 8);
                     Province.Stability = Country.Stability;
                     Province.Unrest = FMath::Clamp(100 - Country.Stability + Country.BorderPressure / 3, 0, 100);
@@ -6496,6 +6560,7 @@ FString ALoginHUD::BuildMapOwnershipStatusText() const
     const FDemocracyMapOwnershipState& Ownership = LoadedSaveState.RuntimeState.RtsWorld.Ownership;
     TArray<FString> Lines;
     Lines.Add(Ownership.Summary);
+    Lines.Add(FString::Printf(TEXT("Planet %s | %s | target %d countries | regions %d | population weight %d | area weight %d"), *Ownership.PlanetName, *Ownership.MapDataVersion, Ownership.DurableCountryTarget, Ownership.TotalMapRegionCount, Ownership.TotalPopulationWeight, Ownership.TotalAreaWeight));
     Lines.Add(FString::Printf(TEXT("Countries %d | provinces %d | player %d | contested %d | border %d"), Ownership.TotalCountries, Ownership.TotalProvinces, Ownership.PlayerControlledProvinces, Ownership.ContestedProvinces, Ownership.BorderProvinceCount));
     int32 Shown = 0;
     for (const FDemocracyContinentOwnershipState& Continent : Ownership.Continents)

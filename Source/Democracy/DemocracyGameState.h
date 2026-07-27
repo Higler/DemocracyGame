@@ -437,11 +437,17 @@ struct FDemocracyDecisionHistoryState
 };
 struct FDemocracyGeneratedCountryState
 {
+    FString CountryId;
+    FString MapRegionId;
     FString CountryName;
     FString ContinentName;
     FString Climate;
     FString PoliticalType;
     FString DiplomaticAlignment;
+    int32 MapCountryIndex = 0;
+    int32 DesiredProvinceCount = 0;
+    int32 PopulationWeight = 0;
+    int32 AreaWeight = 0;
     int32 PowerScore = 40;
     int32 Stability = 50;
     int32 BorderPressure = 0;
@@ -462,11 +468,18 @@ struct FDemocracyContinentState
 
 struct FDemocracyWorldMapState
 {
+    FString PlanetName = TEXT("Dulia");
+    FString MapDataVersion = TEXT("DuliaMapData.v1");
     int32 ContinentCount = 8;
+    int32 DurableCountryTarget = 195;
+    int32 ActiveCountryCount = 0;
     int32 TotalCountryCount = 0;
+    int32 TotalProvinceCount = 0;
+    int32 TotalMapRegionCount = 0;
     int32 DemocraticAllyCount = 0;
     int32 NonDemocraticCountryCount = 0;
     FString GenerationRule;
+    FString MapDataSummary = TEXT("Planet Dulia map data has not been generated yet.");
     TArray<FDemocracyContinentState> Continents;
 
     FString ToJson(int32 IndentSpaces = 2) const;
@@ -629,6 +642,8 @@ struct FDemocracyRtsBackflowState
 struct FDemocracyProvinceOwnershipState
 {
     FString ProvinceId;
+    FString CountryId;
+    FString MapRegionId;
     FString ProvinceName;
     FString ContinentName;
     FString OriginalCountryName;
@@ -637,6 +652,10 @@ struct FDemocracyProvinceOwnershipState
     FString GovernmentType;
     FString Climate;
     FString ResourceFocus;
+    FString TerrainType;
+    int32 ProvinceIndex = 0;
+    int32 PopulationWeight = 0;
+    int32 AreaWeight = 0;
     int32 StrategicValue = 1;
     int32 Stability = 50;
     int32 Unrest = 20;
@@ -649,9 +668,12 @@ struct FDemocracyProvinceOwnershipState
 
 struct FDemocracyCountryOwnershipState
 {
+    FString CountryId;
+    FString MapRegionId;
     FString CountryName;
     FString ContinentName;
     FString GovernmentType;
+    int32 MapCountryIndex = 0;
     int32 TotalProvinces = 0;
     int32 ControlledProvinces = 0;
     int32 OccupiedProvinces = 0;
@@ -659,6 +681,8 @@ struct FDemocracyCountryOwnershipState
     int32 BorderProvinces = 0;
     int32 ResourceBase = 0;
     int32 MilitaryValue = 0;
+    int32 PopulationWeight = 0;
+    int32 AreaWeight = 0;
     bool bPlayerCountry = false;
     bool bCapitalControlled = true;
     TArray<FString> ProvinceIds;
@@ -681,9 +705,15 @@ struct FDemocracyContinentOwnershipState
 
 struct FDemocracyMapOwnershipState
 {
+    FString PlanetName = TEXT("Dulia");
+    FString MapDataVersion = TEXT("DuliaMapData.v1");
+    int32 DurableCountryTarget = 195;
     int32 LastUpdatedTurn = 1;
     int32 TotalCountries = 0;
     int32 TotalProvinces = 0;
+    int32 TotalMapRegionCount = 0;
+    int32 TotalPopulationWeight = 0;
+    int32 TotalAreaWeight = 0;
     int32 PlayerControlledProvinces = 0;
     int32 ContestedProvinces = 0;
     int32 BorderProvinceCount = 0;

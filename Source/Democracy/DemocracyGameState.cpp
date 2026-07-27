@@ -344,12 +344,16 @@ namespace
         };
 
         FDemocracyWorldMapState WorldMap;
-        WorldMap.TotalCountryCount = StartingCountryCountForDifficulty(DifficultyProfile);
-        WorldMap.GenerationRule = FString::Printf(
-            TEXT("Eight permanent continents. Starting countries scale by difficulty: Easy 50, Normal 100, Hard 150, Expert 200. Democratic allies become less common as difficulty increases."));
+        WorldMap.PlanetName = TEXT("Dulia");
+        WorldMap.MapDataVersion = TEXT("DuliaMapData.v1");
+        WorldMap.DurableCountryTarget = 195;
+        WorldMap.ActiveCountryCount = StartingCountryCountForDifficulty(DifficultyProfile);
+        WorldMap.TotalCountryCount = WorldMap.DurableCountryTarget;
+        WorldMap.TotalMapRegionCount = 8;
+        WorldMap.GenerationRule = TEXT("Planet Dulia has a durable 195-country map across eight permanent continents. Difficulty controls active starting pressure, resources, advisor help, and warning lead time; it no longer changes the durable country count.");
 
-        const int32 BaseCountriesPerContinent = WorldMap.TotalCountryCount / 8;
-        const int32 RemainderCountries = WorldMap.TotalCountryCount % 8;
+        const int32 BaseCountriesPerContinent = WorldMap.DurableCountryTarget / 8;
+        const int32 RemainderCountries = WorldMap.DurableCountryTarget % 8;
         int32 GlobalCountryIndex = 0;
 
         for (int32 ContinentIndex = 0; ContinentIndex < 8; ++ContinentIndex)
@@ -362,6 +366,9 @@ namespace
             for (int32 LocalCountryIndex = 0; LocalCountryIndex < Continent.CountryCount; ++LocalCountryIndex)
             {
                 FDemocracyGeneratedCountryState Country;
+                Country.CountryId = FString::Printf(TEXT("DUL-C%03d"), GlobalCountryIndex + 1);
+                Country.MapRegionId = FString::Printf(TEXT("DUL-R%02d"), ContinentIndex + 1);
+                Country.MapCountryIndex = GlobalCountryIndex + 1;
                 Country.ContinentName = Continent.ContinentName;
                 Country.Climate = Continent.Climate;
 
@@ -375,6 +382,9 @@ namespace
                     Country.PowerScore = 45 + DifficultyProfile.CountrySizeScore * 6;
                     Country.Stability = FMath::Clamp(DifficultyProfile.StartingApproval, 25, 85);
                     Country.BorderPressure = 0;
+                    Country.DesiredProvinceCount = FMath::Clamp(4 + DifficultyProfile.CountrySizeScore, 4, 10);
+                    Country.PopulationWeight = FMath::Clamp(55 + DifficultyProfile.CountrySizeScore * 12, 40, 120);
+                    Country.AreaWeight = FMath::Clamp(45 + DifficultyProfile.CountrySizeScore * 15, 35, 130);
                 }
                 else
                 {
@@ -387,6 +397,9 @@ namespace
                     Country.BorderPressure = Country.DiplomaticAlignment.Equals(TEXT("Hostile"), ESearchCase::IgnoreCase)
                         ? FMath::Clamp(30 + DifficultyProfile.CountrySizeScore * 10 + (GlobalCountryIndex % 18), 30, 90)
                         : FMath::Clamp(5 + DifficultyProfile.CountrySizeScore * 4 + (GlobalCountryIndex % 12), 0, 45);
+                    Country.DesiredProvinceCount = FMath::Clamp(3 + Country.PowerScore / 28 + Country.BorderPressure / 45, 2, 10);
+                    Country.PopulationWeight = FMath::Clamp(25 + ((GlobalCountryIndex * 11 + ContinentIndex * 7) % 85) + Country.PowerScore / 6, 20, 140);
+                    Country.AreaWeight = FMath::Clamp(20 + ((GlobalCountryIndex * 17 + ContinentIndex * 5) % 95) + Country.PowerScore / 8, 20, 150);
 
                     if (Country.bAlliedWithPlayer)
                     {
@@ -398,6 +411,7 @@ namespace
                     }
                 }
 
+                WorldMap.TotalProvinceCount += Country.DesiredProvinceCount;
                 Continent.Countries.Add(Country);
                 ++GlobalCountryIndex;
             }
@@ -405,6 +419,7 @@ namespace
             WorldMap.Continents.Add(Continent);
         }
 
+        WorldMap.MapDataSummary = FString::Printf(TEXT("Planet %s map data v1: %d durable countries, %d planned provinces, %d continent regions, %d active starting countries for %s difficulty."), *WorldMap.PlanetName, WorldMap.TotalCountryCount, WorldMap.TotalProvinceCount, WorldMap.TotalMapRegionCount, WorldMap.ActiveCountryCount, *DifficultyProfile.Name);
         return WorldMap;
     }
 
@@ -537,6 +552,36 @@ namespace
         return Focuses[ProvinceIndex % 5];
     }
 
+    int32 DesiredProvinceCountForCountry(const FDemocracyGeneratedCountryState& Country, bool bPlayerCountry, int32 PlayerProvinceTarget)
+    {
+        if (Country.DesiredProvinceCount > 0)
+        {
+            return FMath::Clamp(Country.DesiredProvinceCount, 2, 10);
+        }
+        return FMath::Clamp(3 + Country.PowerScore / 28 + Country.BorderPressure / 45 + (bPlayerCountry ? PlayerProvinceTarget / 5 : 0), 2, 10);
+    }
+
+    FString TerrainTypeForProvince(int32 ProvinceIndex, const FString& Climate, const FString& ResourceFocus)
+    {
+        if (Climate.Equals(TEXT("Northern Cold"), ESearchCase::IgnoreCase))
+        {
+            return ProvinceIndex % 3 == 0 ? TEXT("Mountain") : TEXT("Tundra");
+        }
+        if (Climate.Equals(TEXT("Southern Tropical"), ESearchCase::IgnoreCase))
+        {
+            return ResourceFocus.Equals(TEXT("Food"), ESearchCase::IgnoreCase) ? TEXT("Rainforest Farmland") : TEXT("Coastal Jungle");
+        }
+        if (ResourceFocus.Equals(TEXT("Metals"), ESearchCase::IgnoreCase))
+        {
+            return TEXT("Highlands");
+        }
+        if (ResourceFocus.Equals(TEXT("Fuel"), ESearchCase::IgnoreCase))
+        {
+            return TEXT("Basin");
+        }
+        return ProvinceIndex % 2 == 0 ? TEXT("Plains") : TEXT("Urban Corridor");
+    }
+
     void RecalculateMapOwnership(FDemocracyMapOwnershipState& Ownership)
     {
         Ownership.TotalCountries = Ownership.Countries.Num();
@@ -544,6 +589,9 @@ namespace
         Ownership.PlayerControlledProvinces = 0;
         Ownership.ContestedProvinces = 0;
         Ownership.BorderProvinceCount = 0;
+        Ownership.TotalMapRegionCount = Ownership.Continents.Num();
+        Ownership.TotalPopulationWeight = 0;
+        Ownership.TotalAreaWeight = 0;
         for (FDemocracyCountryOwnershipState& Country : Ownership.Countries)
         {
             Country.TotalProvinces = Country.ProvinceIds.Num();
@@ -565,6 +613,8 @@ namespace
             if (Province.bPlayerControlled) ++Ownership.PlayerControlledProvinces;
             if (!Province.CurrentControllerCountryName.Equals(Province.OriginalCountryName, ESearchCase::IgnoreCase)) ++Ownership.ContestedProvinces;
             if (Province.bBorderProvince) ++Ownership.BorderProvinceCount;
+            Ownership.TotalPopulationWeight += Province.PopulationWeight;
+            Ownership.TotalAreaWeight += Province.AreaWeight;
             for (FDemocracyCountryOwnershipState& Country : Ownership.Countries)
             {
                 if (Country.CountryName.Equals(Province.OriginalCountryName, ESearchCase::IgnoreCase))
@@ -596,12 +646,15 @@ namespace
                 }
             }
         }
-        Ownership.Summary = FString::Printf(TEXT("Ownership: %d countries, %d provinces, %d player controlled, %d contested, %d border provinces."), Ownership.TotalCountries, Ownership.TotalProvinces, Ownership.PlayerControlledProvinces, Ownership.ContestedProvinces, Ownership.BorderProvinceCount);
+        Ownership.Summary = FString::Printf(TEXT("%s ownership: %d durable countries, %d provinces, %d regions, %d player controlled, %d contested, %d border provinces."), *Ownership.PlanetName, Ownership.TotalCountries, Ownership.TotalProvinces, Ownership.TotalMapRegionCount, Ownership.PlayerControlledProvinces, Ownership.ContestedProvinces, Ownership.BorderProvinceCount);
     }
 
     FDemocracyMapOwnershipState BuildMapOwnershipState(const FDemocracyWorldMapState& WorldMap, const FString& PlayerCountryName, int32 CurrentTurn, int32 PlayerProvinceTarget)
     {
         FDemocracyMapOwnershipState Ownership;
+        Ownership.PlanetName = WorldMap.PlanetName;
+        Ownership.MapDataVersion = WorldMap.MapDataVersion;
+        Ownership.DurableCountryTarget = WorldMap.DurableCountryTarget;
         Ownership.LastUpdatedTurn = CurrentTurn;
         Ownership.PlayerCountryName = PlayerCountryName;
         int32 GlobalCountryIndex = 0;
@@ -615,8 +668,13 @@ namespace
             for (const FDemocracyGeneratedCountryState& Country : Continent.Countries)
             {
                 const bool bPlayerCountry = Country.CountryName.Equals(PlayerCountryName, ESearchCase::IgnoreCase);
-                const int32 ProvinceCount = FMath::Clamp(2 + Country.PowerScore / 22 + Country.BorderPressure / 35 + (bPlayerCountry ? PlayerProvinceTarget / 4 : 0), 2, 9);
+                const int32 ProvinceCount = DesiredProvinceCountForCountry(Country, bPlayerCountry, PlayerProvinceTarget);
                 FDemocracyCountryOwnershipState CountryOwnership;
+                CountryOwnership.CountryId = Country.CountryId.IsEmpty() ? FString::Printf(TEXT("DUL-C%03d"), GlobalCountryIndex + 1) : Country.CountryId;
+                CountryOwnership.MapRegionId = Country.MapRegionId.IsEmpty() ? FString::Printf(TEXT("DUL-R%02d"), Ownership.Continents.Num() + 1) : Country.MapRegionId;
+                CountryOwnership.MapCountryIndex = Country.MapCountryIndex > 0 ? Country.MapCountryIndex : GlobalCountryIndex + 1;
+                CountryOwnership.PopulationWeight = Country.PopulationWeight;
+                CountryOwnership.AreaWeight = Country.AreaWeight;
                 CountryOwnership.CountryName = Country.CountryName;
                 CountryOwnership.ContinentName = Country.ContinentName;
                 CountryOwnership.GovernmentType = Country.PoliticalType;
@@ -626,7 +684,10 @@ namespace
                 for (int32 ProvinceIndex = 0; ProvinceIndex < ProvinceCount; ++ProvinceIndex)
                 {
                     FDemocracyProvinceOwnershipState Province;
-                    Province.ProvinceId = FString::Printf(TEXT("%s-%03d-%02d"), *Country.ContinentName.Left(3).ToUpper(), GlobalCountryIndex + 1, ProvinceIndex + 1);
+                    Province.CountryId = CountryOwnership.CountryId;
+                    Province.MapRegionId = CountryOwnership.MapRegionId;
+                    Province.ProvinceIndex = ProvinceIndex + 1;
+                    Province.ProvinceId = FString::Printf(TEXT("%s-P%02d"), *CountryOwnership.CountryId, Province.ProvinceIndex);
                     Province.ProvinceName = ProvinceIndex == 0 ? FString::Printf(TEXT("%s Capital District"), *Country.CountryName) : FString::Printf(TEXT("%s Province %d"), *Country.CountryName, ProvinceIndex + 1);
                     Province.ContinentName = Country.ContinentName;
                     Province.OriginalCountryName = Country.CountryName;
@@ -635,6 +696,9 @@ namespace
                     Province.GovernmentType = Country.PoliticalType;
                     Province.Climate = Country.Climate;
                     Province.ResourceFocus = ProvinceResourceFocus(ProvinceIndex + GlobalCountryIndex, Country.Climate);
+                    Province.TerrainType = TerrainTypeForProvince(ProvinceIndex, Country.Climate, Province.ResourceFocus);
+                    Province.PopulationWeight = FMath::Max(1, Country.PopulationWeight / ProvinceCount + (ProvinceIndex == 0 ? 4 : 0));
+                    Province.AreaWeight = FMath::Max(1, Country.AreaWeight / ProvinceCount + (ProvinceIndex % 3));
                     Province.StrategicValue = FMath::Clamp(1 + Country.PowerScore / 24 + (ProvinceIndex == 0 ? 2 : 0), 1, 8);
                     Province.Stability = FMath::Clamp(Country.Stability - ProvinceIndex % 3, 0, 100);
                     Province.Unrest = FMath::Clamp(100 - Country.Stability + Country.BorderPressure / 3, 0, 100);
@@ -1831,21 +1895,33 @@ FString FDemocracyGeneratedCountryState::ToJson(int32 IndentSpaces) const
     const FString Pad = Indent(IndentSpaces);
     return FString::Printf(
         TEXT("{\n")
+        TEXT("%s\"countryId\": \"%s\",\n")
+        TEXT("%s\"mapRegionId\": \"%s\",\n")
         TEXT("%s\"countryName\": \"%s\",\n")
         TEXT("%s\"continentName\": \"%s\",\n")
         TEXT("%s\"climate\": \"%s\",\n")
         TEXT("%s\"politicalType\": \"%s\",\n")
         TEXT("%s\"diplomaticAlignment\": \"%s\",\n")
+        TEXT("%s\"mapCountryIndex\": %d,\n")
+        TEXT("%s\"desiredProvinceCount\": %d,\n")
+        TEXT("%s\"populationWeight\": %d,\n")
+        TEXT("%s\"areaWeight\": %d,\n")
         TEXT("%s\"powerScore\": %d,\n")
         TEXT("%s\"stability\": %d,\n")
         TEXT("%s\"borderPressure\": %d,\n")
         TEXT("%s\"alliedWithPlayer\": %s\n")
         TEXT("%s}"),
+        *Pad, *JsonEscape(CountryId),
+        *Pad, *JsonEscape(MapRegionId),
         *Pad, *JsonEscape(CountryName),
         *Pad, *JsonEscape(ContinentName),
         *Pad, *JsonEscape(Climate),
         *Pad, *JsonEscape(PoliticalType),
         *Pad, *JsonEscape(DiplomaticAlignment),
+        *Pad, MapCountryIndex,
+        *Pad, DesiredProvinceCount,
+        *Pad, PopulationWeight,
+        *Pad, AreaWeight,
         *Pad, PowerScore,
         *Pad, Stability,
         *Pad, BorderPressure,
@@ -1899,18 +1975,32 @@ FString FDemocracyWorldMapState::ToJson(int32 IndentSpaces) const
 
     return FString::Printf(
         TEXT("{\n")
+        TEXT("%s\"planetName\": \"%s\",\n")
+        TEXT("%s\"mapDataVersion\": \"%s\",\n")
         TEXT("%s\"continentCount\": %d,\n")
+        TEXT("%s\"durableCountryTarget\": %d,\n")
+        TEXT("%s\"activeCountryCount\": %d,\n")
         TEXT("%s\"totalCountryCount\": %d,\n")
+        TEXT("%s\"totalProvinceCount\": %d,\n")
+        TEXT("%s\"totalMapRegionCount\": %d,\n")
         TEXT("%s\"democraticAllyCount\": %d,\n")
         TEXT("%s\"nonDemocraticCountryCount\": %d,\n")
         TEXT("%s\"generationRule\": \"%s\",\n")
+        TEXT("%s\"mapDataSummary\": \"%s\",\n")
         TEXT("%s\"continents\": %s\n")
         TEXT("%s}"),
+        *Pad, *JsonEscape(PlanetName),
+        *Pad, *JsonEscape(MapDataVersion),
         *Pad, ContinentCount,
+        *Pad, DurableCountryTarget,
+        *Pad, ActiveCountryCount,
         *Pad, TotalCountryCount,
+        *Pad, TotalProvinceCount,
+        *Pad, TotalMapRegionCount,
         *Pad, DemocraticAllyCount,
         *Pad, NonDemocraticCountryCount,
         *Pad, *JsonEscape(GenerationRule),
+        *Pad, *JsonEscape(MapDataSummary),
         *Pad, *ContinentJson,
         *Indent(IndentSpaces - 2));
 }
@@ -2037,6 +2127,8 @@ FString FDemocracyProvinceOwnershipState::ToJson(int32 IndentSpaces) const
     return FString::Printf(
         TEXT("{\n")
         TEXT("%s\"provinceId\": \"%s\",\n")
+        TEXT("%s\"countryId\": \"%s\",\n")
+        TEXT("%s\"mapRegionId\": \"%s\",\n")
         TEXT("%s\"provinceName\": \"%s\",\n")
         TEXT("%s\"continentName\": \"%s\",\n")
         TEXT("%s\"originalCountryName\": \"%s\",\n")
@@ -2045,6 +2137,10 @@ FString FDemocracyProvinceOwnershipState::ToJson(int32 IndentSpaces) const
         TEXT("%s\"governmentType\": \"%s\",\n")
         TEXT("%s\"climate\": \"%s\",\n")
         TEXT("%s\"resourceFocus\": \"%s\",\n")
+        TEXT("%s\"terrainType\": \"%s\",\n")
+        TEXT("%s\"provinceIndex\": %d,\n")
+        TEXT("%s\"populationWeight\": %d,\n")
+        TEXT("%s\"areaWeight\": %d,\n")
         TEXT("%s\"strategicValue\": %d,\n")
         TEXT("%s\"stability\": %d,\n")
         TEXT("%s\"unrest\": %d,\n")
@@ -2053,6 +2149,8 @@ FString FDemocracyProvinceOwnershipState::ToJson(int32 IndentSpaces) const
         TEXT("%s\"lastChangedTurn\": %d\n")
         TEXT("%s}"),
         *Pad, *JsonEscape(ProvinceId),
+        *Pad, *JsonEscape(CountryId),
+        *Pad, *JsonEscape(MapRegionId),
         *Pad, *JsonEscape(ProvinceName),
         *Pad, *JsonEscape(ContinentName),
         *Pad, *JsonEscape(OriginalCountryName),
@@ -2061,6 +2159,10 @@ FString FDemocracyProvinceOwnershipState::ToJson(int32 IndentSpaces) const
         *Pad, *JsonEscape(GovernmentType),
         *Pad, *JsonEscape(Climate),
         *Pad, *JsonEscape(ResourceFocus),
+        *Pad, *JsonEscape(TerrainType),
+        *Pad, ProvinceIndex,
+        *Pad, PopulationWeight,
+        *Pad, AreaWeight,
         *Pad, StrategicValue,
         *Pad, Stability,
         *Pad, Unrest,
@@ -2075,9 +2177,12 @@ FString FDemocracyCountryOwnershipState::ToJson(int32 IndentSpaces) const
     const FString Pad = Indent(IndentSpaces);
     return FString::Printf(
         TEXT("{\n")
+        TEXT("%s\"countryId\": \"%s\",\n")
+        TEXT("%s\"mapRegionId\": \"%s\",\n")
         TEXT("%s\"countryName\": \"%s\",\n")
         TEXT("%s\"continentName\": \"%s\",\n")
         TEXT("%s\"governmentType\": \"%s\",\n")
+        TEXT("%s\"mapCountryIndex\": %d,\n")
         TEXT("%s\"totalProvinces\": %d,\n")
         TEXT("%s\"controlledProvinces\": %d,\n")
         TEXT("%s\"occupiedProvinces\": %d,\n")
@@ -2085,13 +2190,18 @@ FString FDemocracyCountryOwnershipState::ToJson(int32 IndentSpaces) const
         TEXT("%s\"borderProvinces\": %d,\n")
         TEXT("%s\"resourceBase\": %d,\n")
         TEXT("%s\"militaryValue\": %d,\n")
+        TEXT("%s\"populationWeight\": %d,\n")
+        TEXT("%s\"areaWeight\": %d,\n")
         TEXT("%s\"playerCountry\": %s,\n")
         TEXT("%s\"capitalControlled\": %s,\n")
         TEXT("%s\"provinceIds\": %s\n")
         TEXT("%s}"),
+        *Pad, *JsonEscape(CountryId),
+        *Pad, *JsonEscape(MapRegionId),
         *Pad, *JsonEscape(CountryName),
         *Pad, *JsonEscape(ContinentName),
         *Pad, *JsonEscape(GovernmentType),
+        *Pad, MapCountryIndex,
         *Pad, TotalProvinces,
         *Pad, ControlledProvinces,
         *Pad, OccupiedProvinces,
@@ -2099,6 +2209,8 @@ FString FDemocracyCountryOwnershipState::ToJson(int32 IndentSpaces) const
         *Pad, BorderProvinces,
         *Pad, ResourceBase,
         *Pad, MilitaryValue,
+        *Pad, PopulationWeight,
+        *Pad, AreaWeight,
         *Pad, bPlayerCountry ? TEXT("true") : TEXT("false"),
         *Pad, bCapitalControlled ? TEXT("true") : TEXT("false"),
         *Pad, *StringArrayToJson(ProvinceIds),
@@ -2155,9 +2267,15 @@ FString FDemocracyMapOwnershipState::ToJson(int32 IndentSpaces) const
     ContinentJson += FString::Printf(TEXT("\n%s]"), *Pad);
     return FString::Printf(
         TEXT("{\n")
+        TEXT("%s\"planetName\": \"%s\",\n")
+        TEXT("%s\"mapDataVersion\": \"%s\",\n")
+        TEXT("%s\"durableCountryTarget\": %d,\n")
         TEXT("%s\"lastUpdatedTurn\": %d,\n")
         TEXT("%s\"totalCountries\": %d,\n")
         TEXT("%s\"totalProvinces\": %d,\n")
+        TEXT("%s\"totalMapRegionCount\": %d,\n")
+        TEXT("%s\"totalPopulationWeight\": %d,\n")
+        TEXT("%s\"totalAreaWeight\": %d,\n")
         TEXT("%s\"playerControlledProvinces\": %d,\n")
         TEXT("%s\"contestedProvinces\": %d,\n")
         TEXT("%s\"borderProvinceCount\": %d,\n")
@@ -2167,9 +2285,15 @@ FString FDemocracyMapOwnershipState::ToJson(int32 IndentSpaces) const
         TEXT("%s\"countries\": %s,\n")
         TEXT("%s\"continents\": %s\n")
         TEXT("%s}"),
+        *Pad, *JsonEscape(PlanetName),
+        *Pad, *JsonEscape(MapDataVersion),
+        *Pad, DurableCountryTarget,
         *Pad, LastUpdatedTurn,
         *Pad, TotalCountries,
         *Pad, TotalProvinces,
+        *Pad, TotalMapRegionCount,
+        *Pad, TotalPopulationWeight,
+        *Pad, TotalAreaWeight,
         *Pad, PlayerControlledProvinces,
         *Pad, ContestedProvinces,
         *Pad, BorderProvinceCount,
