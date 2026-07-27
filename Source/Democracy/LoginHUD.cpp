@@ -5194,7 +5194,14 @@ void ALoginHUD::HandleOfficeInteractable(const FString& InteractionName)
     }
     if (InteractionName.Equals(TEXT("HallwaySideDoor"), ESearchCase::IgnoreCase))
     {
-        UE_LOG(LogTemp, Log, TEXT("Hallway side door is visible but not connected to a destination yet."));
+        bInOfficeMode = true;
+        ShowScreen(ELoginFlowScreen::OfficeWorldRts);
+        if (PlayerController)
+        {
+            PlayerController->bShowMouseCursor = true;
+            FInputModeGameAndUI InputMode;
+            PlayerController->SetInputMode(InputMode);
+        }
         return;
     }
 

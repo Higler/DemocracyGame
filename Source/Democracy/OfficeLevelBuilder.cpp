@@ -586,7 +586,7 @@ void AOfficeLevelBuilder::BuildOffice()
     {
         SpawnBox(TEXT("Hallway Side Door Placeholder"), FVector(285.0f, -1220.0f, 145.0f), FVector(0.12f, 1.55f, 2.9f), FLinearColor(0.22f, 0.11f, 0.045f), false);
     }
-    SpawnInteractableTarget(TEXT("HallwaySideDoor"), TEXT("Door is not connected yet."), FVector(235.0f, -1220.0f, 150.0f), FVector(1.0f, 2.9f, 3.0f));
+    SpawnInteractableTarget(TEXT("HallwaySideDoor"), TEXT("Enter the RTS command view."), FVector(235.0f, -1220.0f, 150.0f), FVector(1.0f, 2.9f, 3.0f));
 
     if (!SpawnSkeletalAssetMesh(TEXT("Hallway Left Branch Door"), TEXT("/Game/DemocracyOffice/Props/ClassicWoodenDoor/door/SkeletalMeshes/door.door"), FVector(-520.0f, -2305.0f, 133.0f), FRotator(0.0f, 180.0f, 0.0f), FVector(1.15f, 1.15f, 1.15f), false))
     {
@@ -791,5 +791,5 @@ void AOfficeLevelBuilder::BuildOffice()
     SpawnAssetMesh(TEXT("Earth Globe Object 10"), TEXT("/Game/DemocracyOffice/Props/EarthGlobe/earth_globe8k/StaticMeshes/Object_10.Object_10"), GlobeLocation, GlobeRotation, GlobeScale, false);
     SpawnAssetMesh(TEXT("Earth Globe Object 11"), TEXT("/Game/DemocracyOffice/Props/EarthGlobe/earth_globe8k/StaticMeshes/Object_11.Object_11"), GlobeLocation, GlobeRotation, GlobeScale, false);
     SpawnAssetMesh(TEXT("Earth Globe Object 12"), TEXT("/Game/DemocracyOffice/Props/EarthGlobe/earth_globe8k/StaticMeshes/Object_12.Object_12"), GlobeLocation, GlobeRotation, GlobeScale, false);
-    SpawnInteractableTarget(TEXT("Globe"), TEXT("Open world RTS command view."), FVector(740.0f, 555.0f, 230.0f), FVector(2.8f, 2.8f, 4.8f));
+    SpawnInteractableTarget(TEXT("Globe"), TEXT("Open the world map."), FVector(740.0f, 555.0f, 155.0f), FVector(3.8f, 3.8f, 3.6f));
 }
