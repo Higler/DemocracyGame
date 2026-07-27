@@ -51,8 +51,15 @@ struct FDemocracyPolicyState
     FString DiplomacyPolicy = TEXT("Neutral Engagement");
     FString CivilPolicy = TEXT("Public Stability");
     int32 PolicyChangeCount = 0;
+    int32 LastEconomicPolicyTurn = -100;
+    int32 LastEnvironmentalPolicyTurn = -100;
+    int32 LastMilitaryPolicyTurn = -100;
+    int32 LastDiplomacyPolicyTurn = -100;
+    int32 LastCivilPolicyTurn = -100;
+    int32 PolicyCooldownTurns = 2;
     FString LastPolicyChangeSummary = TEXT("Initial policy platform.");
     TArray<FString> ActivePolicyEffects;
+    TArray<FString> PolicyRuleStatus;
 
     FString ToJson(int32 IndentSpaces = 2) const;
 };
@@ -155,11 +162,18 @@ struct FDemocracyActiveEventState
     FString Description;
     FString TriggerReason;
     int32 CreatedTurn = 1;
+    int32 DeadlineTurn = 0;
     int32 Severity = 0;
     bool bTriggered = false;
     bool bResolved = false;
+    FString CompletionState = TEXT("Active");
     FString SelectedChoiceId;
     FString ResolutionSummary;
+    FString UnresolvedPenaltySummary;
+    FString FollowUpEventType;
+    FString FollowUpTitle;
+    FString FollowUpDescription;
+    int32 FollowUpSeverityDelta = 10;
     TArray<FDemocracyEventChoiceState> Choices;
 
     FString ToJson(int32 IndentSpaces = 2) const;
@@ -238,7 +252,12 @@ struct FDemocracyEconomyBudgetState
     int32 Inflation = 2;
     int32 PublicServices = 55;
     int32 ProductionEfficiency = 50;
+    int32 DebtCapacity = 1200;
+    int32 SpendingLimit = 120;
+    int32 CreditStress = 0;
+    bool bSpendingLimited = false;
     FString SpendingPosture = TEXT("Balanced Services");
+    FString BudgetConstraintStatus = TEXT("Budget constraints awaiting first recalculation.");
     FString LastBudgetSummary = TEXT("Initial budget loaded.");
 
     FString ToJson(int32 IndentSpaces = 2) const;
@@ -453,6 +472,41 @@ struct FDemocracyWorldMapState
     FString ToJson(int32 IndentSpaces = 2) const;
 };
 
+struct FDemocracyDiplomacyRelationshipState
+{
+    FString CountryName;
+    FString ContinentName;
+    FString GovernmentType;
+    FString RelationshipStatus = TEXT("Neutral");
+    bool bTradePartner = false;
+    bool bSanctionsActive = false;
+    FString TreatyStatus = TEXT("None");
+    int32 BorderTension = 0;
+    int32 Trust = 50;
+    int32 TradeValue = 0;
+    int32 LastChangedTurn = 1;
+    TArray<FString> ActiveTreaties;
+    TArray<FString> Notes;
+
+    FString ToJson(int32 IndentSpaces = 2) const;
+};
+
+struct FDemocracyDiplomacyMatrixState
+{
+    int32 LastUpdatedTurn = 1;
+    int32 AllyCount = 0;
+    int32 NeutralCount = 0;
+    int32 RivalCount = 0;
+    int32 HostileCount = 0;
+    int32 TradePartnerCount = 0;
+    int32 SanctionsCount = 0;
+    int32 TreatyCount = 0;
+    int32 AverageBorderTension = 0;
+    FString Summary = TEXT("Diplomacy relationship matrix has not been initialized yet.");
+    TArray<FDemocracyDiplomacyRelationshipState> Relationships;
+
+    FString ToJson(int32 IndentSpaces = 2) const;
+};
 struct FDemocracyCountryState
 {
     FString CountryName;
@@ -490,6 +544,115 @@ struct FDemocracyRivalCountryState
     FString ToJson(int32 IndentSpaces = 2) const;
 };
 
+struct FDemocracyRtsOutcomeState
+{
+    int32 Turn = 1;
+    FString OutcomeId;
+    FString ConflictName;
+    FString OpponentCountry;
+    FString OutcomeType = TEXT("Stalemate");
+    int32 TerritoryDelta = 0;
+    int32 Casualties = 0;
+    int32 ResourceDisruption = 0;
+    int32 WarFatigueDelta = 0;
+    int32 DiplomaticDamage = 0;
+    int32 StabilityDelta = 0;
+    int32 InvasionRiskDelta = 0;
+    int32 BudgetStrain = 0;
+    bool bAppliedToSimulation = false;
+    FString Summary;
+    TArray<FString> ConsequenceTags;
+
+    FString ToJson(int32 IndentSpaces = 2) const;
+};
+
+struct FDemocracyRtsBackflowState
+{
+    int32 LastAppliedTurn = 0;
+    int32 PendingOutcomeCount = 0;
+    int32 TotalTerritoryDelta = 0;
+    int32 TotalCasualties = 0;
+    int32 WarFatigue = 0;
+    int32 ResourceDisruptionPressure = 0;
+    int32 BudgetStrainPressure = 0;
+    int32 DiplomaticDamagePressure = 0;
+    FString LastOutcomeSummary = TEXT("No RTS outcomes have been applied to the simulation yet.");
+    TArray<FDemocracyRtsOutcomeState> PendingOutcomes;
+    TArray<FDemocracyRtsOutcomeState> OutcomeHistory;
+
+    FString ToJson(int32 IndentSpaces = 2) const;
+};
+
+struct FDemocracyProvinceOwnershipState
+{
+    FString ProvinceId;
+    FString ProvinceName;
+    FString ContinentName;
+    FString OriginalCountryName;
+    FString CurrentOwnerCountryName;
+    FString CurrentControllerCountryName;
+    FString GovernmentType;
+    FString Climate;
+    FString ResourceFocus;
+    int32 StrategicValue = 1;
+    int32 Stability = 50;
+    int32 Unrest = 20;
+    bool bPlayerControlled = false;
+    bool bBorderProvince = false;
+    int32 LastChangedTurn = 1;
+
+    FString ToJson(int32 IndentSpaces = 2) const;
+};
+
+struct FDemocracyCountryOwnershipState
+{
+    FString CountryName;
+    FString ContinentName;
+    FString GovernmentType;
+    int32 TotalProvinces = 0;
+    int32 ControlledProvinces = 0;
+    int32 OccupiedProvinces = 0;
+    int32 LostProvinces = 0;
+    int32 BorderProvinces = 0;
+    int32 ResourceBase = 0;
+    int32 MilitaryValue = 0;
+    bool bPlayerCountry = false;
+    bool bCapitalControlled = true;
+    TArray<FString> ProvinceIds;
+
+    FString ToJson(int32 IndentSpaces = 2) const;
+};
+
+struct FDemocracyContinentOwnershipState
+{
+    FString ContinentName;
+    FString Climate;
+    int32 CountryCount = 0;
+    int32 ProvinceCount = 0;
+    int32 PlayerControlledProvinces = 0;
+    int32 ContestedProvinces = 0;
+    TArray<FString> CountryNames;
+
+    FString ToJson(int32 IndentSpaces = 2) const;
+};
+
+struct FDemocracyMapOwnershipState
+{
+    int32 LastUpdatedTurn = 1;
+    int32 TotalCountries = 0;
+    int32 TotalProvinces = 0;
+    int32 PlayerControlledProvinces = 0;
+    int32 ContestedProvinces = 0;
+    int32 BorderProvinceCount = 0;
+    FString PlayerCountryName;
+    FString Summary = TEXT("Map ownership model has not been initialized yet.");
+    TArray<FDemocracyProvinceOwnershipState> Provinces;
+    TArray<FDemocracyCountryOwnershipState> Countries;
+    TArray<FDemocracyContinentOwnershipState> Continents;
+
+    FString ToJson(int32 IndentSpaces = 2) const;
+};
+
 struct FDemocracyRtsWorldState
 {
     int32 SimulationSecond = 0;
@@ -498,6 +661,70 @@ struct FDemocracyRtsWorldState
     int32 KnownRivalCountries = 3;
     TArray<FString> ActiveStrategicLayers;
     TArray<FDemocracyRivalCountryState> Rivals;
+    FDemocracyRtsBackflowState Backflow;
+    FDemocracyMapOwnershipState Ownership;
+
+    FString ToJson(int32 IndentSpaces = 2) const;
+};
+
+
+struct FDemocracyCommandAuthorityActionState
+{
+    FString CommandId;
+    FString Label;
+    FString AuthorityLayer = TEXT("Office");
+    FString CommandType = TEXT("Civil");
+    FString ExecutionSurface = TEXT("Computer");
+    bool bOfficeAllowed = true;
+    bool bRtsViewAllowed = false;
+    bool bEnabled = true;
+    int32 CooldownTurns = 1;
+    int32 LastExecutedTurn = -100;
+    int32 TreasuryCost = 0;
+    int32 ApprovalDelta = 0;
+    int32 StabilityDelta = 0;
+    int32 UnrestDelta = 0;
+    int32 DiplomacyDelta = 0;
+    int32 MilitaryDelta = 0;
+    int32 InvasionRiskDelta = 0;
+    int32 ResourceDelta = 0;
+    FString Prerequisite;
+    FString EffectPreview;
+    FString DisabledReason;
+
+    FString ToJson(int32 IndentSpaces = 2) const;
+};
+
+struct FDemocracyCommandAuthorityState
+{
+    int32 LastUpdatedTurn = 1;
+    FString ActiveCommandPosture = TEXT("Civil Administration");
+    FString OfficeAuthoritySummary = TEXT("Office authority has not been initialized yet.");
+    FString RtsAuthoritySummary = TEXT("RTS authority has not been initialized yet.");
+    FString LastCommandSummary = TEXT("No command authority orders issued yet.");
+    TArray<FDemocracyCommandAuthorityActionState> Actions;
+
+    FString ToJson(int32 IndentSpaces = 2) const;
+};
+
+struct FDemocracyObjectiveState
+{
+    FString Mode = TEXT("SinglePlayer");
+    FString PlayerGovernmentType = TEXT("Democracy");
+    FString GovernmentTransitionTarget;
+    int32 GovernmentTransitionProgress = 0;
+    int32 GovernmentTransitionTurnsRemaining = 0;
+    int32 DemocraticCountryCount = 0;
+    int32 DictatorshipCountryCount = 0;
+    int32 OtherGovernmentCount = 0;
+    bool bSoftVictoryAchieved = false;
+    int32 SoftVictoryTurn = 0;
+    bool bSimulationContinuesAfterVictory = true;
+    int32 RegressionRisk = 0;
+    FString LongTermObjective = TEXT("Stabilize the state and convert dictatorships through diplomacy, policy pressure, and influence.");
+    FString ObjectiveSummary = TEXT("Objective state has not been evaluated yet.");
+    TArray<FString> ActiveObjectiveNotes;
+    TArray<FString> AllianceRules;
 
     FString ToJson(int32 IndentSpaces = 2) const;
 };
@@ -506,7 +733,7 @@ struct FDemocracySimulationState
 {
     int32 Turn = 1;
     FString Phase = TEXT("Initial Setup");
-    float RealTimeTickSeconds = 1.0f;
+    float RealTimeTickSeconds = 5.0f;
     bool bPaused = false;
     FDemocracyCountryState PlayerCountry;
     FDemocracyFailureRiskState FailureRisk;
@@ -523,7 +750,10 @@ struct FDemocracySimulationState
     FDemocracyDevelopmentSystemState DevelopmentSystem;
     FDemocracyDecisionHistoryState DecisionHistory;
     FDemocracyWorldMapState WorldMap;
+    FDemocracyDiplomacyMatrixState DiplomacyMatrix;
     FDemocracyRtsWorldState RtsWorld;
+    FDemocracyCommandAuthorityState CommandAuthority;
+    FDemocracyObjectiveState ObjectiveState;
 
     FString ToJson(int32 IndentSpaces = 2) const;
 };

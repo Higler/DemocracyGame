@@ -16,7 +16,9 @@ AOfficePlayerPawn::AOfficePlayerPawn()
     GetCharacterMovement()->MaxWalkSpeed = 420.0f;
     GetCharacterMovement()->MaxFlySpeed = 420.0f;
     GetCharacterMovement()->BrakingDecelerationFlying = 1600.0f;
-    GetCharacterMovement()->GravityScale = 0.0f;
+    GetCharacterMovement()->GravityScale = 1.0f;
+    GetCharacterMovement()->MaxStepHeight = 45.0f;
+    GetCharacterMovement()->SetWalkableFloorAngle(50.0f);
     GetCharacterMovement()->bOrientRotationToMovement = false;
     bUseControllerRotationYaw = true;
 
@@ -37,8 +39,10 @@ void AOfficePlayerPawn::SetInvertLookY(bool bShouldInvertLookY)
 void AOfficePlayerPawn::BeginPlay()
 {
     Super::BeginPlay();
-    GetCharacterMovement()->GravityScale = 0.0f;
-    GetCharacterMovement()->SetMovementMode(MOVE_Flying);
+    GetCharacterMovement()->GravityScale = 1.0f;
+    GetCharacterMovement()->MaxStepHeight = 45.0f;
+    GetCharacterMovement()->SetWalkableFloorAngle(50.0f);
+    GetCharacterMovement()->SetMovementMode(MOVE_Walking);
 
     if (GEngine)
     {
@@ -51,14 +55,14 @@ void AOfficePlayerPawn::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
 
-    if (!FMath::IsNearlyEqual(GetActorLocation().Z, 90.0f, 1.0f))
+    if (GetActorLocation().Z < -250.0f)
     {
         SetActorLocation(FVector(GetActorLocation().X, GetActorLocation().Y, 90.0f), false, nullptr, ETeleportType::TeleportPhysics);
         GetCharacterMovement()->Velocity = FVector::ZeroVector;
 
         if (GEngine)
         {
-            GEngine->AddOnScreenDebugMessage(-1, 2.0f, FColor::Yellow, TEXT("Office pawn below room safety floor; reset to office height."));
+            GEngine->AddOnScreenDebugMessage(-1, 2.0f, FColor::Yellow, TEXT("Office pawn fell below room safety floor; reset to office height."));
         }
     }
 
@@ -86,11 +90,9 @@ void AOfficePlayerPawn::HandleMovement(float DeltaSeconds)
         const FRotator YawOnlyRotation(0.0f, PlayerController->GetControlRotation().Yaw, 0.0f);
         const FVector Forward = FRotationMatrix(YawOnlyRotation).GetUnitAxis(EAxis::X);
         const FVector Right = FRotationMatrix(YawOnlyRotation).GetUnitAxis(EAxis::Y);
-        const FVector MoveDelta = (Forward * ForwardInput + Right * RightInput).GetSafeNormal() * GetCharacterMovement()->MaxFlySpeed * DeltaSeconds;
-        SetActorLocation(GetActorLocation() + MoveDelta, true);
+        const FVector MoveDirection = (Forward * ForwardInput + Right * RightInput).GetSafeNormal();
+        AddMovementInput(MoveDirection, 1.0f);
     }
-
-    GetCharacterMovement()->Velocity = FVector::ZeroVector;
 
     if (!FMath::IsNearlyZero(YawInput))
     {
@@ -111,6 +113,9 @@ void AOfficePlayerPawn::HandleInteraction()
         return;
     }
 
+    AOfficeInteractableActor* TargetInteractable = FindBestInteractableTarget();
+    UpdateInteractionPrompt(TargetInteractable);
+
     const bool bInteractPressed = PlayerController->IsInputKeyDown(EKeys::E);
     if (!bInteractPressed || bWasInteractPressed)
     {
@@ -120,23 +125,90 @@ void AOfficePlayerPawn::HandleInteraction()
 
     bWasInteractPressed = true;
 
-    const FVector Start = CameraComponent->GetComponentLocation();
-    const FVector End = Start + CameraComponent->GetForwardVector() * 650.0f;
-
-    FHitResult HitResult;
-    FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(OfficeInteractTrace), false, this);
-
-    if (GetWorld() && GetWorld()->SweepSingleByChannel(HitResult, Start, End, FQuat::Identity, ECC_WorldDynamic, FCollisionShape::MakeSphere(85.0f), QueryParams))
+    if (TargetInteractable)
     {
-        if (AOfficeInteractableActor* Interactable = Cast<AOfficeInteractableActor>(HitResult.GetActor()))
-        {
-            Interactable->Interact();
-            return;
-        }
+        TargetInteractable->Interact();
+        return;
     }
 
     if (GEngine)
     {
-        GEngine->AddOnScreenDebugMessage(-1, 1.5f, FColor::Silver, TEXT("No interactable in range."));
+        GEngine->AddOnScreenDebugMessage(-1, 1.5f, FColor::Silver, TEXT("No interactable targeted."));
+    }
+}
+
+AOfficeInteractableActor* AOfficePlayerPawn::FindBestInteractableTarget() const
+{
+    if (!GetWorld() || !CameraComponent)
+    {
+        return nullptr;
+    }
+
+    const FVector Start = CameraComponent->GetComponentLocation();
+    const FVector Forward = CameraComponent->GetForwardVector().GetSafeNormal();
+    const FVector End = Start + Forward * 950.0f;
+
+    TArray<FHitResult> HitResults;
+    FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(OfficeInteractTrace), false, this);
+    QueryParams.bFindInitialOverlaps = true;
+
+    if (!GetWorld()->SweepMultiByChannel(HitResults, Start, End, FQuat::Identity, ECC_WorldDynamic, FCollisionShape::MakeSphere(125.0f), QueryParams))
+    {
+        return nullptr;
+    }
+
+    AOfficeInteractableActor* BestInteractable = nullptr;
+    float BestScore = TNumericLimits<float>::Lowest();
+
+    for (const FHitResult& HitResult : HitResults)
+    {
+        AOfficeInteractableActor* Interactable = Cast<AOfficeInteractableActor>(HitResult.GetActor());
+        if (!Interactable)
+        {
+            continue;
+        }
+
+        const FVector ToTarget = Interactable->GetActorLocation() - Start;
+        const float Distance = ToTarget.Size();
+        if (Distance > 1050.0f || Distance <= KINDA_SMALL_NUMBER)
+        {
+            continue;
+        }
+
+        const FVector Direction = ToTarget / Distance;
+        const float AimDot = FVector::DotProduct(Forward, Direction);
+        if (AimDot < 0.20f)
+        {
+            continue;
+        }
+
+        const float AlongTrace = FMath::Max(0.0f, FVector::DotProduct(ToTarget, Forward));
+        const FVector ClosestPointOnTrace = Start + Forward * AlongTrace;
+        const float SideDistance = FVector::Dist(Interactable->GetActorLocation(), ClosestPointOnTrace);
+
+        const float Score = AimDot * 1000.0f - SideDistance * 2.75f - Distance * 0.08f;
+        if (Score > BestScore)
+        {
+            BestScore = Score;
+            BestInteractable = Interactable;
+        }
+    }
+
+    return BestInteractable;
+}
+
+void AOfficePlayerPawn::UpdateInteractionPrompt(AOfficeInteractableActor* TargetInteractable)
+{
+    AOfficeInteractableActor* PreviousTarget = CurrentTargetInteractable.Get();
+    if (PreviousTarget && PreviousTarget != TargetInteractable)
+    {
+        PreviousTarget->SetFocused(false);
+    }
+
+    CurrentTargetInteractable = TargetInteractable;
+
+    if (TargetInteractable)
+    {
+        TargetInteractable->SetFocused(true);
     }
 }

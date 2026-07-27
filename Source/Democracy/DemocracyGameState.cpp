@@ -408,6 +408,266 @@ namespace
         return WorldMap;
     }
 
+
+    FString RelationshipStatusForAlignment(const FString& Alignment)
+    {
+        if (Alignment.Equals(TEXT("Player"), ESearchCase::IgnoreCase) || Alignment.Equals(TEXT("Allied"), ESearchCase::IgnoreCase))
+        {
+            return TEXT("Ally");
+        }
+        if (Alignment.Equals(TEXT("Hostile"), ESearchCase::IgnoreCase))
+        {
+            return TEXT("Hostile");
+        }
+        if (Alignment.Equals(TEXT("Tense"), ESearchCase::IgnoreCase))
+        {
+            return TEXT("Rival");
+        }
+        return TEXT("Neutral");
+    }
+
+    FDemocracyDiplomacyMatrixState BuildDiplomacyMatrixState(const FDemocracyWorldMapState& WorldMap, int32 CurrentTurn)
+    {
+        FDemocracyDiplomacyMatrixState Matrix;
+        Matrix.LastUpdatedTurn = CurrentTurn;
+        int32 BorderTensionTotal = 0;
+
+        for (const FDemocracyContinentState& Continent : WorldMap.Continents)
+        {
+            for (const FDemocracyGeneratedCountryState& Country : Continent.Countries)
+            {
+                FDemocracyDiplomacyRelationshipState Relationship;
+                Relationship.CountryName = Country.CountryName;
+                Relationship.ContinentName = Country.ContinentName;
+                Relationship.GovernmentType = Country.PoliticalType;
+                Relationship.RelationshipStatus = RelationshipStatusForAlignment(Country.DiplomaticAlignment);
+                Relationship.BorderTension = Country.BorderPressure;
+                Relationship.LastChangedTurn = CurrentTurn;
+                Relationship.Trust = FMath::Clamp(Country.Stability + (Country.bAlliedWithPlayer ? 20 : 0) - Country.BorderPressure / 2, 0, 100);
+                Relationship.bTradePartner = Relationship.RelationshipStatus.Equals(TEXT("Ally"), ESearchCase::IgnoreCase) ||
+                    (Relationship.RelationshipStatus.Equals(TEXT("Neutral"), ESearchCase::IgnoreCase) && Relationship.Trust >= 45);
+                Relationship.bSanctionsActive = Relationship.RelationshipStatus.Equals(TEXT("Hostile"), ESearchCase::IgnoreCase) && Country.BorderPressure >= 55;
+                Relationship.TreatyStatus = Relationship.RelationshipStatus.Equals(TEXT("Ally"), ESearchCase::IgnoreCase) ? TEXT("Mutual Recognition") : TEXT("None");
+                Relationship.TradeValue = Relationship.bTradePartner ? FMath::Clamp(Country.PowerScore / 2 + Relationship.Trust / 3 - Country.BorderPressure / 4, 5, 80) : 0;
+                if (!Relationship.TreatyStatus.Equals(TEXT("None"), ESearchCase::IgnoreCase))
+                {
+                    Relationship.ActiveTreaties.Add(Relationship.TreatyStatus);
+                }
+                if (Relationship.bSanctionsActive)
+                {
+                    Relationship.Notes.Add(TEXT("Sanctions active due to hostile posture and border pressure."));
+                }
+                if (Relationship.BorderTension >= 60)
+                {
+                    Relationship.Notes.Add(TEXT("High border tension; this country can drive invasion risk."));
+                }
+                if (Relationship.bTradePartner)
+                {
+                    Relationship.Notes.Add(TEXT("Trade route available for resource-chain imports and exports."));
+                }
+
+                if (Relationship.RelationshipStatus.Equals(TEXT("Ally"), ESearchCase::IgnoreCase)) { ++Matrix.AllyCount; }
+                else if (Relationship.RelationshipStatus.Equals(TEXT("Rival"), ESearchCase::IgnoreCase)) { ++Matrix.RivalCount; }
+                else if (Relationship.RelationshipStatus.Equals(TEXT("Hostile"), ESearchCase::IgnoreCase)) { ++Matrix.HostileCount; }
+                else { ++Matrix.NeutralCount; }
+                if (Relationship.bTradePartner) { ++Matrix.TradePartnerCount; }
+                if (Relationship.bSanctionsActive) { ++Matrix.SanctionsCount; }
+                if (Relationship.ActiveTreaties.Num() > 0) { ++Matrix.TreatyCount; }
+                BorderTensionTotal += Relationship.BorderTension;
+                Matrix.Relationships.Add(Relationship);
+            }
+        }
+
+        Matrix.AverageBorderTension = Matrix.Relationships.Num() > 0 ? BorderTensionTotal / Matrix.Relationships.Num() : 0;
+        Matrix.Summary = FString::Printf(TEXT("Diplomacy matrix initialized: %d allies, %d neutral, %d rivals, %d hostile, %d trade partners, %d sanctions, average border tension %d."),
+            Matrix.AllyCount, Matrix.NeutralCount, Matrix.RivalCount, Matrix.HostileCount, Matrix.TradePartnerCount, Matrix.SanctionsCount, Matrix.AverageBorderTension);
+        return Matrix;
+    }
+
+
+    FString ProvinceResourceFocus(int32 ProvinceIndex, const FString& Climate)
+    {
+        static const TCHAR* Focuses[] = { TEXT("Food"), TEXT("Fuel"), TEXT("Wood"), TEXT("Metals"), TEXT("Water") };
+        if (Climate.Equals(TEXT("Northern Cold"), ESearchCase::IgnoreCase))
+        {
+            static const TCHAR* NorthernFocuses[] = { TEXT("Fuel"), TEXT("Metals"), TEXT("Wood"), TEXT("Water"), TEXT("Food") };
+            return NorthernFocuses[ProvinceIndex % 5];
+        }
+        if (Climate.Equals(TEXT("Southern Tropical"), ESearchCase::IgnoreCase))
+        {
+            static const TCHAR* SouthernFocuses[] = { TEXT("Food"), TEXT("Water"), TEXT("Wood"), TEXT("Fuel"), TEXT("Metals") };
+            return SouthernFocuses[ProvinceIndex % 5];
+        }
+        return Focuses[ProvinceIndex % 5];
+    }
+
+    void RecalculateMapOwnership(FDemocracyMapOwnershipState& Ownership)
+    {
+        Ownership.TotalCountries = Ownership.Countries.Num();
+        Ownership.TotalProvinces = Ownership.Provinces.Num();
+        Ownership.PlayerControlledProvinces = 0;
+        Ownership.ContestedProvinces = 0;
+        Ownership.BorderProvinceCount = 0;
+        for (FDemocracyCountryOwnershipState& Country : Ownership.Countries)
+        {
+            Country.TotalProvinces = Country.ProvinceIds.Num();
+            Country.ControlledProvinces = 0;
+            Country.OccupiedProvinces = 0;
+            Country.LostProvinces = 0;
+            Country.BorderProvinces = 0;
+            Country.ResourceBase = 0;
+            Country.MilitaryValue = 0;
+        }
+        for (FDemocracyContinentOwnershipState& Continent : Ownership.Continents)
+        {
+            Continent.ProvinceCount = 0;
+            Continent.PlayerControlledProvinces = 0;
+            Continent.ContestedProvinces = 0;
+        }
+        for (const FDemocracyProvinceOwnershipState& Province : Ownership.Provinces)
+        {
+            if (Province.bPlayerControlled) ++Ownership.PlayerControlledProvinces;
+            if (!Province.CurrentControllerCountryName.Equals(Province.OriginalCountryName, ESearchCase::IgnoreCase)) ++Ownership.ContestedProvinces;
+            if (Province.bBorderProvince) ++Ownership.BorderProvinceCount;
+            for (FDemocracyCountryOwnershipState& Country : Ownership.Countries)
+            {
+                if (Country.CountryName.Equals(Province.OriginalCountryName, ESearchCase::IgnoreCase))
+                {
+                    if (Province.CurrentControllerCountryName.Equals(Country.CountryName, ESearchCase::IgnoreCase)) ++Country.ControlledProvinces;
+                    else ++Country.LostProvinces;
+                    if (Province.bBorderProvince) ++Country.BorderProvinces;
+                    Country.ResourceBase += Province.StrategicValue;
+                    Country.MilitaryValue += Province.bBorderProvince ? Province.StrategicValue * 2 : Province.StrategicValue;
+                    break;
+                }
+            }
+            for (FDemocracyCountryOwnershipState& Country : Ownership.Countries)
+            {
+                if (!Province.CurrentControllerCountryName.Equals(Province.OriginalCountryName, ESearchCase::IgnoreCase) && Country.CountryName.Equals(Province.CurrentControllerCountryName, ESearchCase::IgnoreCase))
+                {
+                    ++Country.OccupiedProvinces;
+                    break;
+                }
+            }
+            for (FDemocracyContinentOwnershipState& Continent : Ownership.Continents)
+            {
+                if (Continent.ContinentName.Equals(Province.ContinentName, ESearchCase::IgnoreCase))
+                {
+                    ++Continent.ProvinceCount;
+                    if (Province.bPlayerControlled) ++Continent.PlayerControlledProvinces;
+                    if (!Province.CurrentControllerCountryName.Equals(Province.OriginalCountryName, ESearchCase::IgnoreCase)) ++Continent.ContestedProvinces;
+                    break;
+                }
+            }
+        }
+        Ownership.Summary = FString::Printf(TEXT("Ownership: %d countries, %d provinces, %d player controlled, %d contested, %d border provinces."), Ownership.TotalCountries, Ownership.TotalProvinces, Ownership.PlayerControlledProvinces, Ownership.ContestedProvinces, Ownership.BorderProvinceCount);
+    }
+
+    FDemocracyMapOwnershipState BuildMapOwnershipState(const FDemocracyWorldMapState& WorldMap, const FString& PlayerCountryName, int32 CurrentTurn, int32 PlayerProvinceTarget)
+    {
+        FDemocracyMapOwnershipState Ownership;
+        Ownership.LastUpdatedTurn = CurrentTurn;
+        Ownership.PlayerCountryName = PlayerCountryName;
+        int32 GlobalCountryIndex = 0;
+        int32 PlayerProvincesRemaining = FMath::Max(1, PlayerProvinceTarget);
+        for (const FDemocracyContinentState& Continent : WorldMap.Continents)
+        {
+            FDemocracyContinentOwnershipState ContinentOwnership;
+            ContinentOwnership.ContinentName = Continent.ContinentName;
+            ContinentOwnership.Climate = Continent.Climate;
+            ContinentOwnership.CountryCount = Continent.Countries.Num();
+            for (const FDemocracyGeneratedCountryState& Country : Continent.Countries)
+            {
+                const bool bPlayerCountry = Country.CountryName.Equals(PlayerCountryName, ESearchCase::IgnoreCase);
+                const int32 ProvinceCount = FMath::Clamp(2 + Country.PowerScore / 22 + Country.BorderPressure / 35 + (bPlayerCountry ? PlayerProvinceTarget / 4 : 0), 2, 9);
+                FDemocracyCountryOwnershipState CountryOwnership;
+                CountryOwnership.CountryName = Country.CountryName;
+                CountryOwnership.ContinentName = Country.ContinentName;
+                CountryOwnership.GovernmentType = Country.PoliticalType;
+                CountryOwnership.bPlayerCountry = bPlayerCountry;
+                CountryOwnership.bCapitalControlled = true;
+                ContinentOwnership.CountryNames.Add(Country.CountryName);
+                for (int32 ProvinceIndex = 0; ProvinceIndex < ProvinceCount; ++ProvinceIndex)
+                {
+                    FDemocracyProvinceOwnershipState Province;
+                    Province.ProvinceId = FString::Printf(TEXT("%s-%03d-%02d"), *Country.ContinentName.Left(3).ToUpper(), GlobalCountryIndex + 1, ProvinceIndex + 1);
+                    Province.ProvinceName = ProvinceIndex == 0 ? FString::Printf(TEXT("%s Capital District"), *Country.CountryName) : FString::Printf(TEXT("%s Province %d"), *Country.CountryName, ProvinceIndex + 1);
+                    Province.ContinentName = Country.ContinentName;
+                    Province.OriginalCountryName = Country.CountryName;
+                    Province.CurrentOwnerCountryName = Country.CountryName;
+                    Province.CurrentControllerCountryName = Country.CountryName;
+                    Province.GovernmentType = Country.PoliticalType;
+                    Province.Climate = Country.Climate;
+                    Province.ResourceFocus = ProvinceResourceFocus(ProvinceIndex + GlobalCountryIndex, Country.Climate);
+                    Province.StrategicValue = FMath::Clamp(1 + Country.PowerScore / 24 + (ProvinceIndex == 0 ? 2 : 0), 1, 8);
+                    Province.Stability = FMath::Clamp(Country.Stability - ProvinceIndex % 3, 0, 100);
+                    Province.Unrest = FMath::Clamp(100 - Country.Stability + Country.BorderPressure / 3, 0, 100);
+                    Province.bPlayerControlled = bPlayerCountry || PlayerProvincesRemaining > 0;
+                    if (Province.bPlayerControlled)
+                    {
+                        Province.CurrentOwnerCountryName = PlayerCountryName;
+                        Province.CurrentControllerCountryName = PlayerCountryName;
+                        Province.GovernmentType = TEXT("Democracy");
+                        --PlayerProvincesRemaining;
+                    }
+                    Province.bBorderProvince = ProvinceIndex == ProvinceCount - 1 || Country.BorderPressure >= 40 || Province.bPlayerControlled;
+                    Province.LastChangedTurn = CurrentTurn;
+                    Ownership.Provinces.Add(Province);
+                    CountryOwnership.ProvinceIds.Add(Province.ProvinceId);
+                }
+                Ownership.Countries.Add(CountryOwnership);
+                ++GlobalCountryIndex;
+            }
+            Ownership.Continents.Add(ContinentOwnership);
+        }
+        RecalculateMapOwnership(Ownership);
+        return Ownership;
+    }
+
+    FDemocracyCommandAuthorityActionState MakeCommandAuthorityAction(const FString& Id, const FString& Label, const FString& Layer, const FString& Type, const FString& Surface, bool bOffice, bool bRts, int32 Cooldown, int32 Cost, int32 Approval, int32 Stability, int32 Unrest, int32 Diplomacy, int32 Military, int32 InvasionRisk, int32 Resources, const FString& Prereq, const FString& Preview)
+    {
+        FDemocracyCommandAuthorityActionState Action;
+        Action.CommandId = Id;
+        Action.Label = Label;
+        Action.AuthorityLayer = Layer;
+        Action.CommandType = Type;
+        Action.ExecutionSurface = Surface;
+        Action.bOfficeAllowed = bOffice;
+        Action.bRtsViewAllowed = bRts;
+        Action.CooldownTurns = Cooldown;
+        Action.TreasuryCost = Cost;
+        Action.ApprovalDelta = Approval;
+        Action.StabilityDelta = Stability;
+        Action.UnrestDelta = Unrest;
+        Action.DiplomacyDelta = Diplomacy;
+        Action.MilitaryDelta = Military;
+        Action.InvasionRiskDelta = InvasionRisk;
+        Action.ResourceDelta = Resources;
+        Action.Prerequisite = Prereq;
+        Action.EffectPreview = Preview;
+        return Action;
+    }
+
+    FDemocracyCommandAuthorityState BuildCommandAuthorityState(const FDemocracySimulationState& State)
+    {
+        FDemocracyCommandAuthorityState Authority;
+        Authority.LastUpdatedTurn = State.Turn;
+        Authority.ActiveCommandPosture = State.PlayerCountry.Policies.CivilPolicy.Equals(TEXT("Emergency Powers"), ESearchCase::IgnoreCase) ? TEXT("Emergency Administration") : TEXT("Civil Administration");
+        Authority.OfficeAuthoritySummary = TEXT("Office commands can mobilize reserves, defend borders, negotiate, embargo, trade, send aid, and declare emergency measures through advisors, departments, diplomacy, and policy channels.");
+        Authority.RtsAuthoritySummary = TEXT("RTS-view commands can deploy, defend, and contest territory only through the future RTS layer; simulation office receives the outcomes through RTS backflow.");
+        Authority.Actions = {
+            MakeCommandAuthorityAction(TEXT("office_mobilize_reserves"), TEXT("Mobilize Reserves"), TEXT("Office"), TEXT("Security"), TEXT("Computer/Defense"), true, false, 2, 90, -2, 1, 3, -1, 8, -8, -4, TEXT("Requires treasury and Defense ministry authority."), TEXT("Raises military readiness and lowers invasion risk, but costs treasury, resources, approval, and unrest.")),
+            MakeCommandAuthorityAction(TEXT("office_defend_borders"), TEXT("Order Border Defense"), TEXT("Office"), TEXT("Security"), TEXT("Computer/Globe"), true, true, 1, 55, 0, 1, 1, 0, 5, -5, -2, TEXT("Requires active border provinces."), TEXT("Improves readiness and slows invasion pressure without direct troop control from the office.")),
+            MakeCommandAuthorityAction(TEXT("office_negotiate"), TEXT("Negotiate With Rivals"), TEXT("Office"), TEXT("Diplomacy"), TEXT("Meeting Room/Globe"), true, false, 1, 35, 1, 1, -1, 6, -1, -6, 0, TEXT("Requires at least one rival or hostile relation."), TEXT("Improves diplomacy and lowers border tension; may look weak if overused during crises.")),
+            MakeCommandAuthorityAction(TEXT("office_embargo"), TEXT("Authorize Embargo"), TEXT("Office"), TEXT("Diplomacy"), TEXT("Computer/Globe"), true, false, 3, 25, -1, 0, 1, -4, 0, 3, -2, TEXT("Requires hostile relation or high border tension."), TEXT("Pressures hostile states but damages trade, diplomacy, and resource access.")),
+            MakeCommandAuthorityAction(TEXT("office_trade"), TEXT("Expand Trade"), TEXT("Office"), TEXT("Economy"), TEXT("Computer/Treasury"), true, false, 1, 40, 1, 0, -1, 4, 0, -1, 8, TEXT("Requires diplomacy above 30."), TEXT("Improves resources, trade value, and diplomacy at a treasury cost.")),
+            MakeCommandAuthorityAction(TEXT("office_aid"), TEXT("Send Foreign Aid"), TEXT("Office"), TEXT("Diplomacy"), TEXT("Meeting Room/Press"), true, false, 2, 70, 1, 1, -1, 5, 0, -2, -3, TEXT("Requires treasury reserve."), TEXT("Builds diplomatic standing and stability but spends treasury and supplies.")),
+            MakeCommandAuthorityAction(TEXT("office_emergency"), TEXT("Declare Emergency Measures"), TEXT("Office"), TEXT("Emergency"), TEXT("Computer/Phone"), true, false, 4, 120, -5, 5, -8, -3, 3, -6, -5, TEXT("Requires unrest or invasion pressure."), TEXT("Rapidly reduces unrest and risk while damaging approval, legitimacy, diplomacy, and treasury.")),
+            MakeCommandAuthorityAction(TEXT("rts_deploy_forces"), TEXT("Deploy Forces"), TEXT("RTS"), TEXT("Military"), TEXT("RTS View"), false, true, 1, 0, 0, 0, 0, 0, 0, 0, 0, TEXT("Future RTS layer only."), TEXT("Direct troop deployment is not ordered from the simulation office; RTS results flow back after battles.")),
+            MakeCommandAuthorityAction(TEXT("rts_attack_operation"), TEXT("Launch Attack Operation"), TEXT("RTS"), TEXT("Military"), TEXT("RTS View"), false, true, 2, 0, 0, 0, 0, 0, 0, 0, 0, TEXT("Future RTS layer only."), TEXT("Attack orders belong to the RTS layer and will later create casualties, fatigue, diplomacy, and territory backflow."))
+        };
+        return Authority;
+    }
     FDemocracyFailureRiskState BuildFailureRiskState(const FDifficultyProfile& DifficultyProfile)
     {
         FDemocracyFailureRiskState Risk;
@@ -528,8 +788,15 @@ FString FDemocracyPolicyState::ToJson(int32 IndentSpaces) const
         TEXT("%s\"diplomacyPolicy\": \"%s\",\n")
         TEXT("%s\"civilPolicy\": \"%s\",\n")
         TEXT("%s\"policyChangeCount\": %d,\n")
+        TEXT("%s\"lastEconomicPolicyTurn\": %d,\n")
+        TEXT("%s\"lastEnvironmentalPolicyTurn\": %d,\n")
+        TEXT("%s\"lastMilitaryPolicyTurn\": %d,\n")
+        TEXT("%s\"lastDiplomacyPolicyTurn\": %d,\n")
+        TEXT("%s\"lastCivilPolicyTurn\": %d,\n")
+        TEXT("%s\"policyCooldownTurns\": %d,\n")
         TEXT("%s\"lastPolicyChangeSummary\": \"%s\",\n")
-        TEXT("%s\"activePolicyEffects\": %s\n")
+        TEXT("%s\"activePolicyEffects\": %s,\n")
+        TEXT("%s\"policyRuleStatus\": %s\n")
         TEXT("%s}"),
         *Pad, *JsonEscape(EconomicPolicy),
         *Pad, *JsonEscape(EnvironmentalPolicy),
@@ -537,8 +804,92 @@ FString FDemocracyPolicyState::ToJson(int32 IndentSpaces) const
         *Pad, *JsonEscape(DiplomacyPolicy),
         *Pad, *JsonEscape(CivilPolicy),
         *Pad, PolicyChangeCount,
+        *Pad, LastEconomicPolicyTurn,
+        *Pad, LastEnvironmentalPolicyTurn,
+        *Pad, LastMilitaryPolicyTurn,
+        *Pad, LastDiplomacyPolicyTurn,
+        *Pad, LastCivilPolicyTurn,
+        *Pad, PolicyCooldownTurns,
         *Pad, *JsonEscape(LastPolicyChangeSummary),
         *Pad, *StringArrayToJson(ActivePolicyEffects),
+        *Pad, *StringArrayToJson(PolicyRuleStatus),
+        *Indent(IndentSpaces - 2));
+}
+FString FDemocracyDiplomacyRelationshipState::ToJson(int32 IndentSpaces) const
+{
+    const FString Pad = Indent(IndentSpaces);
+    return FString::Printf(
+        TEXT("{\n")
+        TEXT("%s\"countryName\": \"%s\",\n")
+        TEXT("%s\"continentName\": \"%s\",\n")
+        TEXT("%s\"governmentType\": \"%s\",\n")
+        TEXT("%s\"relationshipStatus\": \"%s\",\n")
+        TEXT("%s\"tradePartner\": %s,\n")
+        TEXT("%s\"sanctionsActive\": %s,\n")
+        TEXT("%s\"treatyStatus\": \"%s\",\n")
+        TEXT("%s\"borderTension\": %d,\n")
+        TEXT("%s\"trust\": %d,\n")
+        TEXT("%s\"tradeValue\": %d,\n")
+        TEXT("%s\"lastChangedTurn\": %d,\n")
+        TEXT("%s\"activeTreaties\": %s,\n")
+        TEXT("%s\"notes\": %s\n")
+        TEXT("%s}"),
+        *Pad, *JsonEscape(CountryName),
+        *Pad, *JsonEscape(ContinentName),
+        *Pad, *JsonEscape(GovernmentType),
+        *Pad, *JsonEscape(RelationshipStatus),
+        *Pad, bTradePartner ? TEXT("true") : TEXT("false"),
+        *Pad, bSanctionsActive ? TEXT("true") : TEXT("false"),
+        *Pad, *JsonEscape(TreatyStatus),
+        *Pad, BorderTension,
+        *Pad, Trust,
+        *Pad, TradeValue,
+        *Pad, LastChangedTurn,
+        *Pad, *StringArrayToJson(ActiveTreaties),
+        *Pad, *StringArrayToJson(Notes),
+        *Indent(IndentSpaces - 2));
+}
+
+FString FDemocracyDiplomacyMatrixState::ToJson(int32 IndentSpaces) const
+{
+    const FString Pad = Indent(IndentSpaces);
+    const FString RelationshipPad = Indent(IndentSpaces + 2);
+    FString RelationshipJson = TEXT("[");
+    for (int32 Index = 0; Index < Relationships.Num(); ++Index)
+    {
+        RelationshipJson += FString::Printf(TEXT("\n%s%s"), *RelationshipPad, *Relationships[Index].ToJson(IndentSpaces + 4));
+        if (Index < Relationships.Num() - 1)
+        {
+            RelationshipJson += TEXT(",");
+        }
+    }
+    RelationshipJson += FString::Printf(TEXT("\n%s]"), *Pad);
+
+    return FString::Printf(
+        TEXT("{\n")
+        TEXT("%s\"lastUpdatedTurn\": %d,\n")
+        TEXT("%s\"allyCount\": %d,\n")
+        TEXT("%s\"neutralCount\": %d,\n")
+        TEXT("%s\"rivalCount\": %d,\n")
+        TEXT("%s\"hostileCount\": %d,\n")
+        TEXT("%s\"tradePartnerCount\": %d,\n")
+        TEXT("%s\"sanctionsCount\": %d,\n")
+        TEXT("%s\"treatyCount\": %d,\n")
+        TEXT("%s\"averageBorderTension\": %d,\n")
+        TEXT("%s\"summary\": \"%s\",\n")
+        TEXT("%s\"relationships\": %s\n")
+        TEXT("%s}"),
+        *Pad, LastUpdatedTurn,
+        *Pad, AllyCount,
+        *Pad, NeutralCount,
+        *Pad, RivalCount,
+        *Pad, HostileCount,
+        *Pad, TradePartnerCount,
+        *Pad, SanctionsCount,
+        *Pad, TreatyCount,
+        *Pad, AverageBorderTension,
+        *Pad, *JsonEscape(Summary),
+        *Pad, *RelationshipJson,
         *Indent(IndentSpaces - 2));
 }
 FString FDemocracyCountryState::ToJson(int32 IndentSpaces) const
@@ -765,16 +1116,25 @@ FString FDemocracyActiveEventState::ToJson(int32 IndentSpaces) const
         TEXT("%s\"description\": \"%s\",\n")
         TEXT("%s\"triggerReason\": \"%s\",\n")
         TEXT("%s\"createdTurn\": %d,\n")
+        TEXT("%s\"deadlineTurn\": %d,\n")
         TEXT("%s\"severity\": %d,\n")
         TEXT("%s\"triggered\": %s,\n")
         TEXT("%s\"resolved\": %s,\n")
+        TEXT("%s\"completionState\": \"%s\",\n")
         TEXT("%s\"selectedChoiceId\": \"%s\",\n")
         TEXT("%s\"resolutionSummary\": \"%s\",\n")
+        TEXT("%s\"unresolvedPenaltySummary\": \"%s\",\n")
+        TEXT("%s\"followUpEventType\": \"%s\",\n")
+        TEXT("%s\"followUpTitle\": \"%s\",\n")
+        TEXT("%s\"followUpDescription\": \"%s\",\n")
+        TEXT("%s\"followUpSeverityDelta\": %d,\n")
         TEXT("%s\"choices\": %s\n")
         TEXT("%s}"),
         *Pad, *JsonEscape(EventId), *Pad, *JsonEscape(EventType), *Pad, *JsonEscape(Title), *Pad, *JsonEscape(Description), *Pad, *JsonEscape(TriggerReason),
-        *Pad, CreatedTurn, *Pad, Severity, *Pad, bTriggered ? TEXT("true") : TEXT("false"), *Pad, bResolved ? TEXT("true") : TEXT("false"),
-        *Pad, *JsonEscape(SelectedChoiceId), *Pad, *JsonEscape(ResolutionSummary), *Pad, *ChoiceJson,
+        *Pad, CreatedTurn, *Pad, DeadlineTurn, *Pad, Severity, *Pad, bTriggered ? TEXT("true") : TEXT("false"), *Pad, bResolved ? TEXT("true") : TEXT("false"),
+        *Pad, *JsonEscape(CompletionState), *Pad, *JsonEscape(SelectedChoiceId), *Pad, *JsonEscape(ResolutionSummary),
+        *Pad, *JsonEscape(UnresolvedPenaltySummary), *Pad, *JsonEscape(FollowUpEventType), *Pad, *JsonEscape(FollowUpTitle), *Pad, *JsonEscape(FollowUpDescription), *Pad, FollowUpSeverityDelta,
+        *Pad, *ChoiceJson,
         *Indent(IndentSpaces - 2));
 }
 
@@ -921,7 +1281,12 @@ FString FDemocracyEconomyBudgetState::ToJson(int32 IndentSpaces) const
         TEXT("%s\"inflation\": %d,\n")
         TEXT("%s\"publicServices\": %d,\n")
         TEXT("%s\"productionEfficiency\": %d,\n")
+        TEXT("%s\"debtCapacity\": %d,\n")
+        TEXT("%s\"spendingLimit\": %d,\n")
+        TEXT("%s\"creditStress\": %d,\n")
+        TEXT("%s\"spendingLimited\": %s,\n")
         TEXT("%s\"spendingPosture\": \"%s\",\n")
+        TEXT("%s\"budgetConstraintStatus\": \"%s\",\n")
         TEXT("%s\"lastBudgetSummary\": \"%s\"\n")
         TEXT("%s}"),
         *Pad, TaxRate,
@@ -936,7 +1301,12 @@ FString FDemocracyEconomyBudgetState::ToJson(int32 IndentSpaces) const
         *Pad, Inflation,
         *Pad, PublicServices,
         *Pad, ProductionEfficiency,
+        *Pad, DebtCapacity,
+        *Pad, SpendingLimit,
+        *Pad, CreditStress,
+        *Pad, bSpendingLimited ? TEXT("true") : TEXT("false"),
         *Pad, *JsonEscape(SpendingPosture),
+        *Pad, *JsonEscape(BudgetConstraintStatus),
         *Pad, *JsonEscape(LastBudgetSummary),
         *Indent(IndentSpaces - 2));
 }
@@ -1438,6 +1808,251 @@ FString FDemocracyRivalCountryState::ToJson(int32 IndentSpaces) const
         *Indent(IndentSpaces - 2));
 }
 
+FString FDemocracyRtsOutcomeState::ToJson(int32 IndentSpaces) const
+{
+    const FString Pad = Indent(IndentSpaces);
+    return FString::Printf(
+        TEXT("{\n")
+        TEXT("%s\"turn\": %d,\n")
+        TEXT("%s\"outcomeId\": \"%s\",\n")
+        TEXT("%s\"conflictName\": \"%s\",\n")
+        TEXT("%s\"opponentCountry\": \"%s\",\n")
+        TEXT("%s\"outcomeType\": \"%s\",\n")
+        TEXT("%s\"territoryDelta\": %d,\n")
+        TEXT("%s\"casualties\": %d,\n")
+        TEXT("%s\"resourceDisruption\": %d,\n")
+        TEXT("%s\"warFatigueDelta\": %d,\n")
+        TEXT("%s\"diplomaticDamage\": %d,\n")
+        TEXT("%s\"stabilityDelta\": %d,\n")
+        TEXT("%s\"invasionRiskDelta\": %d,\n")
+        TEXT("%s\"budgetStrain\": %d,\n")
+        TEXT("%s\"appliedToSimulation\": %s,\n")
+        TEXT("%s\"summary\": \"%s\",\n")
+        TEXT("%s\"consequenceTags\": %s\n")
+        TEXT("%s}"),
+        *Pad, Turn,
+        *Pad, *JsonEscape(OutcomeId),
+        *Pad, *JsonEscape(ConflictName),
+        *Pad, *JsonEscape(OpponentCountry),
+        *Pad, *JsonEscape(OutcomeType),
+        *Pad, TerritoryDelta,
+        *Pad, Casualties,
+        *Pad, ResourceDisruption,
+        *Pad, WarFatigueDelta,
+        *Pad, DiplomaticDamage,
+        *Pad, StabilityDelta,
+        *Pad, InvasionRiskDelta,
+        *Pad, BudgetStrain,
+        *Pad, bAppliedToSimulation ? TEXT("true") : TEXT("false"),
+        *Pad, *JsonEscape(Summary),
+        *Pad, *StringArrayToJson(ConsequenceTags),
+        *Indent(IndentSpaces - 2));
+}
+
+FString FDemocracyRtsBackflowState::ToJson(int32 IndentSpaces) const
+{
+    const FString Pad = Indent(IndentSpaces);
+    const FString OutcomePad = Indent(IndentSpaces + 2);
+    FString PendingJson = TEXT("[");
+    for (int32 Index = 0; Index < PendingOutcomes.Num(); ++Index)
+    {
+        PendingJson += FString::Printf(TEXT("\n%s%s"), *OutcomePad, *PendingOutcomes[Index].ToJson(IndentSpaces + 4));
+        if (Index < PendingOutcomes.Num() - 1)
+        {
+            PendingJson += TEXT(",");
+        }
+    }
+    PendingJson += FString::Printf(TEXT("\n%s]"), *Pad);
+
+    FString HistoryJson = TEXT("[");
+    for (int32 Index = 0; Index < OutcomeHistory.Num(); ++Index)
+    {
+        HistoryJson += FString::Printf(TEXT("\n%s%s"), *OutcomePad, *OutcomeHistory[Index].ToJson(IndentSpaces + 4));
+        if (Index < OutcomeHistory.Num() - 1)
+        {
+            HistoryJson += TEXT(",");
+        }
+    }
+    HistoryJson += FString::Printf(TEXT("\n%s]"), *Pad);
+
+    return FString::Printf(
+        TEXT("{\n")
+        TEXT("%s\"lastAppliedTurn\": %d,\n")
+        TEXT("%s\"pendingOutcomeCount\": %d,\n")
+        TEXT("%s\"totalTerritoryDelta\": %d,\n")
+        TEXT("%s\"totalCasualties\": %d,\n")
+        TEXT("%s\"warFatigue\": %d,\n")
+        TEXT("%s\"resourceDisruptionPressure\": %d,\n")
+        TEXT("%s\"budgetStrainPressure\": %d,\n")
+        TEXT("%s\"diplomaticDamagePressure\": %d,\n")
+        TEXT("%s\"lastOutcomeSummary\": \"%s\",\n")
+        TEXT("%s\"pendingOutcomes\": %s,\n")
+        TEXT("%s\"outcomeHistory\": %s\n")
+        TEXT("%s}"),
+        *Pad, LastAppliedTurn,
+        *Pad, PendingOutcomeCount,
+        *Pad, TotalTerritoryDelta,
+        *Pad, TotalCasualties,
+        *Pad, WarFatigue,
+        *Pad, ResourceDisruptionPressure,
+        *Pad, BudgetStrainPressure,
+        *Pad, DiplomaticDamagePressure,
+        *Pad, *JsonEscape(LastOutcomeSummary),
+        *Pad, *PendingJson,
+        *Pad, *HistoryJson,
+        *Indent(IndentSpaces - 2));
+}
+
+FString FDemocracyProvinceOwnershipState::ToJson(int32 IndentSpaces) const
+{
+    const FString Pad = Indent(IndentSpaces);
+    return FString::Printf(
+        TEXT("{\n")
+        TEXT("%s\"provinceId\": \"%s\",\n")
+        TEXT("%s\"provinceName\": \"%s\",\n")
+        TEXT("%s\"continentName\": \"%s\",\n")
+        TEXT("%s\"originalCountryName\": \"%s\",\n")
+        TEXT("%s\"currentOwnerCountryName\": \"%s\",\n")
+        TEXT("%s\"currentControllerCountryName\": \"%s\",\n")
+        TEXT("%s\"governmentType\": \"%s\",\n")
+        TEXT("%s\"climate\": \"%s\",\n")
+        TEXT("%s\"resourceFocus\": \"%s\",\n")
+        TEXT("%s\"strategicValue\": %d,\n")
+        TEXT("%s\"stability\": %d,\n")
+        TEXT("%s\"unrest\": %d,\n")
+        TEXT("%s\"playerControlled\": %s,\n")
+        TEXT("%s\"borderProvince\": %s,\n")
+        TEXT("%s\"lastChangedTurn\": %d\n")
+        TEXT("%s}"),
+        *Pad, *JsonEscape(ProvinceId),
+        *Pad, *JsonEscape(ProvinceName),
+        *Pad, *JsonEscape(ContinentName),
+        *Pad, *JsonEscape(OriginalCountryName),
+        *Pad, *JsonEscape(CurrentOwnerCountryName),
+        *Pad, *JsonEscape(CurrentControllerCountryName),
+        *Pad, *JsonEscape(GovernmentType),
+        *Pad, *JsonEscape(Climate),
+        *Pad, *JsonEscape(ResourceFocus),
+        *Pad, StrategicValue,
+        *Pad, Stability,
+        *Pad, Unrest,
+        *Pad, bPlayerControlled ? TEXT("true") : TEXT("false"),
+        *Pad, bBorderProvince ? TEXT("true") : TEXT("false"),
+        *Pad, LastChangedTurn,
+        *Indent(IndentSpaces - 2));
+}
+
+FString FDemocracyCountryOwnershipState::ToJson(int32 IndentSpaces) const
+{
+    const FString Pad = Indent(IndentSpaces);
+    return FString::Printf(
+        TEXT("{\n")
+        TEXT("%s\"countryName\": \"%s\",\n")
+        TEXT("%s\"continentName\": \"%s\",\n")
+        TEXT("%s\"governmentType\": \"%s\",\n")
+        TEXT("%s\"totalProvinces\": %d,\n")
+        TEXT("%s\"controlledProvinces\": %d,\n")
+        TEXT("%s\"occupiedProvinces\": %d,\n")
+        TEXT("%s\"lostProvinces\": %d,\n")
+        TEXT("%s\"borderProvinces\": %d,\n")
+        TEXT("%s\"resourceBase\": %d,\n")
+        TEXT("%s\"militaryValue\": %d,\n")
+        TEXT("%s\"playerCountry\": %s,\n")
+        TEXT("%s\"capitalControlled\": %s,\n")
+        TEXT("%s\"provinceIds\": %s\n")
+        TEXT("%s}"),
+        *Pad, *JsonEscape(CountryName),
+        *Pad, *JsonEscape(ContinentName),
+        *Pad, *JsonEscape(GovernmentType),
+        *Pad, TotalProvinces,
+        *Pad, ControlledProvinces,
+        *Pad, OccupiedProvinces,
+        *Pad, LostProvinces,
+        *Pad, BorderProvinces,
+        *Pad, ResourceBase,
+        *Pad, MilitaryValue,
+        *Pad, bPlayerCountry ? TEXT("true") : TEXT("false"),
+        *Pad, bCapitalControlled ? TEXT("true") : TEXT("false"),
+        *Pad, *StringArrayToJson(ProvinceIds),
+        *Indent(IndentSpaces - 2));
+}
+
+FString FDemocracyContinentOwnershipState::ToJson(int32 IndentSpaces) const
+{
+    const FString Pad = Indent(IndentSpaces);
+    return FString::Printf(
+        TEXT("{\n")
+        TEXT("%s\"continentName\": \"%s\",\n")
+        TEXT("%s\"climate\": \"%s\",\n")
+        TEXT("%s\"countryCount\": %d,\n")
+        TEXT("%s\"provinceCount\": %d,\n")
+        TEXT("%s\"playerControlledProvinces\": %d,\n")
+        TEXT("%s\"contestedProvinces\": %d,\n")
+        TEXT("%s\"countryNames\": %s\n")
+        TEXT("%s}"),
+        *Pad, *JsonEscape(ContinentName),
+        *Pad, *JsonEscape(Climate),
+        *Pad, CountryCount,
+        *Pad, ProvinceCount,
+        *Pad, PlayerControlledProvinces,
+        *Pad, ContestedProvinces,
+        *Pad, *StringArrayToJson(CountryNames),
+        *Indent(IndentSpaces - 2));
+}
+
+FString FDemocracyMapOwnershipState::ToJson(int32 IndentSpaces) const
+{
+    const FString Pad = Indent(IndentSpaces);
+    const FString EntryPad = Indent(IndentSpaces + 2);
+    FString ProvinceJson = TEXT("[");
+    for (int32 Index = 0; Index < Provinces.Num(); ++Index)
+    {
+        ProvinceJson += FString::Printf(TEXT("\n%s%s"), *EntryPad, *Provinces[Index].ToJson(IndentSpaces + 4));
+        if (Index < Provinces.Num() - 1) ProvinceJson += TEXT(",");
+    }
+    ProvinceJson += FString::Printf(TEXT("\n%s]"), *Pad);
+    FString CountryJson = TEXT("[");
+    for (int32 Index = 0; Index < Countries.Num(); ++Index)
+    {
+        CountryJson += FString::Printf(TEXT("\n%s%s"), *EntryPad, *Countries[Index].ToJson(IndentSpaces + 4));
+        if (Index < Countries.Num() - 1) CountryJson += TEXT(",");
+    }
+    CountryJson += FString::Printf(TEXT("\n%s]"), *Pad);
+    FString ContinentJson = TEXT("[");
+    for (int32 Index = 0; Index < Continents.Num(); ++Index)
+    {
+        ContinentJson += FString::Printf(TEXT("\n%s%s"), *EntryPad, *Continents[Index].ToJson(IndentSpaces + 4));
+        if (Index < Continents.Num() - 1) ContinentJson += TEXT(",");
+    }
+    ContinentJson += FString::Printf(TEXT("\n%s]"), *Pad);
+    return FString::Printf(
+        TEXT("{\n")
+        TEXT("%s\"lastUpdatedTurn\": %d,\n")
+        TEXT("%s\"totalCountries\": %d,\n")
+        TEXT("%s\"totalProvinces\": %d,\n")
+        TEXT("%s\"playerControlledProvinces\": %d,\n")
+        TEXT("%s\"contestedProvinces\": %d,\n")
+        TEXT("%s\"borderProvinceCount\": %d,\n")
+        TEXT("%s\"playerCountryName\": \"%s\",\n")
+        TEXT("%s\"summary\": \"%s\",\n")
+        TEXT("%s\"provinces\": %s,\n")
+        TEXT("%s\"countries\": %s,\n")
+        TEXT("%s\"continents\": %s\n")
+        TEXT("%s}"),
+        *Pad, LastUpdatedTurn,
+        *Pad, TotalCountries,
+        *Pad, TotalProvinces,
+        *Pad, PlayerControlledProvinces,
+        *Pad, ContestedProvinces,
+        *Pad, BorderProvinceCount,
+        *Pad, *JsonEscape(PlayerCountryName),
+        *Pad, *JsonEscape(Summary),
+        *Pad, *ProvinceJson,
+        *Pad, *CountryJson,
+        *Pad, *ContinentJson,
+        *Indent(IndentSpaces - 2));
+}
+
 FString FDemocracyRtsWorldState::ToJson(int32 IndentSpaces) const
 {
     const FString Pad = Indent(IndentSpaces);
@@ -1460,7 +2075,9 @@ FString FDemocracyRtsWorldState::ToJson(int32 IndentSpaces) const
         TEXT("%s\"borderTerritories\": %d,\n")
         TEXT("%s\"knownRivalCountries\": %d,\n")
         TEXT("%s\"activeStrategicLayers\": %s,\n")
-        TEXT("%s\"rivals\": %s\n")
+        TEXT("%s\"rivals\": %s,\n")
+        TEXT("%s\"backflow\": %s,\n")
+        TEXT("%s\"ownership\": %s\n")
         TEXT("%s}"),
         *Pad, SimulationSecond,
         *Pad, ControlledTerritories,
@@ -1468,9 +2085,107 @@ FString FDemocracyRtsWorldState::ToJson(int32 IndentSpaces) const
         *Pad, KnownRivalCountries,
         *Pad, *StringArrayToJson(ActiveStrategicLayers),
         *Pad, *RivalJson,
+        *Pad, *Backflow.ToJson(IndentSpaces + 2),
+        *Pad, *Ownership.ToJson(IndentSpaces + 2),
         *Indent(IndentSpaces - 2));
 }
 
+FString FDemocracyCommandAuthorityActionState::ToJson(int32 IndentSpaces) const
+{
+    const FString Pad = Indent(IndentSpaces);
+    return FString::Printf(
+        TEXT("{\n")
+        TEXT("%s\"commandId\": \"%s\",\n")
+        TEXT("%s\"label\": \"%s\",\n")
+        TEXT("%s\"authorityLayer\": \"%s\",\n")
+        TEXT("%s\"commandType\": \"%s\",\n")
+        TEXT("%s\"executionSurface\": \"%s\",\n")
+        TEXT("%s\"officeAllowed\": %s,\n")
+        TEXT("%s\"rtsViewAllowed\": %s,\n")
+        TEXT("%s\"enabled\": %s,\n")
+        TEXT("%s\"cooldownTurns\": %d,\n")
+        TEXT("%s\"lastExecutedTurn\": %d,\n")
+        TEXT("%s\"treasuryCost\": %d,\n")
+        TEXT("%s\"approvalDelta\": %d,\n")
+        TEXT("%s\"stabilityDelta\": %d,\n")
+        TEXT("%s\"unrestDelta\": %d,\n")
+        TEXT("%s\"diplomacyDelta\": %d,\n")
+        TEXT("%s\"militaryDelta\": %d,\n")
+        TEXT("%s\"invasionRiskDelta\": %d,\n")
+        TEXT("%s\"resourceDelta\": %d,\n")
+        TEXT("%s\"prerequisite\": \"%s\",\n")
+        TEXT("%s\"effectPreview\": \"%s\",\n")
+        TEXT("%s\"disabledReason\": \"%s\"\n")
+        TEXT("%s}"),
+        *Pad, *JsonEscape(CommandId), *Pad, *JsonEscape(Label), *Pad, *JsonEscape(AuthorityLayer), *Pad, *JsonEscape(CommandType), *Pad, *JsonEscape(ExecutionSurface),
+        *Pad, bOfficeAllowed ? TEXT("true") : TEXT("false"), *Pad, bRtsViewAllowed ? TEXT("true") : TEXT("false"), *Pad, bEnabled ? TEXT("true") : TEXT("false"),
+        *Pad, CooldownTurns, *Pad, LastExecutedTurn, *Pad, TreasuryCost, *Pad, ApprovalDelta, *Pad, StabilityDelta, *Pad, UnrestDelta, *Pad, DiplomacyDelta, *Pad, MilitaryDelta, *Pad, InvasionRiskDelta, *Pad, ResourceDelta,
+        *Pad, *JsonEscape(Prerequisite), *Pad, *JsonEscape(EffectPreview), *Pad, *JsonEscape(DisabledReason), *Indent(IndentSpaces - 2));
+}
+
+FString FDemocracyCommandAuthorityState::ToJson(int32 IndentSpaces) const
+{
+    const FString Pad = Indent(IndentSpaces);
+    const FString ActionPad = Indent(IndentSpaces + 2);
+    FString ActionJson = TEXT("[");
+    for (int32 Index = 0; Index < Actions.Num(); ++Index)
+    {
+        ActionJson += FString::Printf(TEXT("\n%s%s"), *ActionPad, *Actions[Index].ToJson(IndentSpaces + 4));
+        if (Index < Actions.Num() - 1) ActionJson += TEXT(",");
+    }
+    ActionJson += FString::Printf(TEXT("\n%s]"), *Pad);
+    return FString::Printf(
+        TEXT("{\n")
+        TEXT("%s\"lastUpdatedTurn\": %d,\n")
+        TEXT("%s\"activeCommandPosture\": \"%s\",\n")
+        TEXT("%s\"officeAuthoritySummary\": \"%s\",\n")
+        TEXT("%s\"rtsAuthoritySummary\": \"%s\",\n")
+        TEXT("%s\"lastCommandSummary\": \"%s\",\n")
+        TEXT("%s\"actions\": %s\n")
+        TEXT("%s}"),
+        *Pad, LastUpdatedTurn, *Pad, *JsonEscape(ActiveCommandPosture), *Pad, *JsonEscape(OfficeAuthoritySummary), *Pad, *JsonEscape(RtsAuthoritySummary), *Pad, *JsonEscape(LastCommandSummary), *Pad, *ActionJson, *Indent(IndentSpaces - 2));
+}
+
+FString FDemocracyObjectiveState::ToJson(int32 IndentSpaces) const
+{
+    const FString Pad = Indent(IndentSpaces);
+    return FString::Printf(
+        TEXT("{\n")
+        TEXT("%s\"mode\": \"%s\",\n")
+        TEXT("%s\"playerGovernmentType\": \"%s\",\n")
+        TEXT("%s\"governmentTransitionTarget\": \"%s\",\n")
+        TEXT("%s\"governmentTransitionProgress\": %d,\n")
+        TEXT("%s\"governmentTransitionTurnsRemaining\": %d,\n")
+        TEXT("%s\"democraticCountryCount\": %d,\n")
+        TEXT("%s\"dictatorshipCountryCount\": %d,\n")
+        TEXT("%s\"otherGovernmentCount\": %d,\n")
+        TEXT("%s\"softVictoryAchieved\": %s,\n")
+        TEXT("%s\"softVictoryTurn\": %d,\n")
+        TEXT("%s\"simulationContinuesAfterVictory\": %s,\n")
+        TEXT("%s\"regressionRisk\": %d,\n")
+        TEXT("%s\"longTermObjective\": \"%s\",\n")
+        TEXT("%s\"objectiveSummary\": \"%s\",\n")
+        TEXT("%s\"activeObjectiveNotes\": %s,\n")
+        TEXT("%s\"allianceRules\": %s\n")
+        TEXT("%s}"),
+        *Pad, *JsonEscape(Mode),
+        *Pad, *JsonEscape(PlayerGovernmentType),
+        *Pad, *JsonEscape(GovernmentTransitionTarget),
+        *Pad, GovernmentTransitionProgress,
+        *Pad, GovernmentTransitionTurnsRemaining,
+        *Pad, DemocraticCountryCount,
+        *Pad, DictatorshipCountryCount,
+        *Pad, OtherGovernmentCount,
+        *Pad, bSoftVictoryAchieved ? TEXT("true") : TEXT("false"),
+        *Pad, SoftVictoryTurn,
+        *Pad, bSimulationContinuesAfterVictory ? TEXT("true") : TEXT("false"),
+        *Pad, RegressionRisk,
+        *Pad, *JsonEscape(LongTermObjective),
+        *Pad, *JsonEscape(ObjectiveSummary),
+        *Pad, *StringArrayToJson(ActiveObjectiveNotes),
+        *Pad, *StringArrayToJson(AllianceRules),
+        *Indent(IndentSpaces - 2));
+}
 FString FDemocracySimulationState::ToJson(int32 IndentSpaces) const
 {
     const FString Pad = Indent(IndentSpaces);
@@ -1495,7 +2210,10 @@ FString FDemocracySimulationState::ToJson(int32 IndentSpaces) const
         TEXT("%s\"developmentSystem\": %s,\n")
         TEXT("%s\"decisionHistory\": %s,\n")
         TEXT("%s\"worldMap\": %s,\n")
-        TEXT("%s\"rtsWorld\": %s\n")
+        TEXT("%s\"diplomacyMatrix\": %s,\n")
+        TEXT("%s\"rtsWorld\": %s,\n")
+        TEXT("%s\"commandAuthority\": %s,\n")
+        TEXT("%s\"objectiveState\": %s\n")
         TEXT("%s}"),
         *Pad, Turn,
         *Pad, *JsonEscape(Phase),
@@ -1516,7 +2234,10 @@ FString FDemocracySimulationState::ToJson(int32 IndentSpaces) const
         *Pad, *DevelopmentSystem.ToJson(IndentSpaces + 2),
         *Pad, *DecisionHistory.ToJson(IndentSpaces + 2),
         *Pad, *WorldMap.ToJson(IndentSpaces + 2),
+        *Pad, *DiplomacyMatrix.ToJson(IndentSpaces + 2),
         *Pad, *RtsWorld.ToJson(IndentSpaces + 2),
+        *Pad, *CommandAuthority.ToJson(IndentSpaces + 2),
+        *Pad, *ObjectiveState.ToJson(IndentSpaces + 2),
         *Indent(IndentSpaces - 2));
 }
 
@@ -1552,6 +2273,9 @@ FDemocracySimulationState FDemocracyGameStateFactory::CreateInitialState(
         TEXT("Defensive Readiness: maintains military readiness without provoking rivals."),
         TEXT("Neutral Engagement: stable diplomacy with no strong alliance push."),
         TEXT("Public Stability: small stability support with low civil backlash.")
+    };
+    State.PlayerCountry.Policies.PolicyRuleStatus = {
+        TEXT("Policy rules active: advanced choices may require treasury, resources, national conditions, and cooldown time.")
     };
     State.PlayerCountry.Technology = FMath::Clamp(3 - DifficultyProfile.CountrySizeScore / 2, 1, 3);
     State.PlayerCountry.MilitaryReadiness = FMath::Clamp(30 + DifficultyProfile.CountrySizeScore * 8, 30, 70);
@@ -1589,7 +2313,12 @@ FDemocracySimulationState FDemocracyGameStateFactory::CreateInitialState(
     State.EconomyBudget.Inflation = FMath::Clamp(2 + DifficultyProfile.CountrySizeScore, 2, 7);
     State.EconomyBudget.PublicServices = FMath::Clamp(55 + DifficultyProfile.StartingApproval / 8 - DifficultyProfile.CountrySizeScore * 4, 35, 70);
     State.EconomyBudget.ProductionEfficiency = FMath::Clamp(45 + State.PlayerCountry.Infrastructure / 3 + State.PlayerCountry.EconomicHealth / 5, 35, 80);
+    State.EconomyBudget.DebtCapacity = FMath::Clamp(700 + State.PlayerCountry.EconomicHealth * 10 + State.PlayerCountry.DiplomaticStanding * 4 - State.PlayerCountry.Unrest * 4, 350, 3000);
+    State.EconomyBudget.SpendingLimit = FMath::Clamp(State.EconomyBudget.Income + State.PlayerCountry.Treasury / 8 + FMath::Max(0, State.EconomyBudget.DebtCapacity - State.EconomyBudget.Debt) / 10, 45, 220);
+    State.EconomyBudget.CreditStress = 0;
+    State.EconomyBudget.bSpendingLimited = false;
     State.EconomyBudget.SpendingPosture = TEXT("Balanced Services");
+    State.EconomyBudget.BudgetConstraintStatus = TEXT("Initial budget within debt capacity.");
     State.EconomyBudget.LastBudgetSummary = TEXT("Initial budget loaded from difficulty profile.");
     State.Demographics.TotalPopulationThousands = FMath::Clamp(1800 * DifficultyProfile.CountrySizeScore + DifficultyProfile.StartingApproval * 20, 1500, 12000);
     State.Demographics.AverageGroupApproval = State.PlayerCountry.PublicApproval;
@@ -1682,6 +2411,7 @@ FDemocracySimulationState FDemocracyGameStateFactory::CreateInitialState(
         { State.Turn, TEXT("State Creation"), TEXT("Initial State Created"), FString::Printf(TEXT("Difficulty %s, climate %s, address %s."), *DifficultyProfile.Name, *Climate, *AddressTitle), TEXT("Initial simulation state, world map, resource chains, departments, and advisory systems created."), State.PlayerCountry.PublicApproval, State.PlayerCountry.Stability, State.PlayerCountry.Unrest, State.PlayerCountry.Treasury, State.PlayerCountry.EconomicHealth, State.PlayerCountry.MilitaryReadiness, 10, TEXT("Initial Save"), { TEXT("creation"), TEXT("briefing") } }
     };
     State.WorldMap = BuildWorldMapState(DifficultyProfile, StateName, Climate);
+    State.DiplomacyMatrix = BuildDiplomacyMatrixState(State.WorldMap, State.Turn);
 
     State.RtsWorld.SimulationSecond = 0;
     State.RtsWorld.ControlledTerritories = DifficultyProfile.CountrySizeScore * 3;
@@ -1694,6 +2424,17 @@ FDemocracySimulationState FDemocracyGameStateFactory::CreateInitialState(
         { TEXT("Eastmere"), TEXT("Commercial"), TEXT("Neutral"), 38 + DifficultyProfile.CountrySizeScore * 5, 8 + DifficultyProfile.CountrySizeScore * 3, 30 },
         { TEXT("Southport Union"), TEXT("Assertive"), TEXT("Tense"), 48 + DifficultyProfile.CountrySizeScore * 7, 18 + DifficultyProfile.CountrySizeScore * 5, 12 }
     };
+    State.RtsWorld.Backflow.LastAppliedTurn = 0;
+    State.RtsWorld.Backflow.PendingOutcomeCount = 0;
+    State.RtsWorld.Backflow.WarFatigue = 0;
+    State.RtsWorld.Backflow.ResourceDisruptionPressure = 0;
+    State.RtsWorld.Backflow.BudgetStrainPressure = 0;
+    State.RtsWorld.Backflow.DiplomaticDamagePressure = 0;
+    State.RtsWorld.Backflow.LastOutcomeSummary = TEXT("RTS backflow is ready. Future tactical results will feed territory, casualties, resources, fatigue, diplomacy, stability, invasion risk, and budget strain back into simulation.");
+    State.RtsWorld.Ownership = BuildMapOwnershipState(State.WorldMap, StateName, State.Turn, State.RtsWorld.ControlledTerritories);
+    State.RtsWorld.ControlledTerritories = State.RtsWorld.Ownership.PlayerControlledProvinces;
+    State.RtsWorld.BorderTerritories = State.RtsWorld.Ownership.BorderProvinceCount;
+    State.CommandAuthority = BuildCommandAuthorityState(State);
 
     return State;
 }

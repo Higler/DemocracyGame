@@ -1,0 +1,59 @@
+Democracy - Debug/Test/Developer Tools Role Guide
+
+Purpose
+This file lists the current developer-only testing tools and the short command guidance that can be given to staff or players.
+
+Important Release Rule
+Players have no debug/test/developer access, should not see these tools, and should not be given any enable command.
+
+Access Scope
+Debug/test tools are development/editor-build tools only and are blocked in multiplayer or online-state flows.
+
+Player Role
+Command: DemocracyClearDebugRole
+Explanation: Resets the local session to Player role, which has no debug/test tool access and cannot see the developer tool section.
+
+Player Guidance For Release
+Command to give players: None.
+Explanation: Players should use normal gameplay menus only; debug tools are not available to player accounts.
+
+GameMaster Role
+Command: DemocracySetDebugRole GameMaster
+Explanation: Enables limited single-player test access for lower-tier staff who need to observe or validate systems without forcing major state changes.
+
+GameMaster Tool: Test Recovery
+Explanation: Runs the autosave/backup recovery self-test to confirm protected saves rotate and reload correctly.
+
+GameMaster Tool: Run Early Test Path
+Explanation: Runs a self-contained early-game smoke path covering create/load state, first briefing, dashboard, policy, event, advisor meeting, press release, save/load, and ticking forward.
+
+GameMaster Tool: Trigger Event
+Explanation: Adds a controlled test event to the active runtime state so event choices, deadlines, warnings, and follow-up behavior can be checked.
+
+GameMaster Tool: Advance 3 Ticks
+Explanation: Advances the simulation three ticks to quickly verify resource, approval, unrest, risk, event, and autosave behavior.
+
+Administrator Role
+Command: DemocracySetDebugRole Administrator
+Explanation: Enables full single-player developer test access, including tools that directly mutate or break the runtime state.
+
+Administrator Tool: + Resources
+Explanation: Adds test food, water, fuel, wood, metals, and treasury reserves to verify recovery, economy, resource-chain, and dashboard updates.
+
+Administrator Tool: Force Unrest
+Explanation: Raises unrest and internal failure pressure to test advisor warnings, approval/stability causes, assassination risk, and failure validation.
+
+Administrator Tool: Force Takeover Risk
+Explanation: Raises foreign takeover/invasion pressure while lowering readiness and diplomacy to test invasion warnings and fail-state validation.
+
+Administrator Tool: Test Game Over
+Explanation: Forces critical instability and assassination/collapse conditions to verify the game-over screen and protected reload behavior.
+
+Recommended Staff Procedure
+1. Start in Player role with DemocracyClearDebugRole.
+2. Use DemocracySetDebugRole GameMaster for routine QA validation.
+3. Use DemocracySetDebugRole Administrator only for destructive or fail-state tests.
+4. Return to Player role before handing a build to non-developer testers.
+
+Removal Note
+The self-contained early-game scenario is intentionally developer-only and should be removed or replaced once permanent player-specific starts are implemented.

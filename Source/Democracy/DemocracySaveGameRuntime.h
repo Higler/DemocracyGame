@@ -29,4 +29,6 @@ public:
     static bool SaveSinglePlayerRuntimeState(FDemocracyLoadedSaveState& LoadedSave, FString& OutError);
     static bool SaveSinglePlayerAutosave(FDemocracyLoadedSaveState& LoadedSave, FString& OutError);
     static bool GetProtectedReloadSavePath(const FString& SavePath, FString& OutReloadPath, FString& OutError);
+    static bool RunAutosaveRecoverySelfTest(FString& OutReport, FString& OutError);
 };
+

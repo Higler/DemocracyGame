@@ -26,6 +26,7 @@ enum class ELoginFlowScreen : uint8
     LoadedGame,
     MultiplayerStateSelection,
     ServerSelection,
+    OfficeNoOverlay,
     OfficeOpeningBriefing,
     OfficeDashboard,
     OfficeComputerMenu,
@@ -52,6 +53,12 @@ class DEMOCRACY_API ALoginHUD : public AHUD
 
 public:
     void HandleOfficeInteractable(const FString& InteractionName);
+
+    UFUNCTION(Exec)
+    void DemocracySetDebugRole(const FString& RoleName);
+
+    UFUNCTION(Exec)
+    void DemocracyClearDebugRole();
 
 protected:
     virtual void BeginPlay() override;
@@ -96,6 +103,9 @@ private:
     FString OpeningScriptText;
     FString SelectedOnlineState;
     FString ServerSearchText;
+#if !UE_BUILD_SHIPPING
+    FString DebugToolRole = TEXT("Player");
+#endif
 
     float MasterVolume = 0.80f;
     float MusicVolume = 0.65f;
@@ -172,7 +182,16 @@ private:
     FString BuildPressOfficeStatusText() const;
     FString BuildMeetingSystemStatusText() const;
     FString BuildDecisionHistoryStatusText() const;
+    FString BuildObjectiveStatusText() const;
+    FString BuildDiplomacyStatusText() const;
+    FString BuildRtsBackflowStatusText() const;
+    FString BuildMapOwnershipStatusText() const;
+    FString BuildCommandAuthorityStatusText() const;
     FString BuildAdvisorWarningText() const;
+    FString BuildOngoingBriefingText() const;
+    FString BuildTimeControlStatusText() const;
+    float GetCurrentSimulationTickInterval() const;
+    void ApplySimulationTickInterval(float NewIntervalSeconds);
     void StartSimulationTimer();
     void StopSimulationTimer();
     void RunSimulationTick();
@@ -184,6 +203,12 @@ private:
     void LoadRememberedLoginDetails();
     void SaveRememberedLoginDetails() const;
     void ClearRememberedLoginDetails() const;
+#if !UE_BUILD_SHIPPING
+    bool IsSinglePlayerDebugContext() const;
+    bool HasGameMasterDebugAccess() const;
+    bool HasAdministratorDebugAccess() const;
+    FString BuildDebugAccessStatusText() const;
+#endif
 
     FReply HandleSignInClicked();
     FReply HandleSignUpClicked();
@@ -199,7 +224,18 @@ private:
     FReply HandleResumeSimulationClicked();
     FReply HandlePauseSimulationClicked();
     FReply HandleStepSimulationClicked();
+    FReply HandleSlowerSimulationClicked();
+    FReply HandleDefaultSimulationSpeedClicked();
+    FReply HandleFasterSimulationClicked();
     FReply HandleSaveRuntimeStateClicked();
+    FReply HandleRunAutosaveRecoveryTestClicked();
+    FReply HandleDebugAddResourcesClicked();
+    FReply HandleDebugTriggerEventClicked();
+    FReply HandleDebugForceUnrestClicked();
+    FReply HandleDebugForceInvasionRiskClicked();
+    FReply HandleDebugAdvanceTimeClicked();
+    FReply HandleDebugTestGameOverClicked();
+    FReply HandleRunEarlyGameTestScenarioClicked();
     FReply HandleOpenPoliciesClicked();
     FReply HandleOpenEventsClicked();
     FReply HandleOpenDemographicsClicked();
@@ -216,6 +252,9 @@ private:
     FReply HandleSetTaxPolicy(FString TaxPolicyName);
     FReply HandleSetSpendingPosture(FString SpendingPostureName);
     FReply HandleSetDepartmentAction(FString DepartmentName, FString ActionName);
+    FReply HandleApplyResourceAction(FString ResourceActionName);
+    FReply HandleApplyAdvisorAction(FString AdvisorActionName);
+    FReply HandleExecuteAuthorityCommand(FString CommandId, FString SurfaceName);
     FReply HandleResolveEventChoice(FString EventId, FString ChoiceId);
     FReply HandleMakePressRelease(FString AnnouncementType);
     FReply HandleHoldMeeting(FString MeetingType, FString ParticipantName, FString AgendaItem);
@@ -226,6 +265,7 @@ private:
     FReply HandleExitOfficeClicked();
     FReply HandleBackToDifficultyClicked();
     FReply HandleBackToLocalSavesClicked();
+    FReply HandleBackFromLocalSavesClicked();
     FReply HandleBackToModeSelectionClicked();
     FReply HandleBackToOnlineStatesClicked();
     FReply HandleSelectLocalSave(FString SaveName);
@@ -255,6 +295,7 @@ private:
     void HandleBrightnessChanged(float NewValue);
     void HandleUiScaleChanged(float NewValue);
 };
+
 
 
 

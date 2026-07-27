@@ -4,6 +4,7 @@
 #include "GameFramework/Character.h"
 #include "OfficePlayerPawn.generated.h"
 
+class AOfficeInteractableActor;
 class UCameraComponent;
 
 UCLASS()
@@ -26,7 +27,10 @@ private:
 
     bool bWasInteractPressed = false;
     bool bInvertLookY = false;
+    TWeakObjectPtr<AOfficeInteractableActor> CurrentTargetInteractable;
 
     void HandleMovement(float DeltaSeconds);
     void HandleInteraction();
+    AOfficeInteractableActor* FindBestInteractableTarget() const;
+    void UpdateInteractionPrompt(AOfficeInteractableActor* TargetInteractable);
 };

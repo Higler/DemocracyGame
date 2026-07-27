@@ -28,6 +28,7 @@ private:
     bool bOfficeBuilt = false;
 
     AActor* SpawnBox(const FString& Name, const FVector& Location, const FVector& Scale, const FLinearColor& Color, bool bBlocksPlayer = true);
+    AActor* SpawnRotatedBox(const FString& Name, const FVector& Location, const FRotator& Rotation, const FVector& Scale, const FLinearColor& Color, bool bBlocksPlayer = true);
     bool SpawnAssetMesh(const FString& Name, const TCHAR* MeshPath, const FVector& Location, const FRotator& Rotation, const FVector& Scale, bool bBlocksPlayer = true);
     bool SpawnSkeletalAssetMesh(const FString& Name, const TCHAR* MeshPath, const FVector& Location, const FRotator& Rotation, const FVector& Scale, bool bBlocksPlayer = true);
     void SpawnInteractable(const FString& Name, const FString& Message, const FVector& Location, const FVector& Scale, const FLinearColor& Color);
