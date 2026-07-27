@@ -2492,6 +2492,196 @@ FString FDemocracyRtsUnitDefinitionState::ToJson(int32 IndentSpaces) const
         *Pad, *StringArrayToJson(TacticalTags),
         *Indent(IndentSpaces - 2));
 }
+FString FDemocracyRtsArmyGroupState::ToJson(int32 IndentSpaces) const
+{
+    const FString Pad = Indent(IndentSpaces);
+    return FString::Printf(
+        TEXT("{\n")
+        TEXT("%s\"armyId\": \"%s\",\n")
+        TEXT("%s\"displayName\": \"%s\",\n")
+        TEXT("%s\"currentCountryName\": \"%s\",\n")
+        TEXT("%s\"currentProvinceId\": \"%s\",\n")
+        TEXT("%s\"destinationProvinceId\": \"%s\",\n")
+        TEXT("%s\"rallyPointId\": \"%s\",\n")
+        TEXT("%s\"movementState\": \"%s\",\n")
+        TEXT("%s\"infantryCount\": %d,\n")
+        TEXT("%s\"vehicleCount\": %d,\n")
+        TEXT("%s\"aircraftCount\": %d,\n")
+        TEXT("%s\"logisticsCount\": %d,\n")
+        TEXT("%s\"scoutCount\": %d,\n")
+        TEXT("%s\"defensiveUnitCount\": %d,\n")
+        TEXT("%s\"totalStrength\": %d,\n")
+        TEXT("%s\"supplyStatus\": %d,\n")
+        TEXT("%s\"movementTurnsRemaining\": %d,\n")
+        TEXT("%s\"selected\": %s,\n")
+        TEXT("%s\"assignedUnitIds\": %s,\n")
+        TEXT("%s\"orders\": %s\n")
+        TEXT("%s}"),
+        *Pad, *JsonEscape(ArmyId),
+        *Pad, *JsonEscape(DisplayName),
+        *Pad, *JsonEscape(CurrentCountryName),
+        *Pad, *JsonEscape(CurrentProvinceId),
+        *Pad, *JsonEscape(DestinationProvinceId),
+        *Pad, *JsonEscape(RallyPointId),
+        *Pad, *JsonEscape(MovementState),
+        *Pad, InfantryCount,
+        *Pad, VehicleCount,
+        *Pad, AircraftCount,
+        *Pad, LogisticsCount,
+        *Pad, ScoutCount,
+        *Pad, DefensiveUnitCount,
+        *Pad, TotalStrength,
+        *Pad, SupplyStatus,
+        *Pad, MovementTurnsRemaining,
+        *Pad, bSelected ? TEXT("true") : TEXT("false"),
+        *Pad, *StringArrayToJson(AssignedUnitIds),
+        *Pad, *StringArrayToJson(Orders),
+        *Indent(IndentSpaces - 2));
+}
+
+FString FDemocracyRtsConstructionQueueEntryState::ToJson(int32 IndentSpaces) const
+{
+    const FString Pad = Indent(IndentSpaces);
+    return FString::Printf(
+        TEXT("{\n")
+        TEXT("%s\"queueId\": \"%s\",\n")
+        TEXT("%s\"buildingId\": \"%s\",\n")
+        TEXT("%s\"displayName\": \"%s\",\n")
+        TEXT("%s\"queueType\": \"%s\",\n")
+        TEXT("%s\"targetLevel\": %d,\n")
+        TEXT("%s\"totalTurns\": %d,\n")
+        TEXT("%s\"turnsRemaining\": %d,\n")
+        TEXT("%s\"foodCost\": %d,\n")
+        TEXT("%s\"fuelCost\": %d,\n")
+        TEXT("%s\"woodCost\": %d,\n")
+        TEXT("%s\"metalsCost\": %d,\n")
+        TEXT("%s\"treasuryCost\": %d,\n")
+        TEXT("%s\"canCancel\": %s,\n")
+        TEXT("%s\"cancelled\": %s,\n")
+        TEXT("%s\"complete\": %s,\n")
+        TEXT("%s\"cancelRefundRule\": \"%s\",\n")
+        TEXT("%s\"prerequisites\": %s\n")
+        TEXT("%s}"),
+        *Pad, *JsonEscape(QueueId),
+        *Pad, *JsonEscape(BuildingId),
+        *Pad, *JsonEscape(DisplayName),
+        *Pad, *JsonEscape(QueueType),
+        *Pad, TargetLevel,
+        *Pad, TotalTurns,
+        *Pad, TurnsRemaining,
+        *Pad, FoodCost,
+        *Pad, FuelCost,
+        *Pad, WoodCost,
+        *Pad, MetalsCost,
+        *Pad, TreasuryCost,
+        *Pad, bCanCancel ? TEXT("true") : TEXT("false"),
+        *Pad, bCancelled ? TEXT("true") : TEXT("false"),
+        *Pad, bComplete ? TEXT("true") : TEXT("false"),
+        *Pad, *JsonEscape(CancelRefundRule),
+        *Pad, *StringArrayToJson(Prerequisites),
+        *Indent(IndentSpaces - 2));
+}
+
+FString FDemocracyRtsResourceCollectionState::ToJson(int32 IndentSpaces) const
+{
+    const FString Pad = Indent(IndentSpaces);
+    return FString::Printf(
+        TEXT("{\n")
+        TEXT("%s\"lastUpdatedTurn\": %d,\n")
+        TEXT("%s\"foodFromBuildings\": %d,\n")
+        TEXT("%s\"fuelFromBuildings\": %d,\n")
+        TEXT("%s\"woodFromBuildings\": %d,\n")
+        TEXT("%s\"metalsFromBuildings\": %d,\n")
+        TEXT("%s\"foodFromProvinces\": %d,\n")
+        TEXT("%s\"fuelFromProvinces\": %d,\n")
+        TEXT("%s\"woodFromProvinces\": %d,\n")
+        TEXT("%s\"metalsFromProvinces\": %d,\n")
+        TEXT("%s\"foodSentToSimulation\": %d,\n")
+        TEXT("%s\"fuelSentToSimulation\": %d,\n")
+        TEXT("%s\"woodSentToSimulation\": %d,\n")
+        TEXT("%s\"metalsSentToSimulation\": %d,\n")
+        TEXT("%s\"disruptionPenalty\": %d,\n")
+        TEXT("%s\"summary\": \"%s\",\n")
+        TEXT("%s\"collectionSources\": %s\n")
+        TEXT("%s}"),
+        *Pad, LastUpdatedTurn,
+        *Pad, FoodFromBuildings,
+        *Pad, FuelFromBuildings,
+        *Pad, WoodFromBuildings,
+        *Pad, MetalsFromBuildings,
+        *Pad, FoodFromProvinces,
+        *Pad, FuelFromProvinces,
+        *Pad, WoodFromProvinces,
+        *Pad, MetalsFromProvinces,
+        *Pad, FoodSentToSimulation,
+        *Pad, FuelSentToSimulation,
+        *Pad, WoodSentToSimulation,
+        *Pad, MetalsSentToSimulation,
+        *Pad, DisruptionPenalty,
+        *Pad, *JsonEscape(Summary),
+        *Pad, *StringArrayToJson(CollectionSources),
+        *Indent(IndentSpaces - 2));
+}
+
+FString FDemocracyRtsSelectableTargetState::ToJson(int32 IndentSpaces) const
+{
+    const FString Pad = Indent(IndentSpaces);
+    return FString::Printf(
+        TEXT("{\n")
+        TEXT("%s\"targetId\": \"%s\",\n")
+        TEXT("%s\"displayName\": \"%s\",\n")
+        TEXT("%s\"targetType\": \"%s\",\n")
+        TEXT("%s\"countryName\": \"%s\",\n")
+        TEXT("%s\"provinceId\": \"%s\",\n")
+        TEXT("%s\"interactionMode\": \"%s\",\n")
+        TEXT("%s\"strategicValue\": %d,\n")
+        TEXT("%s\"selectable\": %s,\n")
+        TEXT("%s\"selected\": %s,\n")
+        TEXT("%s\"availableActions\": %s\n")
+        TEXT("%s}"),
+        *Pad, *JsonEscape(TargetId),
+        *Pad, *JsonEscape(DisplayName),
+        *Pad, *JsonEscape(TargetType),
+        *Pad, *JsonEscape(CountryName),
+        *Pad, *JsonEscape(ProvinceId),
+        *Pad, *JsonEscape(InteractionMode),
+        *Pad, StrategicValue,
+        *Pad, bSelectable ? TEXT("true") : TEXT("false"),
+        *Pad, bSelected ? TEXT("true") : TEXT("false"),
+        *Pad, *StringArrayToJson(AvailableActions),
+        *Indent(IndentSpaces - 2));
+}
+
+FString FDemocracyRtsWorldInteractionState::ToJson(int32 IndentSpaces) const
+{
+    const FString Pad = Indent(IndentSpaces);
+    const FString EntryPad = Indent(IndentSpaces + 2);
+    FString TargetJson = TEXT("[");
+    for (int32 Index = 0; Index < SelectableTargets.Num(); ++Index)
+    {
+        TargetJson += FString::Printf(TEXT("\n%s%s"), *EntryPad, *SelectableTargets[Index].ToJson(IndentSpaces + 4));
+        if (Index < SelectableTargets.Num() - 1)
+        {
+            TargetJson += TEXT(",");
+        }
+    }
+    TargetJson += FString::Printf(TEXT("\n%s]"), *Pad);
+
+    return FString::Printf(
+        TEXT("{\n")
+        TEXT("%s\"activeSelectionId\": \"%s\",\n")
+        TEXT("%s\"activeSelectionType\": \"%s\",\n")
+        TEXT("%s\"hoveredTargetId\": \"%s\",\n")
+        TEXT("%s\"lastInteractionSummary\": \"%s\",\n")
+        TEXT("%s\"selectableTargets\": %s\n")
+        TEXT("%s}"),
+        *Pad, *JsonEscape(ActiveSelectionId),
+        *Pad, *JsonEscape(ActiveSelectionType),
+        *Pad, *JsonEscape(HoveredTargetId),
+        *Pad, *JsonEscape(LastInteractionSummary),
+        *Pad, *TargetJson,
+        *Indent(IndentSpaces - 2));
+}
 FString FDemocracyRtsCityBaseState::ToJson(int32 IndentSpaces) const
 {
     const FString Pad = Indent(IndentSpaces);
@@ -2507,6 +2697,17 @@ FString FDemocracyRtsCityBaseState::ToJson(int32 IndentSpaces) const
     }
     BuildingJson += FString::Printf(TEXT("\n%s]"), *Pad);
 
+    FString QueueJson = TEXT("[");
+    for (int32 Index = 0; Index < ConstructionQueue.Num(); ++Index)
+    {
+        QueueJson += FString::Printf(TEXT("\n%s%s"), *EntryPad, *ConstructionQueue[Index].ToJson(IndentSpaces + 4));
+        if (Index < ConstructionQueue.Num() - 1)
+        {
+            QueueJson += TEXT(",");
+        }
+    }
+    QueueJson += FString::Printf(TEXT("\n%s]"), *Pad);
+
     return FString::Printf(
         TEXT("{\n")
         TEXT("%s\"baseId\": \"%s\",\n")
@@ -2521,6 +2722,7 @@ FString FDemocracyRtsCityBaseState::ToJson(int32 IndentSpaces) const
         TEXT("%s\"baseSummary\": \"%s\",\n")
         TEXT("%s\"buildings\": %s,\n")
         TEXT("%s\"buildQueue\": %s,\n")
+        TEXT("%s\"constructionQueue\": %s,\n")
         TEXT("%s\"runtimeNotes\": %s\n")
         TEXT("%s}"),
         *Pad, *JsonEscape(BaseId),
@@ -2535,6 +2737,7 @@ FString FDemocracyRtsCityBaseState::ToJson(int32 IndentSpaces) const
         *Pad, *JsonEscape(BaseSummary),
         *Pad, *BuildingJson,
         *Pad, *StringArrayToJson(BuildQueue),
+        *Pad, *QueueJson,
         *Pad, *StringArrayToJson(RuntimeNotes),
         *Indent(IndentSpaces - 2));
 }
@@ -2564,6 +2767,17 @@ FString FDemocracyRtsWorldState::ToJson(int32 IndentSpaces) const
     }
     UnitJson += FString::Printf(TEXT("\n%s]"), *Pad);
 
+    FString ArmyJson = TEXT("[");
+    for (int32 Index = 0; Index < ArmyGroups.Num(); ++Index)
+    {
+        ArmyJson += FString::Printf(TEXT("\n%s%s"), *EntryPad, *ArmyGroups[Index].ToJson(IndentSpaces + 4));
+        if (Index < ArmyGroups.Num() - 1)
+        {
+            ArmyJson += TEXT(",");
+        }
+    }
+    ArmyJson += FString::Printf(TEXT("\n%s]"), *Pad);
+
     FString RivalJson = TEXT("[");
     for (int32 Index = 0; Index < Rivals.Num(); ++Index)
     {
@@ -2587,6 +2801,9 @@ FString FDemocracyRtsWorldState::ToJson(int32 IndentSpaces) const
         TEXT("%s\"viewModes\": %s,\n")
         TEXT("%s\"cityBase\": %s,\n")
         TEXT("%s\"unitCatalog\": %s,\n")
+        TEXT("%s\"armyGroups\": %s,\n")
+        TEXT("%s\"resourceCollection\": %s,\n")
+        TEXT("%s\"worldInteraction\": %s,\n")
         TEXT("%s\"rivals\": %s,\n")
         TEXT("%s\"backflow\": %s,\n")
         TEXT("%s\"ownership\": %s\n")
@@ -2601,6 +2818,9 @@ FString FDemocracyRtsWorldState::ToJson(int32 IndentSpaces) const
         *Pad, *ViewModeJson,
         *Pad, *CityBase.ToJson(IndentSpaces + 2),
         *Pad, *UnitJson,
+        *Pad, *ArmyJson,
+        *Pad, *ResourceCollection.ToJson(IndentSpaces + 2),
+        *Pad, *WorldInteraction.ToJson(IndentSpaces + 2),
         *Pad, *RivalJson,
         *Pad, *Backflow.ToJson(IndentSpaces + 2),
         *Pad, *Ownership.ToJson(IndentSpaces + 2),
@@ -3790,8 +4010,13 @@ FDemocracySimulationState FDemocracyGameStateFactory::CreateInitialState(
         { TEXT("scout_team"), TEXT("Scout Team"), TEXT("Scouts"), TEXT("Low-cost reconnaissance, border warning, and map discovery."), TEXT("barracks"), TEXT("Light infantry placeholder"), 20, 1, 1, 6, 8, 7, 1, 0, 10, true, false, { TEXT("Defense Barracks") }, { TEXT("scout"), TEXT("recon"), TEXT("early-warning") } },
         { TEXT("static_defense_battery"), TEXT("Static Defense Battery"), TEXT("Defensive Units"), TEXT("Base and province defensive firepower; cannot be used for offensive pushes."), TEXT("defense_post"), TEXT("RTS_Modern_Combat_Vehicle_Pack_Free or future turret asset"), 80, 2, 2, 24, 34, 0, 4, 0, 0, true, true, { TEXT("Perimeter Defense Post") }, { TEXT("defense"), TEXT("static"), TEXT("anti-invasion") } }
     };
-    State.RtsWorld.CityBase.BuildQueueCount = State.RtsWorld.CityBase.BuildQueue.Num();
-    State.RtsWorld.CityBase.UpgradeQueueCount = 0;
+    State.RtsWorld.CityBase.BuildQueue = { TEXT("Upgrade Strategic Warehouse"), TEXT("Build Forward Rally Point") };
+    State.RtsWorld.CityBase.ConstructionQueue = {
+        { TEXT("queue_upgrade_warehouse_001"), TEXT("warehouse"), TEXT("Upgrade Strategic Warehouse"), TEXT("Upgrade"), 2, 3, 3, 0, 8, 20, 15, 35, true, false, false, TEXT("Cancel before completion to refund 50 percent of remaining wood, metals, fuel, and treasury cost."), { TEXT("Strategic Warehouse") } },
+        { TEXT("queue_build_rally_001"), TEXT("forward_rally_point"), TEXT("Build Forward Rally Point"), TEXT("Build"), 1, 2, 2, 0, 6, 12, 8, 25, true, false, false, TEXT("Cancel before completion to refund 50 percent of remaining resources."), { TEXT("Government Command Center"), TEXT("Defense Barracks") } }
+    };
+    State.RtsWorld.CityBase.BuildQueueCount = State.RtsWorld.CityBase.BuildQueue.Num() + State.RtsWorld.CityBase.ConstructionQueue.Num();
+    State.RtsWorld.CityBase.UpgradeQueueCount = 1;
     State.RtsWorld.Rivals = {
         { TEXT("Northmark"), TEXT("Pragmatic"), TEXT("Cautious"), 42 + DifficultyProfile.CountrySizeScore * 6, 12 + DifficultyProfile.CountrySizeScore * 4, 18 },
         { TEXT("Eastmere"), TEXT("Commercial"), TEXT("Neutral"), 38 + DifficultyProfile.CountrySizeScore * 5, 8 + DifficultyProfile.CountrySizeScore * 3, 30 },
@@ -3811,6 +4036,82 @@ FDemocracySimulationState FDemocracyGameStateFactory::CreateInitialState(
     }
     State.RtsWorld.ControlledTerritories = State.RtsWorld.Ownership.PlayerControlledProvinces;
     State.RtsWorld.BorderTerritories = State.RtsWorld.Ownership.BorderProvinceCount;
+
+    int32 ProvinceFood = 0;
+    int32 ProvinceFuel = 0;
+    int32 ProvinceWood = 0;
+    int32 ProvinceMetals = 0;
+    TArray<FString> RtsCollectionSources;
+    TArray<FDemocracyRtsSelectableTargetState> SelectableTargets;
+    for (const FDemocracyProvinceOwnershipState& Province : State.RtsWorld.Ownership.Provinces)
+    {
+        if (!Province.bPlayerControlled)
+        {
+            continue;
+        }
+
+        const int32 ProvinceYield = FMath::Max(1, Province.StrategicValue / 3);
+        if (Province.ResourceFocus.Equals(TEXT("Food"), ESearchCase::IgnoreCase)) { ProvinceFood += ProvinceYield; }
+        else if (Province.ResourceFocus.Equals(TEXT("Fuel"), ESearchCase::IgnoreCase)) { ProvinceFuel += ProvinceYield; }
+        else if (Province.ResourceFocus.Equals(TEXT("Wood"), ESearchCase::IgnoreCase)) { ProvinceWood += ProvinceYield; }
+        else if (Province.ResourceFocus.Equals(TEXT("Metals"), ESearchCase::IgnoreCase)) { ProvinceMetals += ProvinceYield; }
+        RtsCollectionSources.Add(FString::Printf(TEXT("%s province yields %s %+d"), *Province.ProvinceName, *Province.ResourceFocus, ProvinceYield));
+        if (SelectableTargets.Num() < 8)
+        {
+            SelectableTargets.Add({ Province.ProvinceId, Province.ProvinceName, TEXT("Province"), Province.CurrentOwnerCountryName, Province.ProvinceId, TEXT("Inspect Province"), Province.StrategicValue, true, false, { TEXT("Select"), TEXT("Inspect resources"), TEXT("Set rally point"), TEXT("View control") } });
+        }
+    }
+
+    int32 BuildingFood = 0;
+    int32 BuildingFuel = 0;
+    int32 BuildingWood = 0;
+    int32 BuildingMetals = 0;
+    for (const FDemocracyRtsBuildingState& Building : State.RtsWorld.CityBase.Buildings)
+    {
+        if (!Building.bConstructed || Building.bDisabled)
+        {
+            continue;
+        }
+
+        if (Building.ResourceFocus.Equals(TEXT("Food"), ESearchCase::IgnoreCase)) { BuildingFood += Building.ProductionPerTick; }
+        else if (Building.ResourceFocus.Equals(TEXT("Fuel"), ESearchCase::IgnoreCase)) { BuildingFuel += Building.ProductionPerTick; }
+        else if (Building.ResourceFocus.Equals(TEXT("Wood"), ESearchCase::IgnoreCase)) { BuildingWood += Building.ProductionPerTick; }
+        else if (Building.ResourceFocus.Equals(TEXT("Metals"), ESearchCase::IgnoreCase)) { BuildingMetals += Building.ProductionPerTick; }
+    }
+
+    State.RtsWorld.ResourceCollection.LastUpdatedTurn = State.Turn;
+    State.RtsWorld.ResourceCollection.FoodFromBuildings = BuildingFood;
+    State.RtsWorld.ResourceCollection.FuelFromBuildings = BuildingFuel;
+    State.RtsWorld.ResourceCollection.WoodFromBuildings = BuildingWood;
+    State.RtsWorld.ResourceCollection.MetalsFromBuildings = BuildingMetals;
+    State.RtsWorld.ResourceCollection.FoodFromProvinces = ProvinceFood;
+    State.RtsWorld.ResourceCollection.FuelFromProvinces = ProvinceFuel;
+    State.RtsWorld.ResourceCollection.WoodFromProvinces = ProvinceWood;
+    State.RtsWorld.ResourceCollection.MetalsFromProvinces = ProvinceMetals;
+    State.RtsWorld.ResourceCollection.FoodSentToSimulation = BuildingFood + ProvinceFood;
+    State.RtsWorld.ResourceCollection.FuelSentToSimulation = BuildingFuel + ProvinceFuel;
+    State.RtsWorld.ResourceCollection.WoodSentToSimulation = BuildingWood + ProvinceWood;
+    State.RtsWorld.ResourceCollection.MetalsSentToSimulation = BuildingMetals + ProvinceMetals;
+    State.RtsWorld.ResourceCollection.DisruptionPenalty = 0;
+    State.RtsWorld.ResourceCollection.CollectionSources = RtsCollectionSources;
+    State.RtsWorld.ResourceCollection.Summary = FString::Printf(TEXT("RTS collection ready: food %+d, fuel %+d, wood %+d, metals %+d per tick before disruption."), State.RtsWorld.ResourceCollection.FoodSentToSimulation, State.RtsWorld.ResourceCollection.FuelSentToSimulation, State.RtsWorld.ResourceCollection.WoodSentToSimulation, State.RtsWorld.ResourceCollection.MetalsSentToSimulation);
+
+    const FString HomeProvinceId = State.RtsWorld.CityBase.LinkedProvinceId;
+    State.RtsWorld.ArmyGroups = {
+        { TEXT("army_capital_guard"), TEXT("Capital Guard Army"), StateName, HomeProvinceId, HomeProvinceId, TEXT("rally_capital"), TEXT("Garrisoned"), 3, 1, 0, 1, 1, 1, FMath::Clamp(State.PlayerCountry.MilitaryReadiness + 18, 25, 100), 92, 0, true, { TEXT("infantry_security_team"), TEXT("vehicle_patrol_unit"), TEXT("logistics_convoy"), TEXT("scout_team"), TEXT("static_defense_battery") }, { TEXT("Defend capital"), TEXT("Hold rally point"), TEXT("Await world-map orders") } }
+    };
+
+    SelectableTargets.Insert({ StateName + TEXT("_country"), StateName, TEXT("Country"), StateName, TEXT(""), TEXT("Inspect Country"), State.RtsWorld.ControlledTerritories, true, true, { TEXT("Select"), TEXT("Open diplomacy"), TEXT("View provinces"), TEXT("Show government type") } }, 0);
+    SelectableTargets.Add({ TEXT("capital_command_target"), TEXT("Capital Command"), TEXT("Capital"), StateName, HomeProvinceId, TEXT("Inspect Capital"), 90, true, false, { TEXT("Select"), TEXT("Open city/base"), TEXT("View defenses"), TEXT("Set rally point") } });
+    SelectableTargets.Add({ TEXT("army_capital_guard"), TEXT("Capital Guard Army"), TEXT("Army"), StateName, HomeProvinceId, TEXT("Select Army"), State.RtsWorld.ArmyGroups[0].TotalStrength, true, true, { TEXT("Select"), TEXT("Move to province"), TEXT("Defend"), TEXT("Assign rally point") } });
+    SelectableTargets.Add({ TEXT("resource_zone_primary"), TEXT("Primary Resource Zone"), TEXT("Resource Zone"), StateName, HomeProvinceId, TEXT("Inspect Resource Zone"), State.RtsWorld.ResourceCollection.FoodSentToSimulation + State.RtsWorld.ResourceCollection.FuelSentToSimulation + State.RtsWorld.ResourceCollection.WoodSentToSimulation + State.RtsWorld.ResourceCollection.MetalsSentToSimulation, true, false, { TEXT("Select"), TEXT("Inspect yields"), TEXT("Protect supply route") } });
+    SelectableTargets.Add({ TEXT("rally_capital"), TEXT("Capital Rally Point"), TEXT("Rally Point"), StateName, HomeProvinceId, TEXT("Set Rally Point"), 50, true, false, { TEXT("Select"), TEXT("Assign army"), TEXT("Move rally point") } });
+    State.RtsWorld.WorldInteraction.ActiveSelectionId = TEXT("army_capital_guard");
+    State.RtsWorld.WorldInteraction.ActiveSelectionType = TEXT("Army");
+    State.RtsWorld.WorldInteraction.HoveredTargetId = TEXT("");
+    State.RtsWorld.WorldInteraction.SelectableTargets = SelectableTargets;
+    State.RtsWorld.WorldInteraction.LastInteractionSummary = TEXT("World map supports selecting countries, provinces, armies, capitals, resource zones, and rally points as persistent RTS targets.");
+
     State.GovernmentDiplomacyRules = FDemocracyGameStateFactory::BuildGovernmentDiplomacyRulesState(State);
     State.RtsSaveBoundary = FDemocracyGameStateFactory::BuildRtsSaveBoundaryState(State);
     State.WarSystem = FDemocracyGameStateFactory::BuildWarConflictState(State);

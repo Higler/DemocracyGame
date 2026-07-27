@@ -1456,7 +1456,9 @@ namespace
         Lines.Add(FString::Printf(TEXT("Territories %d controlled | border territories %d | pending outcomes %d | applied history %d"), RtsWorld.ControlledTerritories, RtsWorld.BorderTerritories, Backflow.PendingOutcomes.Num(), Backflow.OutcomeHistory.Num()));
         Lines.Add(FString::Printf(TEXT("Import queue: attention %d | battle losses %d | province changes %d | capital threats %d | supply breaks %d"), Backflow.PendingAttentionCount, Backflow.BattleLossCount, Backflow.ProvinceCaptureCount, Backflow.CapitalThreatCount, Backflow.SupplyRouteBreakCount));
         Lines.Add(FString::Printf(TEXT("Ownership: %d countries | %d provinces | player controlled %d | contested %d | border provinces %d"), RtsWorld.Ownership.TotalCountries, RtsWorld.Ownership.TotalProvinces, RtsWorld.Ownership.PlayerControlledProvinces, RtsWorld.Ownership.ContestedProvinces, RtsWorld.Ownership.BorderProvinceCount));
-        Lines.Add(FString::Printf(TEXT("RTS foundation: active view %s | modes %d | base %s | buildings %d | units %d | queue %d"), *RtsWorld.ActiveViewMode, RtsWorld.ViewModes.Num(), *RtsWorld.CityBase.DisplayName, RtsWorld.CityBase.Buildings.Num(), RtsWorld.UnitCatalog.Num(), RtsWorld.CityBase.BuildQueueCount));
+        Lines.Add(FString::Printf(TEXT("RTS foundation: active view %s | modes %d | base %s | buildings %d | units %d | armies %d | queue %d"), *RtsWorld.ActiveViewMode, RtsWorld.ViewModes.Num(), *RtsWorld.CityBase.DisplayName, RtsWorld.CityBase.Buildings.Num(), RtsWorld.UnitCatalog.Num(), RtsWorld.ArmyGroups.Num(), RtsWorld.CityBase.BuildQueueCount));
+        Lines.Add(FString::Printf(TEXT("RTS collection: food %+d | fuel %+d | wood %+d | metals %+d | penalty %d"), RtsWorld.ResourceCollection.FoodSentToSimulation, RtsWorld.ResourceCollection.FuelSentToSimulation, RtsWorld.ResourceCollection.WoodSentToSimulation, RtsWorld.ResourceCollection.MetalsSentToSimulation, RtsWorld.ResourceCollection.DisruptionPenalty));
+        Lines.Add(FString::Printf(TEXT("World selection: %s %s | selectable targets %d"), *RtsWorld.WorldInteraction.ActiveSelectionType, *RtsWorld.WorldInteraction.ActiveSelectionId, RtsWorld.WorldInteraction.SelectableTargets.Num()));
         Lines.Add(RtsWorld.ScopeBoundary.ScopeSummary);
         const int32 ViewModeDisplayCount = FMath::Min(RtsWorld.ViewModes.Num(), 2);
         for (int32 Index = 0; Index < ViewModeDisplayCount; ++Index)
@@ -1469,6 +1471,24 @@ namespace
         {
             const FDemocracyRtsBuildingState& Building = RtsWorld.CityBase.Buildings[Index];
             Lines.Add(FString::Printf(TEXT("Base building | %s L%d | %s | prod %d | defense %d | health %d/%d | %s"), *Building.DisplayName, Building.Level, *Building.ResourceFocus, Building.ProductionPerTick, Building.DefenseValue, Building.CurrentHealth, Building.MaxHealth, Building.bDisabled ? TEXT("Disabled") : TEXT("Operational")));
+        }
+        const int32 QueueDisplayCount = FMath::Min(RtsWorld.CityBase.ConstructionQueue.Num(), 4);
+        for (int32 Index = 0; Index < QueueDisplayCount; ++Index)
+        {
+            const FDemocracyRtsConstructionQueueEntryState& QueueEntry = RtsWorld.CityBase.ConstructionQueue[Index];
+            Lines.Add(FString::Printf(TEXT("Queue | %s | %s to L%d | %d/%d turns remaining | cost T%d F%d W%d M%d"), *QueueEntry.QueueType, *QueueEntry.DisplayName, QueueEntry.TargetLevel, QueueEntry.TurnsRemaining, QueueEntry.TotalTurns, QueueEntry.TreasuryCost, QueueEntry.FuelCost, QueueEntry.WoodCost, QueueEntry.MetalsCost));
+        }
+        const int32 ArmyDisplayCount = FMath::Min(RtsWorld.ArmyGroups.Num(), 4);
+        for (int32 Index = 0; Index < ArmyDisplayCount; ++Index)
+        {
+            const FDemocracyRtsArmyGroupState& Army = RtsWorld.ArmyGroups[Index];
+            Lines.Add(FString::Printf(TEXT("Army | %s | %s -> %s | strength %d | supply %d | units I%d V%d A%d L%d S%d D%d"), *Army.DisplayName, *Army.CurrentProvinceId, Army.DestinationProvinceId.IsEmpty() ? TEXT("hold") : *Army.DestinationProvinceId, Army.TotalStrength, Army.SupplyStatus, Army.InfantryCount, Army.VehicleCount, Army.AircraftCount, Army.LogisticsCount, Army.ScoutCount, Army.DefensiveUnitCount));
+        }
+        const int32 TargetDisplayCount = FMath::Min(RtsWorld.WorldInteraction.SelectableTargets.Num(), 6);
+        for (int32 Index = 0; Index < TargetDisplayCount; ++Index)
+        {
+            const FDemocracyRtsSelectableTargetState& Target = RtsWorld.WorldInteraction.SelectableTargets[Index];
+            Lines.Add(FString::Printf(TEXT("Target | %s | %s | %s | actions: %s"), *Target.TargetType, *Target.DisplayName, Target.bSelected ? TEXT("Selected") : TEXT("Selectable"), *FString::Join(Target.AvailableActions, TEXT(", "))));
         }
         const int32 UnitDisplayCount = FMath::Min(RtsWorld.UnitCatalog.Num(), 6);
         for (int32 Index = 0; Index < UnitDisplayCount; ++Index)
@@ -7478,6 +7498,119 @@ void ALoginHUD::RunSimulationTick()
         ++State.Turn;
     }
     const bool bAdvancedTurn = State.Turn != BeforeTick.Turn;
+
+    FDemocracyRtsResourceCollectionState& RtsCollection = State.RtsWorld.ResourceCollection;
+    int32 BuildingFood = 0;
+    int32 BuildingFuel = 0;
+    int32 BuildingWood = 0;
+    int32 BuildingMetals = 0;
+    for (const FDemocracyRtsBuildingState& Building : State.RtsWorld.CityBase.Buildings)
+    {
+        if (!Building.bConstructed || Building.bDisabled)
+        {
+            continue;
+        }
+
+        if (Building.ResourceFocus.Equals(TEXT("Food"), ESearchCase::IgnoreCase)) { BuildingFood += Building.ProductionPerTick; }
+        else if (Building.ResourceFocus.Equals(TEXT("Fuel"), ESearchCase::IgnoreCase)) { BuildingFuel += Building.ProductionPerTick; }
+        else if (Building.ResourceFocus.Equals(TEXT("Wood"), ESearchCase::IgnoreCase)) { BuildingWood += Building.ProductionPerTick; }
+        else if (Building.ResourceFocus.Equals(TEXT("Metals"), ESearchCase::IgnoreCase)) { BuildingMetals += Building.ProductionPerTick; }
+    }
+
+    int32 ProvinceFood = 0;
+    int32 ProvinceFuel = 0;
+    int32 ProvinceWood = 0;
+    int32 ProvinceMetals = 0;
+    TArray<FString> CollectionSources;
+    for (const FDemocracyProvinceOwnershipState& Province : State.RtsWorld.Ownership.Provinces)
+    {
+        if (!Province.bPlayerControlled)
+        {
+            continue;
+        }
+
+        const int32 ProvinceYield = FMath::Max(1, Province.StrategicValue / 4);
+        if (Province.ResourceFocus.Equals(TEXT("Food"), ESearchCase::IgnoreCase)) { ProvinceFood += ProvinceYield; }
+        else if (Province.ResourceFocus.Equals(TEXT("Fuel"), ESearchCase::IgnoreCase)) { ProvinceFuel += ProvinceYield; }
+        else if (Province.ResourceFocus.Equals(TEXT("Wood"), ESearchCase::IgnoreCase)) { ProvinceWood += ProvinceYield; }
+        else if (Province.ResourceFocus.Equals(TEXT("Metals"), ESearchCase::IgnoreCase)) { ProvinceMetals += ProvinceYield; }
+        if (CollectionSources.Num() < 8)
+        {
+            CollectionSources.Add(FString::Printf(TEXT("%s: %s %+d"), *Province.ProvinceName, *Province.ResourceFocus, ProvinceYield));
+        }
+    }
+
+    const int32 CollectionPenalty = FMath::Clamp(State.RtsWorld.Backflow.ResourceDisruptionPressure / 20, 0, 8);
+    RtsCollection.LastUpdatedTurn = State.Turn;
+    RtsCollection.FoodFromBuildings = BuildingFood;
+    RtsCollection.FuelFromBuildings = BuildingFuel;
+    RtsCollection.WoodFromBuildings = BuildingWood;
+    RtsCollection.MetalsFromBuildings = BuildingMetals;
+    RtsCollection.FoodFromProvinces = ProvinceFood;
+    RtsCollection.FuelFromProvinces = ProvinceFuel;
+    RtsCollection.WoodFromProvinces = ProvinceWood;
+    RtsCollection.MetalsFromProvinces = ProvinceMetals;
+    RtsCollection.DisruptionPenalty = CollectionPenalty;
+    RtsCollection.FoodSentToSimulation = FMath::Max(0, BuildingFood + ProvinceFood - CollectionPenalty);
+    RtsCollection.FuelSentToSimulation = FMath::Max(0, BuildingFuel + ProvinceFuel - CollectionPenalty);
+    RtsCollection.WoodSentToSimulation = FMath::Max(0, BuildingWood + ProvinceWood - CollectionPenalty);
+    RtsCollection.MetalsSentToSimulation = FMath::Max(0, BuildingMetals + ProvinceMetals - CollectionPenalty);
+    RtsCollection.CollectionSources = CollectionSources;
+    RtsCollection.Summary = FString::Printf(TEXT("RTS collection sent food %+d, fuel %+d, wood %+d, metals %+d to simulation. Disruption penalty %d."), RtsCollection.FoodSentToSimulation, RtsCollection.FuelSentToSimulation, RtsCollection.WoodSentToSimulation, RtsCollection.MetalsSentToSimulation, RtsCollection.DisruptionPenalty);
+    Resources.Food = FMath::Max(0, Resources.Food + RtsCollection.FoodSentToSimulation);
+    Resources.GasOil = FMath::Max(0, Resources.GasOil + RtsCollection.FuelSentToSimulation);
+    Resources.Wood = FMath::Max(0, Resources.Wood + RtsCollection.WoodSentToSimulation);
+    Resources.Metals = FMath::Max(0, Resources.Metals + RtsCollection.MetalsSentToSimulation);
+
+    if (bAdvancedTurn)
+    {
+        int32 CompletedConstructionCount = 0;
+        int32 ActiveBuildCount = 0;
+        int32 ActiveUpgradeCount = 0;
+        for (FDemocracyRtsConstructionQueueEntryState& QueueEntry : State.RtsWorld.CityBase.ConstructionQueue)
+        {
+            if (QueueEntry.bCancelled || QueueEntry.bComplete)
+            {
+                continue;
+            }
+
+            QueueEntry.TurnsRemaining = FMath::Max(0, QueueEntry.TurnsRemaining - 1);
+            if (QueueEntry.TurnsRemaining == 0)
+            {
+                QueueEntry.bComplete = true;
+                ++CompletedConstructionCount;
+                for (FDemocracyRtsBuildingState& Building : State.RtsWorld.CityBase.Buildings)
+                {
+                    if (Building.BuildingId.Equals(QueueEntry.BuildingId, ESearchCase::IgnoreCase))
+                    {
+                        Building.bConstructed = true;
+                        Building.bUpgradeQueued = false;
+                        Building.Level = FMath::Max(Building.Level, QueueEntry.TargetLevel);
+                        Building.ProductionPerTick += QueueEntry.QueueType.Equals(TEXT("Upgrade"), ESearchCase::IgnoreCase) ? 2 : 0;
+                        Building.MaxHealth += QueueEntry.QueueType.Equals(TEXT("Upgrade"), ESearchCase::IgnoreCase) ? 25 : 0;
+                        Building.CurrentHealth = Building.MaxHealth;
+                        Building.Status = TEXT("Operational");
+                        break;
+                    }
+                }
+            }
+            else if (QueueEntry.QueueType.Equals(TEXT("Upgrade"), ESearchCase::IgnoreCase))
+            {
+                ++ActiveUpgradeCount;
+            }
+            else
+            {
+                ++ActiveBuildCount;
+            }
+        }
+
+        State.RtsWorld.CityBase.BuildQueueCount = ActiveBuildCount + ActiveUpgradeCount;
+        State.RtsWorld.CityBase.UpgradeQueueCount = ActiveUpgradeCount;
+        if (CompletedConstructionCount > 0)
+        {
+            State.RtsWorld.CityBase.RuntimeNotes.Add(FString::Printf(TEXT("Turn %d completed %d RTS construction queue item(s)."), State.Turn, CompletedConstructionCount));
+        }
+    }
 
     const int32 DifficultyScore = FMath::Clamp(Country.CountrySizeScore, 1, 4);
     const int32 FoodUse = 6 + DifficultyScore * 3;

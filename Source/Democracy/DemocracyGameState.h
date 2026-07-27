@@ -823,6 +823,102 @@ struct FDemocracyRtsUnitDefinitionState
 
     FString ToJson(int32 IndentSpaces = 2) const;
 };
+struct FDemocracyRtsArmyGroupState
+{
+    FString ArmyId;
+    FString DisplayName;
+    FString CurrentCountryName;
+    FString CurrentProvinceId;
+    FString DestinationProvinceId;
+    FString RallyPointId;
+    FString MovementState = TEXT("Idle");
+    int32 InfantryCount = 0;
+    int32 VehicleCount = 0;
+    int32 AircraftCount = 0;
+    int32 LogisticsCount = 0;
+    int32 ScoutCount = 0;
+    int32 DefensiveUnitCount = 0;
+    int32 TotalStrength = 0;
+    int32 SupplyStatus = 100;
+    int32 MovementTurnsRemaining = 0;
+    bool bSelected = false;
+    TArray<FString> AssignedUnitIds;
+    TArray<FString> Orders;
+
+    FString ToJson(int32 IndentSpaces = 2) const;
+};
+
+struct FDemocracyRtsConstructionQueueEntryState
+{
+    FString QueueId;
+    FString BuildingId;
+    FString DisplayName;
+    FString QueueType = TEXT("Build");
+    int32 TargetLevel = 1;
+    int32 TotalTurns = 1;
+    int32 TurnsRemaining = 1;
+    int32 FoodCost = 0;
+    int32 FuelCost = 0;
+    int32 WoodCost = 0;
+    int32 MetalsCost = 0;
+    int32 TreasuryCost = 0;
+    bool bCanCancel = true;
+    bool bCancelled = false;
+    bool bComplete = false;
+    FString CancelRefundRule = TEXT("Refund 50 percent of unspent resources while construction is active.");
+    TArray<FString> Prerequisites;
+
+    FString ToJson(int32 IndentSpaces = 2) const;
+};
+
+struct FDemocracyRtsResourceCollectionState
+{
+    int32 LastUpdatedTurn = 0;
+    int32 FoodFromBuildings = 0;
+    int32 FuelFromBuildings = 0;
+    int32 WoodFromBuildings = 0;
+    int32 MetalsFromBuildings = 0;
+    int32 FoodFromProvinces = 0;
+    int32 FuelFromProvinces = 0;
+    int32 WoodFromProvinces = 0;
+    int32 MetalsFromProvinces = 0;
+    int32 FoodSentToSimulation = 0;
+    int32 FuelSentToSimulation = 0;
+    int32 WoodSentToSimulation = 0;
+    int32 MetalsSentToSimulation = 0;
+    int32 DisruptionPenalty = 0;
+    FString Summary = TEXT("RTS resource collection has not ticked yet.");
+    TArray<FString> CollectionSources;
+
+    FString ToJson(int32 IndentSpaces = 2) const;
+};
+
+struct FDemocracyRtsSelectableTargetState
+{
+    FString TargetId;
+    FString DisplayName;
+    FString TargetType;
+    FString CountryName;
+    FString ProvinceId;
+    FString InteractionMode;
+    int32 StrategicValue = 0;
+    bool bSelectable = true;
+    bool bSelected = false;
+    TArray<FString> AvailableActions;
+
+    FString ToJson(int32 IndentSpaces = 2) const;
+};
+
+struct FDemocracyRtsWorldInteractionState
+{
+    FString ActiveSelectionId;
+    FString ActiveSelectionType;
+    FString HoveredTargetId;
+    FString LastInteractionSummary = TEXT("No world-map target selected.");
+    TArray<FDemocracyRtsSelectableTargetState> SelectableTargets;
+
+    FString ToJson(int32 IndentSpaces = 2) const;
+};
 struct FDemocracyRtsCityBaseState
 {
     FString BaseId = TEXT("capital-base");
@@ -837,6 +933,7 @@ struct FDemocracyRtsCityBaseState
     FString BaseSummary = TEXT("Placeholder RTS city/base layout is ready for buildings, production, and upgrades.");
     TArray<FDemocracyRtsBuildingState> Buildings;
     TArray<FString> BuildQueue;
+    TArray<FDemocracyRtsConstructionQueueEntryState> ConstructionQueue;
     TArray<FString> RuntimeNotes;
 
     FString ToJson(int32 IndentSpaces = 2) const;
@@ -854,6 +951,9 @@ struct FDemocracyRtsWorldState
     TArray<FDemocracyRtsViewModeState> ViewModes;
     FDemocracyRtsCityBaseState CityBase;
     TArray<FDemocracyRtsUnitDefinitionState> UnitCatalog;
+    TArray<FDemocracyRtsArmyGroupState> ArmyGroups;
+    FDemocracyRtsResourceCollectionState ResourceCollection;
+    FDemocracyRtsWorldInteractionState WorldInteraction;
     TArray<FDemocracyRivalCountryState> Rivals;
     FDemocracyRtsBackflowState Backflow;
     FDemocracyMapOwnershipState Ownership;
