@@ -67,6 +67,7 @@ protected:
 private:
     TSharedPtr<SWidget> LoginScreenWidget;
     TSharedPtr<FSlateImageBrush> BackgroundBrush;
+    TSharedPtr<FSlateImageBrush> WorldMapBrush;
     TSharedPtr<FSlateColorBrush> OverlayBrush;
     TSharedPtr<FSlateColorBrush> PanelBrush;
     TSharedPtr<FSlateColorBrush> RowBrush;
@@ -95,6 +96,7 @@ private:
     FString GameOverDetails;
     FString SelectedMeetingAdvisorName;
     FString SelectedMeetingAdvisorFocus;
+    FString WorldRtsEntryMode = TEXT("Globe");
     FDemocracyLoadedSaveState LoadedSaveState;
     bool bHasLoadedRuntimeState = false;
     FTimerHandle SimulationTickTimerHandle;
