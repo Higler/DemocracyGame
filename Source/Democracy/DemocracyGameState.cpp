@@ -2036,6 +2036,14 @@ FString FDemocracyRtsOutcomeState::ToJson(int32 IndentSpaces) const
         TEXT("%s\"conflictName\": \"%s\",\n")
         TEXT("%s\"opponentCountry\": \"%s\",\n")
         TEXT("%s\"outcomeType\": \"%s\",\n")
+        TEXT("%s\"importEventType\": \"%s\",\n")
+        TEXT("%s\"attentionCategory\": \"%s\",\n")
+        TEXT("%s\"affectedCountryName\": \"%s\",\n")
+        TEXT("%s\"affectedProvinceId\": \"%s\",\n")
+        TEXT("%s\"affectedProvinceName\": \"%s\",\n")
+        TEXT("%s\"affectedResource\": \"%s\",\n")
+        TEXT("%s\"attentionDeadlineTurn\": %d,\n")
+        TEXT("%s\"attentionSeverity\": %d,\n")
         TEXT("%s\"territoryDelta\": %d,\n")
         TEXT("%s\"casualties\": %d,\n")
         TEXT("%s\"resourceDisruption\": %d,\n")
@@ -2044,7 +2052,11 @@ FString FDemocracyRtsOutcomeState::ToJson(int32 IndentSpaces) const
         TEXT("%s\"stabilityDelta\": %d,\n")
         TEXT("%s\"invasionRiskDelta\": %d,\n")
         TEXT("%s\"budgetStrain\": %d,\n")
+        TEXT("%s\"requiresSimulationAttention\": %s,\n")
+        TEXT("%s\"acknowledgedBySimulation\": %s,\n")
         TEXT("%s\"appliedToSimulation\": %s,\n")
+        TEXT("%s\"simulationAttentionStatus\": \"%s\",\n")
+        TEXT("%s\"attentionSummary\": \"%s\",\n")
         TEXT("%s\"summary\": \"%s\",\n")
         TEXT("%s\"consequenceTags\": %s\n")
         TEXT("%s}"),
@@ -2053,6 +2065,14 @@ FString FDemocracyRtsOutcomeState::ToJson(int32 IndentSpaces) const
         *Pad, *JsonEscape(ConflictName),
         *Pad, *JsonEscape(OpponentCountry),
         *Pad, *JsonEscape(OutcomeType),
+        *Pad, *JsonEscape(ImportEventType),
+        *Pad, *JsonEscape(AttentionCategory),
+        *Pad, *JsonEscape(AffectedCountryName),
+        *Pad, *JsonEscape(AffectedProvinceId),
+        *Pad, *JsonEscape(AffectedProvinceName),
+        *Pad, *JsonEscape(AffectedResource),
+        *Pad, AttentionDeadlineTurn,
+        *Pad, AttentionSeverity,
         *Pad, TerritoryDelta,
         *Pad, Casualties,
         *Pad, ResourceDisruption,
@@ -2061,7 +2081,11 @@ FString FDemocracyRtsOutcomeState::ToJson(int32 IndentSpaces) const
         *Pad, StabilityDelta,
         *Pad, InvasionRiskDelta,
         *Pad, BudgetStrain,
+        *Pad, bRequiresSimulationAttention ? TEXT("true") : TEXT("false"),
+        *Pad, bAcknowledgedBySimulation ? TEXT("true") : TEXT("false"),
         *Pad, bAppliedToSimulation ? TEXT("true") : TEXT("false"),
+        *Pad, *JsonEscape(SimulationAttentionStatus),
+        *Pad, *JsonEscape(AttentionSummary),
         *Pad, *JsonEscape(Summary),
         *Pad, *StringArrayToJson(ConsequenceTags),
         *Indent(IndentSpaces - 2));
@@ -2097,6 +2121,11 @@ FString FDemocracyRtsBackflowState::ToJson(int32 IndentSpaces) const
         TEXT("{\n")
         TEXT("%s\"lastAppliedTurn\": %d,\n")
         TEXT("%s\"pendingOutcomeCount\": %d,\n")
+        TEXT("%s\"pendingAttentionCount\": %d,\n")
+        TEXT("%s\"battleLossCount\": %d,\n")
+        TEXT("%s\"provinceCaptureCount\": %d,\n")
+        TEXT("%s\"capitalThreatCount\": %d,\n")
+        TEXT("%s\"supplyRouteBreakCount\": %d,\n")
         TEXT("%s\"totalTerritoryDelta\": %d,\n")
         TEXT("%s\"totalCasualties\": %d,\n")
         TEXT("%s\"warFatigue\": %d,\n")
@@ -2104,11 +2133,17 @@ FString FDemocracyRtsBackflowState::ToJson(int32 IndentSpaces) const
         TEXT("%s\"budgetStrainPressure\": %d,\n")
         TEXT("%s\"diplomaticDamagePressure\": %d,\n")
         TEXT("%s\"lastOutcomeSummary\": \"%s\",\n")
+        TEXT("%s\"lastImportQueueSummary\": \"%s\",\n")
         TEXT("%s\"pendingOutcomes\": %s,\n")
         TEXT("%s\"outcomeHistory\": %s\n")
         TEXT("%s}"),
         *Pad, LastAppliedTurn,
         *Pad, PendingOutcomeCount,
+        *Pad, PendingAttentionCount,
+        *Pad, BattleLossCount,
+        *Pad, ProvinceCaptureCount,
+        *Pad, CapitalThreatCount,
+        *Pad, SupplyRouteBreakCount,
         *Pad, TotalTerritoryDelta,
         *Pad, TotalCasualties,
         *Pad, WarFatigue,
@@ -2116,6 +2151,7 @@ FString FDemocracyRtsBackflowState::ToJson(int32 IndentSpaces) const
         *Pad, BudgetStrainPressure,
         *Pad, DiplomaticDamagePressure,
         *Pad, *JsonEscape(LastOutcomeSummary),
+        *Pad, *JsonEscape(LastImportQueueSummary),
         *Pad, *PendingJson,
         *Pad, *HistoryJson,
         *Indent(IndentSpaces - 2));

@@ -848,9 +848,135 @@ namespace
         }
     }
 
+    FString NormalizeRtsImportEventType(const FString& OutcomeType)
+    {
+        if (OutcomeType.Equals(TEXT("Battle Lost"), ESearchCase::IgnoreCase))
+        {
+            return TEXT("Battle Lost");
+        }
+        if (OutcomeType.Equals(TEXT("Capital Threatened"), ESearchCase::IgnoreCase))
+        {
+            return TEXT("Capital Threatened");
+        }
+        if (OutcomeType.Equals(TEXT("Supply Route Broken"), ESearchCase::IgnoreCase))
+        {
+            return TEXT("Supply Route Broken");
+        }
+        if (OutcomeType.Equals(TEXT("Territory Gained"), ESearchCase::IgnoreCase) || OutcomeType.Equals(TEXT("Province Captured"), ESearchCase::IgnoreCase))
+        {
+            return TEXT("Province Captured");
+        }
+        if (OutcomeType.Equals(TEXT("Territory Lost"), ESearchCase::IgnoreCase) || OutcomeType.Equals(TEXT("Province Lost"), ESearchCase::IgnoreCase))
+        {
+            return TEXT("Province Lost");
+        }
+        return TEXT("Battle Stalemate");
+    }
+
+    FString RtsAttentionCategoryForImportEvent(const FString& ImportEventType)
+    {
+        if (ImportEventType.Contains(TEXT("Province")))
+        {
+            return TEXT("Territory Control");
+        }
+        if (ImportEventType.Equals(TEXT("Battle Lost"), ESearchCase::IgnoreCase))
+        {
+            return TEXT("Military Readiness");
+        }
+        if (ImportEventType.Equals(TEXT("Capital Threatened"), ESearchCase::IgnoreCase))
+        {
+            return TEXT("Capital Security");
+        }
+        if (ImportEventType.Equals(TEXT("Supply Route Broken"), ESearchCase::IgnoreCase))
+        {
+            return TEXT("Logistics");
+        }
+        return TEXT("Strategic Pressure");
+    }
+
+    const FDemocracyProvinceOwnershipState* FindRtsAttentionProvince(const FDemocracySimulationState& State, const FDemocracyRtsOutcomeState& Outcome)
+    {
+        const bool bNeedsPlayerProvince = Outcome.ImportEventType.Equals(TEXT("Province Lost"), ESearchCase::IgnoreCase) || Outcome.ImportEventType.Equals(TEXT("Capital Threatened"), ESearchCase::IgnoreCase) || Outcome.ImportEventType.Equals(TEXT("Supply Route Broken"), ESearchCase::IgnoreCase);
+        for (const FDemocracyProvinceOwnershipState& Province : State.RtsWorld.Ownership.Provinces)
+        {
+            if (bNeedsPlayerProvince && Province.bPlayerControlled && (Province.bBorderProvince || Outcome.ImportEventType.Equals(TEXT("Capital Threatened"), ESearchCase::IgnoreCase)))
+            {
+                return &Province;
+            }
+            if (!bNeedsPlayerProvince && Province.CurrentControllerCountryName.Equals(Outcome.OpponentCountry, ESearchCase::IgnoreCase))
+            {
+                return &Province;
+            }
+        }
+        for (const FDemocracyProvinceOwnershipState& Province : State.RtsWorld.Ownership.Provinces)
+        {
+            if (Province.bPlayerControlled == bNeedsPlayerProvince)
+            {
+                return &Province;
+            }
+        }
+        return State.RtsWorld.Ownership.Provinces.Num() > 0 ? &State.RtsWorld.Ownership.Provinces[0] : nullptr;
+    }
+
+    int32 RtsAttentionSeverityForOutcome(const FDemocracyRtsOutcomeState& Outcome)
+    {
+        return FMath::Clamp(FMath::Abs(Outcome.TerritoryDelta) * 22 + Outcome.Casualties / 8 + Outcome.ResourceDisruption + Outcome.WarFatigueDelta + FMath::Max(0, Outcome.InvasionRiskDelta) + FMath::Abs(Outcome.StabilityDelta) * 3 + Outcome.BudgetStrain / 2, 1, 100);
+    }
+
+    void PopulateRtsOutcomeAttentionFields(const FDemocracySimulationState& State, FDemocracyRtsOutcomeState& Outcome)
+    {
+        Outcome.ImportEventType = NormalizeRtsImportEventType(Outcome.OutcomeType);
+        Outcome.AttentionCategory = RtsAttentionCategoryForImportEvent(Outcome.ImportEventType);
+        Outcome.AffectedCountryName = Outcome.OpponentCountry.IsEmpty() ? State.PlayerCountry.CountryName : Outcome.OpponentCountry;
+        if (const FDemocracyProvinceOwnershipState* Province = FindRtsAttentionProvince(State, Outcome))
+        {
+            Outcome.AffectedProvinceId = Province->ProvinceId;
+            Outcome.AffectedProvinceName = Province->ProvinceName;
+            Outcome.AffectedResource = Province->ResourceFocus;
+        }
+        if (Outcome.AffectedResource.IsEmpty() && Outcome.ImportEventType.Equals(TEXT("Supply Route Broken"), ESearchCase::IgnoreCase))
+        {
+            Outcome.AffectedResource = TEXT("Fuel");
+        }
+        Outcome.AttentionSeverity = RtsAttentionSeverityForOutcome(Outcome);
+        Outcome.AttentionDeadlineTurn = State.Turn + FMath::Clamp(6 - Outcome.AttentionSeverity / 20, 2, 6);
+        Outcome.bRequiresSimulationAttention = true;
+        Outcome.bAcknowledgedBySimulation = false;
+        Outcome.SimulationAttentionStatus = TEXT("Queued");
+        Outcome.AttentionSummary = FString::Printf(TEXT("%s requires %s attention by turn %d. Affected province: %s. Affected resource: %s."), *Outcome.ImportEventType, *Outcome.AttentionCategory, Outcome.AttentionDeadlineTurn, Outcome.AffectedProvinceName.IsEmpty() ? TEXT("Unassigned") : *Outcome.AffectedProvinceName, Outcome.AffectedResource.IsEmpty() ? TEXT("None") : *Outcome.AffectedResource);
+    }
+
     void RefreshRtsBackflowCounters(FDemocracyRtsBackflowState& Backflow)
     {
         Backflow.PendingOutcomeCount = Backflow.PendingOutcomes.Num();
+        Backflow.PendingAttentionCount = 0;
+        Backflow.BattleLossCount = 0;
+        Backflow.ProvinceCaptureCount = 0;
+        Backflow.CapitalThreatCount = 0;
+        Backflow.SupplyRouteBreakCount = 0;
+        for (const FDemocracyRtsOutcomeState& Outcome : Backflow.PendingOutcomes)
+        {
+            if (Outcome.bRequiresSimulationAttention && !Outcome.bAcknowledgedBySimulation)
+            {
+                ++Backflow.PendingAttentionCount;
+            }
+            if (Outcome.ImportEventType.Equals(TEXT("Battle Lost"), ESearchCase::IgnoreCase))
+            {
+                ++Backflow.BattleLossCount;
+            }
+            else if (Outcome.ImportEventType.Contains(TEXT("Province")))
+            {
+                ++Backflow.ProvinceCaptureCount;
+            }
+            else if (Outcome.ImportEventType.Equals(TEXT("Capital Threatened"), ESearchCase::IgnoreCase))
+            {
+                ++Backflow.CapitalThreatCount;
+            }
+            else if (Outcome.ImportEventType.Equals(TEXT("Supply Route Broken"), ESearchCase::IgnoreCase))
+            {
+                ++Backflow.SupplyRouteBreakCount;
+            }
+        }
         Backflow.TotalTerritoryDelta = 0;
         Backflow.TotalCasualties = 0;
         int32 RecentFatigue = 0;
@@ -872,6 +998,9 @@ namespace
         Backflow.ResourceDisruptionPressure = FMath::Clamp(RecentDisruption, 0, 100);
         Backflow.BudgetStrainPressure = FMath::Clamp(RecentBudgetStrain, 0, 100);
         Backflow.DiplomaticDamagePressure = FMath::Clamp(RecentDiplomaticDamage, 0, 100);
+        Backflow.LastImportQueueSummary = Backflow.PendingAttentionCount > 0
+            ? FString::Printf(TEXT("%d RTS result(s) are queued for simulation attention before deadlines advance."), Backflow.PendingAttentionCount)
+            : TEXT("No RTS import queue items are waiting for simulation attention.");
     }
 
     FDemocracyRtsOutcomeState MakePrototypeRtsOutcome(const FDemocracySimulationState& State, const FString& OutcomeType)
@@ -882,7 +1011,7 @@ namespace
         Outcome.ConflictName = TEXT("Border Pressure Exchange");
         Outcome.OpponentCountry = State.RtsWorld.Rivals.Num() > 0 ? State.RtsWorld.Rivals[0].CountryName : TEXT("Unknown Rival");
         Outcome.OutcomeType = OutcomeType;
-        if (OutcomeType.Equals(TEXT("Territory Gained"), ESearchCase::IgnoreCase))
+        if (OutcomeType.Equals(TEXT("Territory Gained"), ESearchCase::IgnoreCase) || OutcomeType.Equals(TEXT("Province Captured"), ESearchCase::IgnoreCase))
         {
             Outcome.TerritoryDelta = 1;
             Outcome.Casualties = 45;
@@ -895,7 +1024,7 @@ namespace
             Outcome.Summary = TEXT("RTS layer reports a limited border gain. Simulation receives control gains, casualties, resource disruption, and diplomatic concern.");
             Outcome.ConsequenceTags = { TEXT("rts"), TEXT("territory-gained"), TEXT("casualties"), TEXT("budget-strain") };
         }
-        else if (OutcomeType.Equals(TEXT("Territory Lost"), ESearchCase::IgnoreCase))
+        else if (OutcomeType.Equals(TEXT("Territory Lost"), ESearchCase::IgnoreCase) || OutcomeType.Equals(TEXT("Province Lost"), ESearchCase::IgnoreCase))
         {
             Outcome.TerritoryDelta = -1;
             Outcome.Casualties = 80;
@@ -907,6 +1036,45 @@ namespace
             Outcome.BudgetStrain = 14;
             Outcome.Summary = TEXT("RTS layer reports a border territory loss. Simulation receives stability damage, heightened takeover risk, casualties, disrupted resources, and budget strain.");
             Outcome.ConsequenceTags = { TEXT("rts"), TEXT("territory-lost"), TEXT("invasion-risk"), TEXT("war-fatigue") };
+        }
+        else if (OutcomeType.Equals(TEXT("Battle Lost"), ESearchCase::IgnoreCase))
+        {
+            Outcome.TerritoryDelta = 0;
+            Outcome.Casualties = 120;
+            Outcome.ResourceDisruption = 10;
+            Outcome.WarFatigueDelta = 14;
+            Outcome.DiplomaticDamage = 5;
+            Outcome.StabilityDelta = -5;
+            Outcome.InvasionRiskDelta = 12;
+            Outcome.BudgetStrain = 16;
+            Outcome.Summary = TEXT("RTS layer reports a battle loss. Simulation receives casualties, readiness loss, unrest pressure, and heightened invasion risk.");
+            Outcome.ConsequenceTags = { TEXT("rts"), TEXT("battle-lost"), TEXT("casualties"), TEXT("readiness-loss") };
+        }
+        else if (OutcomeType.Equals(TEXT("Capital Threatened"), ESearchCase::IgnoreCase))
+        {
+            Outcome.TerritoryDelta = 0;
+            Outcome.Casualties = 60;
+            Outcome.ResourceDisruption = 14;
+            Outcome.WarFatigueDelta = 12;
+            Outcome.DiplomaticDamage = 9;
+            Outcome.StabilityDelta = -8;
+            Outcome.InvasionRiskDelta = 24;
+            Outcome.BudgetStrain = 20;
+            Outcome.Summary = TEXT("RTS layer reports the capital is threatened. Simulation receives emergency stability damage, takeover risk, and budget strain.");
+            Outcome.ConsequenceTags = { TEXT("rts"), TEXT("capital-threatened"), TEXT("invasion-risk"), TEXT("emergency") };
+        }
+        else if (OutcomeType.Equals(TEXT("Supply Route Broken"), ESearchCase::IgnoreCase))
+        {
+            Outcome.TerritoryDelta = 0;
+            Outcome.Casualties = 25;
+            Outcome.ResourceDisruption = 28;
+            Outcome.WarFatigueDelta = 7;
+            Outcome.DiplomaticDamage = 4;
+            Outcome.StabilityDelta = -3;
+            Outcome.InvasionRiskDelta = 8;
+            Outcome.BudgetStrain = 18;
+            Outcome.Summary = TEXT("RTS layer reports a broken supply route. Simulation receives resource disruption, budget strain, readiness pressure, and unrest risk.");
+            Outcome.ConsequenceTags = { TEXT("rts"), TEXT("supply-route-broken"), TEXT("resource-disruption"), TEXT("logistics") };
         }
         else
         {
@@ -921,7 +1089,22 @@ namespace
             Outcome.Summary = TEXT("RTS layer reports a stalemate. Simulation receives casualties, fatigue, resource disruption, and continuing invasion pressure.");
             Outcome.ConsequenceTags = { TEXT("rts"), TEXT("stalemate"), TEXT("attrition") };
         }
+        PopulateRtsOutcomeAttentionFields(State, Outcome);
         return Outcome;
+    }
+
+    void QueueRtsOutcomeImport(FDemocracySimulationState& State, FDemocracyRtsOutcomeState Outcome)
+    {
+        if (Outcome.ImportEventType.Equals(TEXT("Unspecified"), ESearchCase::IgnoreCase) || Outcome.AttentionSummary.IsEmpty())
+        {
+            PopulateRtsOutcomeAttentionFields(State, Outcome);
+        }
+        Outcome.bAppliedToSimulation = false;
+        Outcome.bAcknowledgedBySimulation = false;
+        Outcome.bRequiresSimulationAttention = true;
+        Outcome.SimulationAttentionStatus = TEXT("Queued");
+        State.RtsWorld.Backflow.PendingOutcomes.Add(Outcome);
+        RefreshRtsBackflowCounters(State.RtsWorld.Backflow);
     }
 
     void QueuePrototypeRtsOutcomeIfNeeded(FDemocracySimulationState& State)
@@ -931,6 +1114,7 @@ namespace
             return;
         }
         State.RtsWorld.Backflow.LastOutcomeSummary = TEXT("RTS backflow bridge is initialized. No tactical result has been reported yet.");
+        RefreshRtsBackflowCounters(State.RtsWorld.Backflow);
     }
 
     int32 RuntimeDesiredProvinceCountForCountry(const FDemocracyGeneratedCountryState& Country, bool bPlayerCountry, int32 PlayerProvinceTarget)
@@ -1232,9 +1416,11 @@ namespace
         }
 
         Outcome.bAppliedToSimulation = true;
+        Outcome.bAcknowledgedBySimulation = true;
+        Outcome.SimulationAttentionStatus = TEXT("Consumed");
         Outcome.Turn = State.Turn;
         Backflow.LastAppliedTurn = State.Turn;
-        Backflow.LastOutcomeSummary = FString::Printf(TEXT("%s | %s | territories %+d, casualties %d, disruption %d, fatigue %+d, diplomacy -%d, stability %+d, invasion risk %+d, budget strain %d."), *Outcome.Summary, *OwnershipTransferSummary, Outcome.TerritoryDelta, Outcome.Casualties, Outcome.ResourceDisruption, Outcome.WarFatigueDelta, Outcome.DiplomaticDamage, Outcome.StabilityDelta, Outcome.InvasionRiskDelta, Outcome.BudgetStrain);
+        Backflow.LastOutcomeSummary = FString::Printf(TEXT("%s | %s | attention: %s | territories %+d, casualties %d, disruption %d, fatigue %+d, diplomacy -%d, stability %+d, invasion risk %+d, budget strain %d."), *Outcome.Summary, *OwnershipTransferSummary, *Outcome.AttentionSummary, Outcome.TerritoryDelta, Outcome.Casualties, Outcome.ResourceDisruption, Outcome.WarFatigueDelta, Outcome.DiplomaticDamage, Outcome.StabilityDelta, Outcome.InvasionRiskDelta, Outcome.BudgetStrain);
         Backflow.OutcomeHistory.Add(Outcome);
         TrimRtsBackflowHistory(Backflow);
         LogDecision(State, TEXT("RTS Backflow"), Outcome.OutcomeType, FString::Printf(TEXT("%s against %s."), *Outcome.ConflictName, *Outcome.OpponentCountry), Backflow.LastOutcomeSummary, FMath::Clamp(25 + Outcome.Casualties / 6 + FMath::Abs(Outcome.TerritoryDelta) * 15, 0, 100), Outcome.ConsequenceTags);
@@ -1268,9 +1454,17 @@ namespace
         const FDemocracyRtsBackflowState& Backflow = RtsWorld.Backflow;
         TArray<FString> Lines;
         Lines.Add(FString::Printf(TEXT("Territories %d controlled | border territories %d | pending outcomes %d | applied history %d"), RtsWorld.ControlledTerritories, RtsWorld.BorderTerritories, Backflow.PendingOutcomes.Num(), Backflow.OutcomeHistory.Num()));
+        Lines.Add(FString::Printf(TEXT("Import queue: attention %d | battle losses %d | province changes %d | capital threats %d | supply breaks %d"), Backflow.PendingAttentionCount, Backflow.BattleLossCount, Backflow.ProvinceCaptureCount, Backflow.CapitalThreatCount, Backflow.SupplyRouteBreakCount));
         Lines.Add(FString::Printf(TEXT("Ownership: %d countries | %d provinces | player controlled %d | contested %d | border provinces %d"), RtsWorld.Ownership.TotalCountries, RtsWorld.Ownership.TotalProvinces, RtsWorld.Ownership.PlayerControlledProvinces, RtsWorld.Ownership.ContestedProvinces, RtsWorld.Ownership.BorderProvinceCount));
         Lines.Add(FString::Printf(TEXT("Totals: territory %+d | casualties %d | fatigue %d | disruption %d | budget strain %d | diplomatic damage %d"), Backflow.TotalTerritoryDelta, Backflow.TotalCasualties, Backflow.WarFatigue, Backflow.ResourceDisruptionPressure, Backflow.BudgetStrainPressure, Backflow.DiplomaticDamagePressure));
+        Lines.Add(Backflow.LastImportQueueSummary);
         Lines.Add(Backflow.LastOutcomeSummary);
+        const int32 PendingDisplayCount = FMath::Min(Backflow.PendingOutcomes.Num(), 5);
+        for (int32 Index = 0; Index < PendingDisplayCount; ++Index)
+        {
+            const FDemocracyRtsOutcomeState& Outcome = Backflow.PendingOutcomes[Index];
+            Lines.Add(FString::Printf(TEXT("Queued | %s | %s | due turn %d | severity %d"), *Outcome.ImportEventType, *Outcome.AttentionSummary, Outcome.AttentionDeadlineTurn, Outcome.AttentionSeverity));
+        }
         const int32 StartIndex = FMath::Max(0, Backflow.OutcomeHistory.Num() - 4);
         for (int32 Index = Backflow.OutcomeHistory.Num() - 1; Index >= StartIndex; --Index)
         {

@@ -607,6 +607,14 @@ struct FDemocracyRtsOutcomeState
     FString ConflictName;
     FString OpponentCountry;
     FString OutcomeType = TEXT("Stalemate");
+    FString ImportEventType = TEXT("Unspecified");
+    FString AttentionCategory = TEXT("General");
+    FString AffectedCountryName;
+    FString AffectedProvinceId;
+    FString AffectedProvinceName;
+    FString AffectedResource;
+    int32 AttentionDeadlineTurn = 0;
+    int32 AttentionSeverity = 0;
     int32 TerritoryDelta = 0;
     int32 Casualties = 0;
     int32 ResourceDisruption = 0;
@@ -615,7 +623,11 @@ struct FDemocracyRtsOutcomeState
     int32 StabilityDelta = 0;
     int32 InvasionRiskDelta = 0;
     int32 BudgetStrain = 0;
+    bool bRequiresSimulationAttention = true;
+    bool bAcknowledgedBySimulation = false;
     bool bAppliedToSimulation = false;
+    FString SimulationAttentionStatus = TEXT("Queued");
+    FString AttentionSummary;
     FString Summary;
     TArray<FString> ConsequenceTags;
 
@@ -626,6 +638,11 @@ struct FDemocracyRtsBackflowState
 {
     int32 LastAppliedTurn = 0;
     int32 PendingOutcomeCount = 0;
+    int32 PendingAttentionCount = 0;
+    int32 BattleLossCount = 0;
+    int32 ProvinceCaptureCount = 0;
+    int32 CapitalThreatCount = 0;
+    int32 SupplyRouteBreakCount = 0;
     int32 TotalTerritoryDelta = 0;
     int32 TotalCasualties = 0;
     int32 WarFatigue = 0;
@@ -633,6 +650,7 @@ struct FDemocracyRtsBackflowState
     int32 BudgetStrainPressure = 0;
     int32 DiplomaticDamagePressure = 0;
     FString LastOutcomeSummary = TEXT("No RTS outcomes have been applied to the simulation yet.");
+    FString LastImportQueueSummary = TEXT("No RTS import queue items are waiting for simulation attention.");
     TArray<FDemocracyRtsOutcomeState> PendingOutcomes;
     TArray<FDemocracyRtsOutcomeState> OutcomeHistory;
 
