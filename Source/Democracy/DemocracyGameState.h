@@ -773,6 +773,9 @@ struct FDemocracyRtsSaveBoundaryState
     TArray<FString> RtsImportsToSimulation;
     TArray<FString> ForbiddenSimulationWrites;
     TArray<FString> SaveRules;
+    TArray<FString> ServerAuthoritativeFields;
+    TArray<FString> ClientRequestOnlyFields;
+    TArray<FString> ServerValidationNotes;
     TArray<FString> BoundaryValidationNotes;
     FString BoundarySummary = TEXT("RTS save boundary has not been initialized yet.");
 

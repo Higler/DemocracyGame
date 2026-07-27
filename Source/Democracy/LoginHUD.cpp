@@ -6767,6 +6767,18 @@ FString ALoginHUD::BuildRtsSaveBoundaryStatusText() const
     {
         Lines.Add(FString::Printf(TEXT("Save rules: %s"), *FString::Join(Boundary.SaveRules, TEXT(" | "))));
     }
+    if (Boundary.ServerAuthoritativeFields.Num() > 0)
+    {
+        Lines.Add(FString::Printf(TEXT("Server authoritative: %s"), *FString::Join(Boundary.ServerAuthoritativeFields, TEXT(" | "))));
+    }
+    if (Boundary.ClientRequestOnlyFields.Num() > 0)
+    {
+        Lines.Add(FString::Printf(TEXT("Client request-only: %s"), *FString::Join(Boundary.ClientRequestOnlyFields, TEXT(" | "))));
+    }
+    if (Boundary.ServerValidationNotes.Num() > 0)
+    {
+        Lines.Add(FString::Printf(TEXT("Server validation: %s"), *FString::Join(Boundary.ServerValidationNotes, TEXT(" | "))));
+    }
     if (Boundary.BoundaryValidationNotes.Num() > 0)
     {
         Lines.Add(FString::Printf(TEXT("Validation: %s"), *FString::Join(Boundary.BoundaryValidationNotes, TEXT(" | "))));
