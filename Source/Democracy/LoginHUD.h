@@ -11,6 +11,7 @@ class SWidget;
 struct FButtonStyle;
 struct FSlateColorBrush;
 struct FSlateImageBrush;
+struct FSlateDynamicImageBrush;
 class AOfficeLevelBuilder;
 class AOfficePlayerPawn;
 class UUserWidget;
@@ -53,6 +54,7 @@ class DEMOCRACY_API ALoginHUD : public AHUD
 
 public:
     void HandleOfficeInteractable(const FString& InteractionName);
+    void CloseOfficeOverlayFromInput();
 
     UFUNCTION(Exec)
     void DemocracySetDebugRole(const FString& RoleName);
@@ -67,7 +69,7 @@ protected:
 private:
     TSharedPtr<SWidget> LoginScreenWidget;
     TSharedPtr<FSlateImageBrush> BackgroundBrush;
-    TSharedPtr<FSlateImageBrush> WorldMapBrush;
+    TSharedPtr<FSlateDynamicImageBrush> WorldMapBrush;
     TSharedPtr<FSlateColorBrush> OverlayBrush;
     TSharedPtr<FSlateColorBrush> PanelBrush;
     TSharedPtr<FSlateColorBrush> RowBrush;

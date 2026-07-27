@@ -26,6 +26,7 @@ private:
     TObjectPtr<UCameraComponent> CameraComponent;
 
     bool bWasInteractPressed = false;
+    bool bWasEscapePressed = false;
     bool bInvertLookY = false;
     TWeakObjectPtr<AOfficeInteractableActor> CurrentTargetInteractable;
 

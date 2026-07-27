@@ -5,6 +5,7 @@
 #include "Engine/Engine.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/PlayerController.h"
+#include "LoginHUD.h"
 #include "OfficeInteractableActor.h"
 
 AOfficePlayerPawn::AOfficePlayerPawn()
@@ -111,6 +112,20 @@ void AOfficePlayerPawn::HandleInteraction()
     if (!PlayerController)
     {
         return;
+    }
+
+    const bool bEscapePressed = PlayerController->IsInputKeyDown(EKeys::Escape);
+    if (bEscapePressed && !bWasEscapePressed)
+    {
+        bWasEscapePressed = true;
+        if (ALoginHUD* LoginHUD = Cast<ALoginHUD>(PlayerController->GetHUD()))
+        {
+            LoginHUD->CloseOfficeOverlayFromInput();
+        }
+    }
+    else if (!bEscapePressed)
+    {
+        bWasEscapePressed = false;
     }
 
     AOfficeInteractableActor* TargetInteractable = FindBestInteractableTarget();

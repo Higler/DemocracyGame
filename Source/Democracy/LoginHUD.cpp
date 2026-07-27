@@ -22,6 +22,7 @@
 #include "Components/PointLightComponent.h"
 #include "Styling/CoreStyle.h"
 #include "Styling/SlateBrush.h"
+#include "Brushes/SlateDynamicImageBrush.h"
 #include "Widgets/Images/SImage.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Input/SCheckBox.h"
@@ -4721,9 +4722,8 @@ void ALoginHUD::BeginPlay()
     BackgroundBrush = MakeShared<FSlateImageBrush>(
         FPaths::ProjectContentDir() / TEXT("UI/Login/Office_Login_Background.png"),
         FVector2D(1680.0f, 945.0f));
-    WorldMapBrush = MakeShared<FSlateImageBrush>(
-        FPaths::ProjectContentDir() / TEXT("World/Dulia/Generated/Dulia_World_Government_Map.png"),
-        FVector2D(2242.0f, 1104.0f));
+    const FString WorldMapImagePath = FPaths::ProjectContentDir() / TEXT("World/Dulia/Generated/Dulia_World_Government_Map.png");
+    WorldMapBrush = MakeShared<FSlateDynamicImageBrush>(FName(*WorldMapImagePath), FVector2D(2242.0f, 1104.0f));
     OverlayBrush = MakeShared<FSlateColorBrush>(FLinearColor(0.0f, 0.0f, 0.0f, 0.24f));
     PanelBrush = MakeShared<FSlateColorBrush>(FLinearColor(0.025f, 0.028f, 0.032f, 0.88f));
     RowBrush = MakeShared<FSlateColorBrush>(FLinearColor(0.06f, 0.065f, 0.075f, 0.80f));
@@ -4886,7 +4886,16 @@ void ALoginHUD::RefreshLoginWidget()
         return;
     }
 
-    if (bInOfficeMode && (CurrentScreen == ELoginFlowScreen::OfficeOpeningBriefing || CurrentScreen == ELoginFlowScreen::OfficeDashboard || CurrentScreen == ELoginFlowScreen::OfficeComputerMenu || CurrentScreen == ELoginFlowScreen::OfficePolicies || CurrentScreen == ELoginFlowScreen::OfficeEvents || CurrentScreen == ELoginFlowScreen::OfficeDemographics || CurrentScreen == ELoginFlowScreen::OfficeBudget || CurrentScreen == ELoginFlowScreen::OfficeResourceChains || CurrentScreen == ELoginFlowScreen::OfficeDepartments || CurrentScreen == ELoginFlowScreen::OfficeDevelopment || CurrentScreen == ELoginFlowScreen::OfficeApprovalStability || CurrentScreen == ELoginFlowScreen::OfficeDecisionHistory || CurrentScreen == ELoginFlowScreen::OfficeWorldRts || CurrentScreen == ELoginFlowScreen::OfficeAdvisorWarnings || CurrentScreen == ELoginFlowScreen::OfficeMeetingAdvisor || CurrentScreen == ELoginFlowScreen::OfficePressRelease))
+    if (bInOfficeMode && CurrentScreen == ELoginFlowScreen::OfficeWorldRts && WorldRtsEntryMode.Equals(TEXT("RtsEntry"), ESearchCase::IgnoreCase))
+    {
+        LoginScreenWidget =
+            SNew(SOverlay)
+            + SOverlay::Slot()
+            [
+                BuildCurrentScreen()
+            ];
+    }
+    else if (bInOfficeMode && (CurrentScreen == ELoginFlowScreen::OfficeOpeningBriefing || CurrentScreen == ELoginFlowScreen::OfficeDashboard || CurrentScreen == ELoginFlowScreen::OfficeComputerMenu || CurrentScreen == ELoginFlowScreen::OfficePolicies || CurrentScreen == ELoginFlowScreen::OfficeEvents || CurrentScreen == ELoginFlowScreen::OfficeDemographics || CurrentScreen == ELoginFlowScreen::OfficeBudget || CurrentScreen == ELoginFlowScreen::OfficeResourceChains || CurrentScreen == ELoginFlowScreen::OfficeDepartments || CurrentScreen == ELoginFlowScreen::OfficeDevelopment || CurrentScreen == ELoginFlowScreen::OfficeApprovalStability || CurrentScreen == ELoginFlowScreen::OfficeDecisionHistory || CurrentScreen == ELoginFlowScreen::OfficeWorldRts || CurrentScreen == ELoginFlowScreen::OfficeAdvisorWarnings || CurrentScreen == ELoginFlowScreen::OfficeMeetingAdvisor || CurrentScreen == ELoginFlowScreen::OfficePressRelease))
     {
         LoginScreenWidget =
             SNew(SOverlay)
@@ -6360,17 +6369,64 @@ TSharedRef<SWidget> ALoginHUD::BuildOfficeWorldRtsScreen()
 
     const bool bRtsEntry = WorldRtsEntryMode.Equals(TEXT("RtsEntry"), ESearchCase::IgnoreCase);
     const FString PlayerCountry = bHasLoadedRuntimeState ? LoadedSaveState.RuntimeState.PlayerCountry.CountryName : TEXT("Player Country");
-    const FString Title = bRtsEntry ? TEXT("RTS Command Map") : TEXT("World Government Map");
-    const FString Subtitle = bRtsEntry
-        ? FString::Printf(TEXT("Entered from the hallway command door. The RTS view is focused on %s; green is the player country, blue is democracy, red is dictatorship."), *PlayerCountry)
-        : TEXT("Globe view of Planet Dulia. Green is the player country, blue countries are democracies, and red countries are dictatorships.");
-
     const FString DemocracyCount = bHasLoadedRuntimeState ? FString::Printf(TEXT("%d democratic/allied countries"), LoadedSaveState.RuntimeState.WorldMap.DemocraticAllyCount) : TEXT("Democracy count unavailable");
     const FString DictatorshipCount = bHasLoadedRuntimeState ? FString::Printf(TEXT("%d dictatorship/hostile countries"), LoadedSaveState.RuntimeState.WorldMap.NonDemocraticCountryCount) : TEXT("Dictatorship count unavailable");
     const FString OwnershipSummary = bHasLoadedRuntimeState ? BuildMapOwnershipStatusText() : TEXT("Map ownership unavailable until a state is loaded.");
-    const FString SelectionSummary = bRtsEntry && bHasLoadedRuntimeState
-        ? FString::Printf(TEXT("Focused country: %s | Selected RTS target: %s %s | Orders: %s"), *PlayerCountry, *LoadedSaveState.RuntimeState.RtsWorld.WorldInteraction.ActiveSelectionType, *LoadedSaveState.RuntimeState.RtsWorld.WorldInteraction.ActiveSelectionId, *LoadedSaveState.RuntimeState.RtsWorld.Hud.ArmyOrderSummary)
-        : FString::Printf(TEXT("Focused country: %s"), *PlayerCountry);
+    const FString RtsFocusSummary = bHasLoadedRuntimeState
+        ? FString::Printf(TEXT("Focused on %s | %s | %s"), *PlayerCountry, *LoadedSaveState.RuntimeState.RtsWorld.Hud.ResourceSummary, *LoadedSaveState.RuntimeState.RtsWorld.Hud.ArmyOrderSummary)
+        : TEXT("Focused player country unavailable until a state is loaded.");
+
+    TSharedRef<SWidget> MapImage =
+        SNew(SImage)
+        .Image(WorldMapBrush.Get());
+
+    if (bRtsEntry)
+    {
+        return SNew(SOverlay)
+            + SOverlay::Slot()
+            [
+                SNew(SBorder)
+                .BorderImage(OverlayBrush.Get())
+                [
+                    SNew(SImage)
+                    .Image(WorldMapBrush.Get())
+                ]
+            ]
+            + SOverlay::Slot().HAlign(HAlign_Fill).VAlign(VAlign_Top).Padding(18.0f)
+            [
+                SNew(SBorder)
+                .BorderImage(RowBrush.Get())
+                .BorderBackgroundColor(FLinearColor(0.015f, 0.018f, 0.022f, 0.88f))
+                .Padding(14.0f)
+                [
+                    SNew(SHorizontalBox)
+                    + SHorizontalBox::Slot().FillWidth(1.0f)
+                    [
+                        SNew(STextBlock)
+                        .Text(BodyText(FString::Printf(TEXT("RTS COMMAND MAP  |  %s  |  Green player territory, blue democracies, red dictatorships"), *RtsFocusSummary)))
+                        .AutoWrapText(true)
+                        .Font(FCoreStyle::GetDefaultFontStyle("Bold", 18))
+                        .ColorAndOpacity(FLinearColor::White)
+                    ]
+                    + SHorizontalBox::Slot().AutoWidth().Padding(12.0f, 0.0f, 0.0f, 0.0f)
+                    [BuildButton(TEXT("Return To Office"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleCloseOfficeOverlayClicked), 190.0f, 38.0f)]
+                ]
+            ]
+            + SOverlay::Slot().HAlign(HAlign_Left).VAlign(VAlign_Bottom).Padding(18.0f)
+            [
+                SNew(SBorder)
+                .BorderImage(RowBrush.Get())
+                .BorderBackgroundColor(FLinearColor(0.02f, 0.04f, 0.03f, 0.90f))
+                .Padding(14.0f)
+                [
+                    SNew(STextBlock)
+                    .Text(BodyText(FString::Printf(TEXT("Player focus: %s\nMap ownership: %s\nSimulation-to-RTS: %s\nPress Esc to return to the office."), *PlayerCountry, *OwnershipSummary, *BuildSimulationToRtsContractStatusText())))
+                    .AutoWrapText(true)
+                    .Font(FCoreStyle::GetDefaultFontStyle("Regular", 14))
+                    .ColorAndOpacity(FLinearColor(0.82f, 0.94f, 0.86f, 1.0f))
+                ]
+            ];
+    }
 
     TSharedRef<SVerticalBox> Body = SNew(SVerticalBox);
     Body->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 10.0f)
@@ -6379,31 +6435,10 @@ TSharedRef<SWidget> ALoginHUD::BuildOfficeWorldRtsScreen()
         .WidthOverride(1080.0f)
         .HeightOverride(532.0f)
         [
-            SNew(SOverlay)
-            + SOverlay::Slot()
-            [
-                SNew(SBorder)
-                .BorderImage(RowBrush.Get())
-                .Padding(4.0f)
-                [
-                    SNew(SImage)
-                    .Image(WorldMapBrush.Get())
-                ]
-            ]
-            + SOverlay::Slot().HAlign(HAlign_Left).VAlign(VAlign_Bottom).Padding(18.0f)
-            [
-                SNew(SBorder)
-                .BorderImage(RowBrush.Get())
-                .BorderBackgroundColor(FLinearColor(0.02f, 0.04f, 0.03f, 0.88f))
-                .Padding(12.0f)
-                [
-                    SNew(STextBlock)
-                    .Text(BodyText(SelectionSummary))
-                    .AutoWrapText(true)
-                    .Font(FCoreStyle::GetDefaultFontStyle("Bold", 15))
-                    .ColorAndOpacity(FLinearColor(0.78f, 1.0f, 0.82f, 1.0f))
-                ]
-            ]
+            SNew(SBorder)
+            .BorderImage(RowBrush.Get())
+            .Padding(4.0f)
+            [MapImage]
         ]
     ];
 
@@ -6414,13 +6449,11 @@ TSharedRef<SWidget> ALoginHUD::BuildOfficeWorldRtsScreen()
     Body->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
     [BuildInfoRow(TEXT("Map Ownership"), OwnershipSummary)];
     Body->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
-    [BuildInfoRow(TEXT("RTS Entry State"), bRtsEntry ? BuildSimulationToRtsContractStatusText() : BuildDiplomacyStatusText())];
-    Body->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
-    [BuildInfoRow(TEXT("RTS HUD"), bHasLoadedRuntimeState ? FString::Printf(TEXT("%s\n%s\n%s"), *LoadedSaveState.RuntimeState.RtsWorld.Hud.ResourceSummary, *LoadedSaveState.RuntimeState.RtsWorld.Hud.BuildMenuSummary, *LoadedSaveState.RuntimeState.RtsWorld.Hud.AlertSummary) : TEXT("Unavailable"))];
+    [BuildInfoRow(TEXT("Diplomacy Matrix"), BuildDiplomacyStatusText())];
     Body->AddSlot().AutoHeight().Padding(0.0f, 12.0f)
     [BuildButton(TEXT("Return To Office"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleCloseOfficeOverlayClicked), 210.0f, 40.0f)];
 
-    return BuildPanel(Title, Subtitle, Body, 1160.0f);
+    return BuildPanel(TEXT("World Government Map"), TEXT("Globe view of Planet Dulia. Green is the player country, blue countries are democracies, and red countries are dictatorships."), Body, 1160.0f);
 }
 TSharedRef<SWidget> ALoginHUD::BuildOfficeAdvisorWarningsScreen()
 {
@@ -10440,6 +10473,16 @@ FReply ALoginHUD::HandleCloseOfficeOverlayClicked()
     }
 
     return FReply::Handled();
+}
+
+void ALoginHUD::CloseOfficeOverlayFromInput()
+{
+    if (!bInOfficeMode || CurrentScreen == ELoginFlowScreen::OfficeNoOverlay)
+    {
+        return;
+    }
+
+    HandleCloseOfficeOverlayClicked();
 }
 
 FReply ALoginHUD::HandleExitOfficeClicked()
