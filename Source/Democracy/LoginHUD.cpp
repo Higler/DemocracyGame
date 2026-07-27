@@ -1504,14 +1504,54 @@ namespace
                 { TEXT("office_trade"), TEXT("Expand Trade"), TEXT("Office"), TEXT("Economy"), TEXT("Computer/Treasury"), true, false, true, 1, -100, 40, 1, 0, -1, 4, 0, -1, 8, TEXT("Requires diplomacy above 30."), TEXT("Adds resources and diplomacy at treasury cost."), TEXT("") },
                 { TEXT("office_aid"), TEXT("Send Foreign Aid"), TEXT("Office"), TEXT("Diplomacy"), TEXT("Meeting Room/Press"), true, false, true, 2, -100, 70, 1, 1, -1, 5, 0, -2, -3, TEXT("Requires treasury reserve."), TEXT("Improves diplomacy and stability, spends supplies."), TEXT("") },
                 { TEXT("office_emergency"), TEXT("Declare Emergency Measures"), TEXT("Office"), TEXT("Emergency"), TEXT("Computer/Phone"), true, false, true, 4, -100, 120, -5, 5, -8, -3, 3, -6, -5, TEXT("Requires unrest or invasion pressure."), TEXT("Strong unrest/risk reduction with legitimacy costs."), TEXT("") },
+                { TEXT("office_declare_war"), TEXT("Declare War"), TEXT("Office"), TEXT("War"), TEXT("Computer/Globe"), true, true, true, 8, -100, 180, -8, -6, 10, -15, -4, 18, -8, TEXT("Requires hostile relation or severe border tension and 45 readiness."), TEXT("Creates active war state and pushes battles to RTS backflow."), TEXT("") },
+                { TEXT("office_request_alliance_aid"), TEXT("Request Alliance Aid"), TEXT("Office"), TEXT("War"), TEXT("Meeting Room/Globe"), true, false, true, 4, -100, 60, 1, 1, -1, 3, 5, -7, 4, TEXT("Requires ally, treaty partner, or high-trust trade partner."), TEXT("Improves readiness and supplies through diplomatic support."), TEXT("") },
+                { TEXT("office_negotiate_ceasefire"), TEXT("Negotiate Ceasefire"), TEXT("Office"), TEXT("War"), TEXT("Meeting Room/Phone"), true, false, true, 3, -100, 45, 2, 3, -3, 5, -2, -8, 0, TEXT("Requires active war or severe border conflict."), TEXT("Lowers escalation, invasion risk, and unrest."), TEXT("") },
+                { TEXT("office_surrender_territory"), TEXT("Surrender Territory"), TEXT("Office"), TEXT("War"), TEXT("Meeting Room/Computer"), true, false, true, 10, -100, 20, -12, -8, 12, 2, -10, -15, -12, TEXT("Requires active war with high defeat or takeover risk."), TEXT("Cuts immediate invasion pressure by losing territory/resources."), TEXT("") },
+                { TEXT("office_impose_sanctions"), TEXT("Impose Sanctions"), TEXT("Office"), TEXT("War"), TEXT("Computer/Globe"), true, false, true, 4, -100, 35, -2, 0, 2, -6, 0, 4, -4, TEXT("Requires hostile/rival relation, active war, or border tension."), TEXT("Applies sanctions and reduces trade access."), TEXT("") },
                 { TEXT("rts_deploy_forces"), TEXT("Deploy Forces"), TEXT("RTS"), TEXT("Military"), TEXT("RTS View"), false, true, false, 1, -100, 0, 0, 0, 0, 0, 0, 0, 0, TEXT("Future RTS layer only."), TEXT("Direct troop deployment belongs to RTS view."), TEXT("Simulation office cannot deploy troops directly.") },
                 { TEXT("rts_attack_operation"), TEXT("Launch Attack Operation"), TEXT("RTS"), TEXT("Military"), TEXT("RTS View"), false, true, false, 2, -100, 0, 0, 0, 0, 0, 0, 0, 0, TEXT("Future RTS layer only."), TEXT("Battles later report outcomes through RTS backflow."), TEXT("Simulation office cannot launch direct attacks.") }
             };
             State.CommandAuthority = Authority;
         }
+
+        auto AddMissingCommandAuthorityAction = [&State](const FDemocracyCommandAuthorityActionState& NewAction)
+        {
+            for (const FDemocracyCommandAuthorityActionState& ExistingAction : State.CommandAuthority.Actions)
+            {
+                if (ExistingAction.CommandId.Equals(NewAction.CommandId, ESearchCase::IgnoreCase))
+                {
+                    return;
+                }
+            }
+            State.CommandAuthority.Actions.Add(NewAction);
+        };
+        AddMissingCommandAuthorityAction({ TEXT("office_declare_war"), TEXT("Declare War"), TEXT("Office"), TEXT("War"), TEXT("Computer/Globe"), true, true, true, 8, -100, 180, -8, -6, 10, -15, -4, 18, -8, TEXT("Requires hostile relation or severe border tension and 45 readiness."), TEXT("Creates active war state and pushes battles to RTS backflow."), TEXT("") });
+        AddMissingCommandAuthorityAction({ TEXT("office_request_alliance_aid"), TEXT("Request Alliance Aid"), TEXT("Office"), TEXT("War"), TEXT("Meeting Room/Globe"), true, false, true, 4, -100, 60, 1, 1, -1, 3, 5, -7, 4, TEXT("Requires ally, treaty partner, or high-trust trade partner."), TEXT("Improves readiness and supplies through diplomatic support."), TEXT("") });
+        AddMissingCommandAuthorityAction({ TEXT("office_negotiate_ceasefire"), TEXT("Negotiate Ceasefire"), TEXT("Office"), TEXT("War"), TEXT("Meeting Room/Phone"), true, false, true, 3, -100, 45, 2, 3, -3, 5, -2, -8, 0, TEXT("Requires active war or severe border conflict."), TEXT("Lowers escalation, invasion risk, and unrest."), TEXT("") });
+        AddMissingCommandAuthorityAction({ TEXT("office_surrender_territory"), TEXT("Surrender Territory"), TEXT("Office"), TEXT("War"), TEXT("Meeting Room/Computer"), true, false, true, 10, -100, 20, -12, -8, 12, 2, -10, -15, -12, TEXT("Requires active war with high defeat or takeover risk."), TEXT("Cuts immediate invasion pressure by losing territory/resources."), TEXT("") });
+        AddMissingCommandAuthorityAction({ TEXT("office_impose_sanctions"), TEXT("Impose Sanctions"), TEXT("Office"), TEXT("War"), TEXT("Computer/Globe"), true, false, true, 4, -100, 35, -2, 0, 2, -6, 0, 4, -4, TEXT("Requires hostile/rival relation, active war, or border tension."), TEXT("Applies sanctions and reduces trade access."), TEXT("") });
+
         State.CommandAuthority.LastUpdatedTurn = State.Turn;
         int32 OfficeCount = 0;
         int32 RtsCount = 0;
+        bool bHasWarTarget = false;
+        bool bHasAllianceSupport = false;
+        int32 HighestBorderTension = 0;
+        for (const FDemocracyDiplomacyRelationshipState& Relationship : State.DiplomacyMatrix.Relationships)
+        {
+            HighestBorderTension = FMath::Max(HighestBorderTension, Relationship.BorderTension);
+            bHasWarTarget = bHasWarTarget
+                || Relationship.RelationshipStatus.Equals(TEXT("Hostile"), ESearchCase::IgnoreCase)
+                || Relationship.RelationshipStatus.Equals(TEXT("Rival"), ESearchCase::IgnoreCase)
+                || Relationship.BorderTension >= 70;
+            bHasAllianceSupport = bHasAllianceSupport
+                || Relationship.RelationshipStatus.Equals(TEXT("Ally"), ESearchCase::IgnoreCase)
+                || Relationship.TreatyStatus.Contains(TEXT("Defense"), ESearchCase::IgnoreCase)
+                || Relationship.Trust >= 70;
+        }
+        const bool bHasActiveWar = State.WarSystem.ActiveConflicts.Num() > 0 || State.InvasionRisk.CurrentInvasionRisk >= 55 || HighestBorderTension >= 75;
+        const bool bHighDefeatPressure = State.InvasionRisk.CurrentInvasionRisk >= 70 || State.RtsWorld.Ownership.ContestedProvinces > 0 || State.RtsWorld.Ownership.PlayerControlledProvinces < FMath::Max(1, State.RtsWorld.Ownership.TotalProvinces / 5);
         for (FDemocracyCommandAuthorityActionState& Action : State.CommandAuthority.Actions)
         {
             if (Action.bOfficeAllowed) ++OfficeCount;
@@ -1532,6 +1572,31 @@ namespace
             {
                 Action.bEnabled = false;
                 Action.DisabledReason = TEXT("Emergency authority requires high unrest or takeover pressure.");
+            }
+            if (Action.CommandId.Equals(TEXT("office_declare_war"), ESearchCase::IgnoreCase) && (!bHasWarTarget || State.PlayerCountry.MilitaryReadiness < 45))
+            {
+                Action.bEnabled = false;
+                Action.DisabledReason = TEXT("Declare war requires a hostile/rival target or severe border tension and at least 45 military readiness.");
+            }
+            if (Action.CommandId.Equals(TEXT("office_request_alliance_aid"), ESearchCase::IgnoreCase) && !bHasAllianceSupport)
+            {
+                Action.bEnabled = false;
+                Action.DisabledReason = TEXT("Alliance aid requires an ally, defense treaty, or high-trust partner.");
+            }
+            if (Action.CommandId.Equals(TEXT("office_negotiate_ceasefire"), ESearchCase::IgnoreCase) && !bHasActiveWar)
+            {
+                Action.bEnabled = false;
+                Action.DisabledReason = TEXT("Ceasefire talks require an active war, severe border conflict, or high invasion risk.");
+            }
+            if (Action.CommandId.Equals(TEXT("office_surrender_territory"), ESearchCase::IgnoreCase) && !bHighDefeatPressure)
+            {
+                Action.bEnabled = false;
+                Action.DisabledReason = TEXT("Territory surrender is available only under high defeat or takeover pressure.");
+            }
+            if (Action.CommandId.Equals(TEXT("office_impose_sanctions"), ESearchCase::IgnoreCase) && !bHasWarTarget && !bHasActiveWar)
+            {
+                Action.bEnabled = false;
+                Action.DisabledReason = TEXT("Sanctions require hostile/rival pressure, active war, or severe border tension.");
             }
             if (Action.AuthorityLayer.Equals(TEXT("RTS"), ESearchCase::IgnoreCase) && !Action.bOfficeAllowed)
             {
@@ -8216,7 +8281,176 @@ FReply ALoginHUD::HandleExecuteAuthorityCommand(FString CommandId, FString Surfa
         Country.Resources.Metals = FMath::Max(0, Country.Resources.Metals + SelectedAction->ResourceDelta);
     }
 
-    if (SelectedAction->CommandId.Equals(TEXT("office_embargo"), ESearchCase::IgnoreCase))
+    if (SelectedAction->CommandId.Equals(TEXT("office_declare_war"), ESearchCase::IgnoreCase))
+    {
+        FDemocracyDiplomacyRelationshipState* WarTarget = nullptr;
+        for (FDemocracyDiplomacyRelationshipState& Relationship : State.DiplomacyMatrix.Relationships)
+        {
+            const bool bCandidate = Relationship.RelationshipStatus.Equals(TEXT("Hostile"), ESearchCase::IgnoreCase)
+                || Relationship.RelationshipStatus.Equals(TEXT("Rival"), ESearchCase::IgnoreCase)
+                || Relationship.BorderTension >= 70;
+            if (bCandidate && (!WarTarget || Relationship.BorderTension > WarTarget->BorderTension))
+            {
+                WarTarget = &Relationship;
+            }
+        }
+        const FString OpponentName = WarTarget ? WarTarget->CountryName : TEXT("Unspecified Rival");
+        if (WarTarget)
+        {
+            WarTarget->RelationshipStatus = TEXT("Hostile");
+            WarTarget->BorderTension = FMath::Clamp(WarTarget->BorderTension + 20, 0, 100);
+            WarTarget->Trust = FMath::Clamp(WarTarget->Trust - 18, 0, 100);
+            WarTarget->LastChangedTurn = State.Turn;
+            WarTarget->Notes.AddUnique(TEXT("War declared through simulation command authority."));
+        }
+
+        const FString ConflictId = FString::Printf(TEXT("war-%s"), *OpponentName.Replace(TEXT(" "), TEXT("-")).ToLower());
+        FDemocracyWarConflictState* Conflict = nullptr;
+        for (FDemocracyWarConflictState& ExistingConflict : State.WarSystem.ActiveConflicts)
+        {
+            if (ExistingConflict.ConflictId.Equals(ConflictId, ESearchCase::IgnoreCase))
+            {
+                Conflict = &ExistingConflict;
+                break;
+            }
+        }
+        if (!Conflict)
+        {
+            FDemocracyWarConflictState NewConflict;
+            NewConflict.ConflictId = ConflictId;
+            NewConflict.ConflictName = FString::Printf(TEXT("War with %s"), *OpponentName);
+            NewConflict.ConflictType = TEXT("Declared War");
+            NewConflict.Status = TEXT("Active");
+            NewConflict.PrimaryObjective = TEXT("Defend sovereignty and force diplomatic concessions.");
+            NewConflict.EnemyObjective = TEXT("Pressure the capital, seize provinces, and weaken stability.");
+            NewConflict.StartedTurn = State.Turn;
+            NewConflict.LastUpdatedTurn = State.Turn;
+            NewConflict.EscalationLevel = 3;
+            NewConflict.WarScore = -5;
+            NewConflict.VictoryProgress = 5;
+            NewConflict.DefeatRisk = FMath::Clamp(State.InvasionRisk.CurrentInvasionRisk / 2 + 15, 0, 100);
+            NewConflict.VictoryCondition = TEXT("Resolve through RTS victories, treaty concessions, or negotiated settlement.");
+            NewConflict.DefeatCondition = TEXT("Capital threatened, province control collapse, or surrender terms accepted.");
+            FDemocracyWarParticipantState PlayerParticipant;
+            PlayerParticipant.CountryName = Country.CountryName;
+            PlayerParticipant.Role = TEXT("Defender");
+            PlayerParticipant.Alignment = State.ObjectiveState.PlayerGovernmentType;
+            PlayerParticipant.Commitment = 65;
+            PlayerParticipant.WarSupport = FMath::Clamp(Country.PublicApproval - 10, 0, 100);
+            NewConflict.Participants.Add(PlayerParticipant);
+            FDemocracyWarParticipantState OpponentParticipant;
+            OpponentParticipant.CountryName = OpponentName;
+            OpponentParticipant.Role = TEXT("Opponent");
+            OpponentParticipant.Alignment = WarTarget ? WarTarget->GovernmentType : TEXT("Unknown");
+            OpponentParticipant.Commitment = 70;
+            OpponentParticipant.WarSupport = 60;
+            NewConflict.Participants.Add(OpponentParticipant);
+            FDemocracyWarFrontState Front;
+            Front.FrontName = TEXT("Primary Border Front");
+            Front.RegionName = State.RtsWorld.Ownership.Continents.Num() > 0 ? State.RtsWorld.Ownership.Continents[0].ContinentName : TEXT("Unassigned Border");
+            Front.ContestedBorder = FString::Printf(TEXT("%s border"), *OpponentName);
+            Front.Pressure = FMath::Clamp(State.InvasionRisk.CurrentInvasionRisk + 20, 0, 100);
+            Front.PlayerControl = 50;
+            Front.Status = TEXT("Active Combat Pending RTS Resolution");
+            NewConflict.Fronts.Add(Front);
+            NewConflict.ActiveModifiers = { TEXT("Declared by simulation office"), TEXT("RTS battle resolution required") };
+            State.WarSystem.ActiveConflicts.Add(NewConflict);
+        }
+        State.WarSystem.EscalationPressure = FMath::Clamp(State.WarSystem.EscalationPressure + 25, 0, 100);
+        State.WarSystem.WarFatigue = FMath::Clamp(State.WarSystem.WarFatigue + 8, 0, 100);
+        State.WarSystem.LastUpdatedTurn = State.Turn;
+        State.WarSystem.Summary = FString::Printf(TEXT("Declared war against %s. RTS layer must resolve battles and return outcomes."), *OpponentName);
+        State.RtsWorld.Backflow.LastImportQueueSummary = TEXT("War declaration created: future RTS results must feed battle, casualty, province, and supply outcomes back into simulation.");
+    }
+    else if (SelectedAction->CommandId.Equals(TEXT("office_request_alliance_aid"), ESearchCase::IgnoreCase))
+    {
+        bool bFoundSupporter = false;
+        for (FDemocracyDiplomacyRelationshipState& Relationship : State.DiplomacyMatrix.Relationships)
+        {
+            const bool bSupporter = Relationship.RelationshipStatus.Equals(TEXT("Ally"), ESearchCase::IgnoreCase)
+                || Relationship.TreatyStatus.Contains(TEXT("Defense"), ESearchCase::IgnoreCase)
+                || Relationship.Trust >= 70;
+            if (bSupporter)
+            {
+                Relationship.Trust = FMath::Clamp(Relationship.Trust + 2, 0, 100);
+                Relationship.LastChangedTurn = State.Turn;
+                Relationship.Notes.AddUnique(TEXT("Alliance aid requested through simulation command authority."));
+                bFoundSupporter = true;
+                break;
+            }
+        }
+        if (bFoundSupporter)
+        {
+            Country.MilitaryReadiness = FMath::Clamp(Country.MilitaryReadiness + 3, 0, 100);
+            State.WarSystem.ReadinessStatus = TEXT("Alliance aid requested; readiness support pending future server/RTS resolution.");
+        }
+    }
+    else if (SelectedAction->CommandId.Equals(TEXT("office_negotiate_ceasefire"), ESearchCase::IgnoreCase))
+    {
+        for (FDemocracyWarConflictState& Conflict : State.WarSystem.ActiveConflicts)
+        {
+            Conflict.Status = TEXT("Ceasefire Talks");
+            Conflict.LastUpdatedTurn = State.Turn;
+            Conflict.EscalationLevel = FMath::Max(0, Conflict.EscalationLevel - 1);
+            Conflict.DefeatRisk = FMath::Max(0, Conflict.DefeatRisk - 8);
+            Conflict.ActiveModifiers.AddUnique(TEXT("Ceasefire negotiations opened from simulation office."));
+        }
+        State.WarSystem.EscalationPressure = FMath::Max(0, State.WarSystem.EscalationPressure - 12);
+        State.WarSystem.WarFatigue = FMath::Max(0, State.WarSystem.WarFatigue - 4);
+        State.WarSystem.Summary = TEXT("Ceasefire talks opened; RTS should pause escalation unless new battle outcomes arrive.");
+    }
+    else if (SelectedAction->CommandId.Equals(TEXT("office_surrender_territory"), ESearchCase::IgnoreCase))
+    {
+        bool bProvinceTransferred = false;
+        for (FDemocracyProvinceOwnershipState& Province : State.RtsWorld.Ownership.Provinces)
+        {
+            if (Province.bPlayerControlled && Province.bBorderProvince)
+            {
+                Province.bPlayerControlled = false;
+                Province.CurrentControllerCountryName = TEXT("Ceasefire Occupation");
+                Province.LastChangedTurn = State.Turn;
+                bProvinceTransferred = true;
+                break;
+            }
+        }
+        if (!bProvinceTransferred)
+        {
+            for (FDemocracyProvinceOwnershipState& Province : State.RtsWorld.Ownership.Provinces)
+            {
+                if (Province.bPlayerControlled)
+                {
+                    Province.bPlayerControlled = false;
+                    Province.CurrentControllerCountryName = TEXT("Ceasefire Occupation");
+                    Province.LastChangedTurn = State.Turn;
+                    bProvinceTransferred = true;
+                    break;
+                }
+            }
+        }
+        State.RtsWorld.Ownership.LastUpdatedTurn = State.Turn;
+        State.RtsWorld.Ownership.Summary = bProvinceTransferred ? TEXT("Territory surrender transferred one player-controlled province marker pending RTS/server reconciliation.") : TEXT("Territory surrender recorded, but no player-controlled province marker was available to transfer.");
+        State.RtsWorld.Backflow.TotalTerritoryDelta -= bProvinceTransferred ? 1 : 0;
+        State.WarSystem.WarFatigue = FMath::Clamp(State.WarSystem.WarFatigue + 10, 0, 100);
+        State.WarSystem.Summary = TEXT("Territory surrendered to reduce immediate takeover pressure; ownership must be reconciled by RTS/server authority.");
+    }
+    else if (SelectedAction->CommandId.Equals(TEXT("office_impose_sanctions"), ESearchCase::IgnoreCase))
+    {
+        for (FDemocracyDiplomacyRelationshipState& Relationship : State.DiplomacyMatrix.Relationships)
+        {
+            if (Relationship.RelationshipStatus.Equals(TEXT("Hostile"), ESearchCase::IgnoreCase) || Relationship.RelationshipStatus.Equals(TEXT("Rival"), ESearchCase::IgnoreCase) || Relationship.BorderTension >= 55)
+            {
+                Relationship.bSanctionsActive = true;
+                Relationship.TradeValue = FMath::Max(0, Relationship.TradeValue - 12);
+                Relationship.Trust = FMath::Clamp(Relationship.Trust - 8, 0, 100);
+                Relationship.BorderTension = FMath::Clamp(Relationship.BorderTension + 6, 0, 100);
+                Relationship.LastChangedTurn = State.Turn;
+                Relationship.Notes.AddUnique(TEXT("Sanctions imposed through war command authority."));
+                State.WarSystem.EscalationPressure = FMath::Clamp(State.WarSystem.EscalationPressure + 5, 0, 100);
+                break;
+            }
+        }
+    }
+    else if (SelectedAction->CommandId.Equals(TEXT("office_embargo"), ESearchCase::IgnoreCase))
     {
         for (FDemocracyDiplomacyRelationshipState& Relationship : State.DiplomacyMatrix.Relationships)
         {
