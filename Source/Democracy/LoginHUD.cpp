@@ -8464,128 +8464,214 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsArmyMarkersWidget(float MapWidth, float M
     const float ScaleX = MapWidth / 2242.0f;
     const float ScaleY = MapHeight / 1104.0f;
 
-    for (const FDemocracyRtsArmyGroupState& Army : State.RtsWorld.ArmyGroups)
+    auto FindProvince = [&State](const FString& ProvinceId) -> const FDemocracyProvinceOwnershipState*
     {
-        const FDemocracyProvinceOwnershipState* Province = nullptr;
         for (const FDemocracyProvinceOwnershipState& CandidateProvince : State.RtsWorld.Ownership.Provinces)
         {
-            if (CandidateProvince.ProvinceId.Equals(Army.CurrentProvinceId, ESearchCase::IgnoreCase))
+            if (CandidateProvince.ProvinceId.Equals(ProvinceId, ESearchCase::IgnoreCase))
             {
-                Province = &CandidateProvince;
-                break;
+                return &CandidateProvince;
             }
         }
-        if (!Province) { continue; }
+        return nullptr;
+    };
 
-        const FDemocracyCountryOwnershipState* Country = nullptr;
+    auto FindCountryForProvince = [&State](const FDemocracyProvinceOwnershipState& Province, const FString& ArmyCountryName) -> const FDemocracyCountryOwnershipState*
+    {
         for (const FDemocracyCountryOwnershipState& CandidateCountry : State.RtsWorld.Ownership.Countries)
         {
-            if (CandidateCountry.CountryName.Equals(Province->CurrentControllerCountryName, ESearchCase::IgnoreCase) || CandidateCountry.CountryName.Equals(Army.CurrentCountryName, ESearchCase::IgnoreCase))
+            if (CandidateCountry.CountryName.Equals(Province.CurrentControllerCountryName, ESearchCase::IgnoreCase) ||
+                CandidateCountry.CountryName.Equals(Province.OriginalCountryName, ESearchCase::IgnoreCase) ||
+                CandidateCountry.CountryName.Equals(ArmyCountryName, ESearchCase::IgnoreCase))
             {
-                Country = &CandidateCountry;
-                break;
+                return &CandidateCountry;
             }
         }
-        if (!Country) { continue; }
+        return nullptr;
+    };
 
-        const FDuliaCountryMapPoint* Point = nullptr;
+    auto FindPointForCountry = [&Points](const FDemocracyCountryOwnershipState& Country) -> const FDuliaCountryMapPoint*
+    {
         for (const FDuliaCountryMapPoint& CandidatePoint : Points)
         {
-            if (CandidatePoint.CountryIndex == Country->MapCountryIndex)
+            if (CandidatePoint.CountryIndex == Country.MapCountryIndex)
             {
-                Point = &CandidatePoint;
-                break;
+                return &CandidatePoint;
             }
         }
-        if (!Point) { continue; }
+        return nullptr;
+    };
+
+    auto FindPointForProvince = [&FindProvince, &FindCountryForProvince, &FindPointForCountry](const FString& ProvinceId, const FString& ArmyCountryName) -> const FDuliaCountryMapPoint*
+    {
+        const FDemocracyProvinceOwnershipState* Province = FindProvince(ProvinceId);
+        if (!Province)
+        {
+            return nullptr;
+        }
+
+        const FDemocracyCountryOwnershipState* Country = FindCountryForProvince(*Province, ArmyCountryName);
+        return Country ? FindPointForCountry(*Country) : nullptr;
+    };
+
+    auto AddPathSegment = [this, &MarkerOverlay](float X, float Y, float Width, float Height, const FLinearColor& Color)
+    {
+        if (Width <= 0.0f || Height <= 0.0f)
+        {
+            return;
+        }
+
+        MarkerOverlay->AddSlot().HAlign(HAlign_Left).VAlign(VAlign_Top).Padding(FMargin(X, Y, 0.0f, 0.0f))
+        [
+            SNew(SBorder)
+            .BorderImage(RowBrush.Get())
+            .BorderBackgroundColor(Color)
+            .Padding(0.0f)
+            [
+                SNew(SSpacer).Size(FVector2D(Width, Height))
+            ]
+        ];
+    };
+
+    auto AddUnitBadge = [this](const FString& Label, int32 Count, const FLinearColor& Color) -> TSharedRef<SWidget>
+    {
+        return SNew(SBorder)
+            .BorderImage(RowBrush.Get())
+            .BorderBackgroundColor(Color)
+            .Padding(FMargin(4.0f, 1.0f))
+            [
+                SNew(STextBlock)
+                .Text(BodyText(FString::Printf(TEXT("%s %d"), *Label, Count)))
+                .Font(FCoreStyle::GetDefaultFontStyle("Bold", 7))
+                .ColorAndOpacity(FLinearColor::White)
+            ];
+    };
+
+    for (const FDemocracyRtsArmyGroupState& Army : State.RtsWorld.ArmyGroups)
+    {
+        const FDemocracyProvinceOwnershipState* Province = FindProvince(Army.CurrentProvinceId);
+        if (!Province)
+        {
+            continue;
+        }
+
+        const FDemocracyCountryOwnershipState* Country = FindCountryForProvince(*Province, Army.CurrentCountryName);
+        if (!Country)
+        {
+            continue;
+        }
+
+        const FDuliaCountryMapPoint* Point = FindPointForCountry(*Country);
+        if (!Point)
+        {
+            continue;
+        }
 
         const bool bSelected = Army.ArmyId.Equals(RtsSelectedArmyId, ESearchCase::IgnoreCase) || Army.bSelected;
-        const FLinearColor OwnerColor = bSelected ? FLinearColor(1.0f, 0.86f, 0.16f, 0.94f) : (Province->bPlayerControlled ? FLinearColor(0.05f, 0.85f, 0.26f, 0.88f) : (Province->GovernmentType.Equals(TEXT("Dictatorship"), ESearchCase::IgnoreCase) ? FLinearColor(0.9f, 0.08f, 0.08f, 0.88f) : FLinearColor(0.1f, 0.38f, 0.95f, 0.88f)));
-        const float MarkerX = FMath::Clamp(Point->Centroid.X * ScaleX - 38.0f, 0.0f, FMath::Max(0.0f, MapWidth - 118.0f));
-        const float MarkerY = FMath::Clamp(Point->Centroid.Y * ScaleY - 28.0f, 0.0f, FMath::Max(0.0f, MapHeight - 70.0f));
-        const FString UnitText = FString::Printf(TEXT("%s\nS%d T%d C%d | Str %d\nReady %d%% | %s%s"),
-            *Army.DisplayName,
-            Army.InfantryCount,
-            Army.VehicleCount,
-            Army.LogisticsCount,
+        const bool bHostile = Province->GovernmentType.Equals(TEXT("Dictatorship"), ESearchCase::IgnoreCase) && !Province->bPlayerControlled;
+        const bool bMoving = Army.MovementTurnsRemaining > 0 || (!Army.DestinationProvinceId.IsEmpty() && !Army.DestinationProvinceId.Equals(Army.CurrentProvinceId, ESearchCase::IgnoreCase));
+        const FLinearColor OwnerColor = bSelected ? FLinearColor(1.0f, 0.84f, 0.12f, 0.98f) : (Province->bPlayerControlled ? FLinearColor(0.03f, 0.75f, 0.22f, 0.92f) : (bHostile ? FLinearColor(0.85f, 0.06f, 0.06f, 0.90f) : FLinearColor(0.08f, 0.34f, 0.90f, 0.90f)));
+        const FLinearColor PathColor = bSelected ? FLinearColor(1.0f, 0.82f, 0.10f, 0.58f) : FLinearColor(0.78f, 0.88f, 1.0f, 0.36f);
+
+        const FVector2D ArmyCenter(Point->Centroid.X * ScaleX, Point->Centroid.Y * ScaleY);
+        const float MarkerX = FMath::Clamp(ArmyCenter.X - 58.0f, 0.0f, FMath::Max(0.0f, MapWidth - 170.0f));
+        const float MarkerY = FMath::Clamp(ArmyCenter.Y - 34.0f, 0.0f, FMath::Max(0.0f, MapHeight - 102.0f));
+        const FString StatusLine = FString::Printf(TEXT("Str %d | Ready %d%% | Morale %d%% | Supply %d%%%s"),
             Army.TotalStrength,
-            Army.SupplyStatus,
-            *Army.MovementState,
+            FMath::Clamp(Army.SupplyStatus, 0, 100),
+            FMath::Clamp(Army.Morale, 0, 100),
+            FMath::Clamp(Army.SupplyStatus, 0, 100),
+            Army.bSupplyRouteBroken ? TEXT(" BROKEN") : TEXT(""));
+        const FString OrderLine = FString::Printf(TEXT("%s%s%s"),
+            Army.ActiveOrderType.IsEmpty() ? TEXT("Idle") : *Army.ActiveOrderType,
+            Army.MovementState.IsEmpty() ? TEXT("") : *FString::Printf(TEXT(" | %s"), *Army.MovementState),
             Army.MovementTurnsRemaining > 0 ? *FString::Printf(TEXT(" | ETA %d"), Army.MovementTurnsRemaining) : TEXT(""));
+
+        if (bMoving)
+        {
+            const FString DestinationId = Army.DestinationProvinceId.IsEmpty() ? Army.OrderTargetProvinceId : Army.DestinationProvinceId;
+            const FDuliaCountryMapPoint* DestinationPoint = FindPointForProvince(DestinationId, Army.CurrentCountryName);
+            if (DestinationPoint)
+            {
+                const FVector2D DestCenter(DestinationPoint->Centroid.X * ScaleX, DestinationPoint->Centroid.Y * ScaleY);
+                const float PathThickness = bSelected ? 5.0f : 3.0f;
+                const float CornerX = DestCenter.X;
+                AddPathSegment(FMath::Min(ArmyCenter.X, CornerX), ArmyCenter.Y - PathThickness * 0.5f, FMath::Abs(CornerX - ArmyCenter.X), PathThickness, PathColor);
+                AddPathSegment(CornerX - PathThickness * 0.5f, FMath::Min(ArmyCenter.Y, DestCenter.Y), PathThickness, FMath::Abs(DestCenter.Y - ArmyCenter.Y), PathColor);
+
+                const float DestX = FMath::Clamp(DestCenter.X - 32.0f, 0.0f, FMath::Max(0.0f, MapWidth - 118.0f));
+                const float DestY = FMath::Clamp(DestCenter.Y + 18.0f, 0.0f, FMath::Max(0.0f, MapHeight - 45.0f));
+                MarkerOverlay->AddSlot().HAlign(HAlign_Left).VAlign(VAlign_Top).Padding(FMargin(DestX, DestY, 0.0f, 0.0f))
+                [
+                    SNew(SBorder)
+                    .BorderImage(RowBrush.Get())
+                    .BorderBackgroundColor(FLinearColor(0.96f, 0.90f, 0.16f, 0.88f))
+                    .Padding(FMargin(6.0f, 3.0f))
+                    [
+                        SNew(SVerticalBox)
+                        + SVerticalBox::Slot().AutoHeight()
+                        [
+                            SNew(STextBlock)
+                            .Text(BodyText(TEXT("DESTINATION")))
+                            .Font(FCoreStyle::GetDefaultFontStyle("Bold", 7))
+                            .ColorAndOpacity(FLinearColor::Black)
+                        ]
+                        + SVerticalBox::Slot().AutoHeight()
+                        [
+                            SNew(STextBlock)
+                            .Text(BodyText(FString::Printf(TEXT("%s | ETA %d"), *DestinationId, FMath::Max(Army.MovementTurnsRemaining, Army.OrderTurnsRemaining))))
+                            .Font(FCoreStyle::GetDefaultFontStyle("Regular", 8))
+                            .ColorAndOpacity(FLinearColor::Black)
+                        ]
+                    ]
+                ];
+            }
+        }
+
         MarkerOverlay->AddSlot().HAlign(HAlign_Left).VAlign(VAlign_Top).Padding(FMargin(MarkerX, MarkerY, 0.0f, 0.0f))
         [
             SNew(SBorder)
             .BorderImage(RowBrush.Get())
             .BorderBackgroundColor(OwnerColor)
-            .Padding(FMargin(6.0f, 4.0f))
+            .Padding(FMargin(7.0f, 5.0f))
             [
-                SNew(STextBlock)
-                .Text(BodyText(UnitText))
-                .AutoWrapText(true)
-                .Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
-                .ColorAndOpacity(FLinearColor::White)
+                SNew(SVerticalBox)
+                + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 3.0f)
+                [
+                    SNew(STextBlock)
+                    .Text(BodyText(FString::Printf(TEXT("%s%s"), bSelected ? TEXT("> ") : TEXT(""), *Army.DisplayName)))
+                    .AutoWrapText(true)
+                    .Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
+                    .ColorAndOpacity(bSelected ? FLinearColor::Black : FLinearColor::White)
+                ]
+                + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 3.0f)
+                [
+                    SNew(SHorizontalBox)
+                    + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 3.0f, 0.0f)[AddUnitBadge(TEXT("INF"), Army.InfantryCount, FLinearColor(0.22f, 0.30f, 0.34f, 0.95f))]
+                    + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 3.0f, 0.0f)[AddUnitBadge(TEXT("TNK"), Army.VehicleCount, FLinearColor(0.18f, 0.44f, 0.18f, 0.95f))]
+                    + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 3.0f, 0.0f)[AddUnitBadge(TEXT("SUP"), Army.LogisticsCount, FLinearColor(0.65f, 0.45f, 0.12f, 0.95f))]
+                    + SHorizontalBox::Slot().AutoWidth()[AddUnitBadge(TEXT("SCT"), Army.ScoutCount, FLinearColor(0.16f, 0.48f, 0.70f, 0.95f))]
+                ]
+                + SVerticalBox::Slot().AutoHeight()
+                [
+                    SNew(STextBlock)
+                    .Text(BodyText(StatusLine))
+                    .Font(FCoreStyle::GetDefaultFontStyle("Regular", 8))
+                    .ColorAndOpacity(bSelected ? FLinearColor::Black : FLinearColor::White)
+                ]
+                + SVerticalBox::Slot().AutoHeight()
+                [
+                    SNew(STextBlock)
+                    .Text(BodyText(OrderLine))
+                    .Font(FCoreStyle::GetDefaultFontStyle("Regular", 8))
+                    .ColorAndOpacity(bSelected ? FLinearColor::Black : FLinearColor::White)
+                ]
             ]
         ];
-
-        if (!Army.DestinationProvinceId.IsEmpty() && !Army.DestinationProvinceId.Equals(Army.CurrentProvinceId, ESearchCase::IgnoreCase))
-        {
-            const FDemocracyProvinceOwnershipState* DestinationProvince = nullptr;
-            for (const FDemocracyProvinceOwnershipState& CandidateProvince : State.RtsWorld.Ownership.Provinces)
-            {
-                if (CandidateProvince.ProvinceId.Equals(Army.DestinationProvinceId, ESearchCase::IgnoreCase))
-                {
-                    DestinationProvince = &CandidateProvince;
-                    break;
-                }
-            }
-            const FDemocracyCountryOwnershipState* DestinationCountry = nullptr;
-            if (DestinationProvince)
-            {
-                for (const FDemocracyCountryOwnershipState& CandidateCountry : State.RtsWorld.Ownership.Countries)
-                {
-                    if (CandidateCountry.CountryName.Equals(DestinationProvince->OriginalCountryName, ESearchCase::IgnoreCase) || CandidateCountry.CountryName.Equals(DestinationProvince->CurrentControllerCountryName, ESearchCase::IgnoreCase))
-                    {
-                        DestinationCountry = &CandidateCountry;
-                        break;
-                    }
-                }
-            }
-            const FDuliaCountryMapPoint* DestinationPoint = nullptr;
-            if (DestinationCountry)
-            {
-                for (const FDuliaCountryMapPoint& CandidatePoint : Points)
-                {
-                    if (CandidatePoint.CountryIndex == DestinationCountry->MapCountryIndex)
-                    {
-                        DestinationPoint = &CandidatePoint;
-                        break;
-                    }
-                }
-            }
-            if (DestinationPoint)
-            {
-                const float DestX = FMath::Clamp(DestinationPoint->Centroid.X * ScaleX - 28.0f, 0.0f, FMath::Max(0.0f, MapWidth - 90.0f));
-                const float DestY = FMath::Clamp(DestinationPoint->Centroid.Y * ScaleY + 16.0f, 0.0f, FMath::Max(0.0f, MapHeight - 36.0f));
-                MarkerOverlay->AddSlot().HAlign(HAlign_Left).VAlign(VAlign_Top).Padding(FMargin(DestX, DestY, 0.0f, 0.0f))
-                [
-                    SNew(SBorder)
-                    .BorderImage(RowBrush.Get())
-                    .BorderBackgroundColor(FLinearColor(0.95f, 0.95f, 0.10f, 0.78f))
-                    .Padding(FMargin(5.0f, 2.0f))
-                    [
-                        SNew(STextBlock)
-                        .Text(BodyText(FString::Printf(TEXT("Route -> %s"), *Army.DestinationProvinceId)))
-                        .Font(FCoreStyle::GetDefaultFontStyle("Bold", 8))
-                        .ColorAndOpacity(FLinearColor::Black)
-                    ]
-                ];
-            }
-        }
     }
 
     return MarkerOverlay;
 }
-
 TSharedRef<SWidget> ALoginHUD::BuildRtsOrderButtonsWidget()
 {
     const bool bCanIssueOrder = bHasLoadedRuntimeState && !RtsSelectedArmyId.IsEmpty();
