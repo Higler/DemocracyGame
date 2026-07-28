@@ -7576,6 +7576,179 @@ FString ALoginHUD::BuildRtsBattlePresentationText() const
     return FString::Join(Lines, TEXT("\n"));
 }
 
+TSharedRef<SWidget> ALoginHUD::BuildRtsBattlePresentationWidget()
+{
+    if (!bHasLoadedRuntimeState)
+    {
+        return SNew(STextBlock)
+            .Text(BodyText(TEXT("No battle data loaded.")))
+            .AutoWrapText(true)
+            .Font(FCoreStyle::GetDefaultFontStyle("Regular", 11))
+            .ColorAndOpacity(FLinearColor(1.0f, 0.92f, 0.76f, 1.0f));
+    }
+
+    const FDemocracyRtsWorldState& RtsWorld = LoadedSaveState.RuntimeState.RtsWorld;
+    if (RtsWorld.BattleHistory.Num() == 0)
+    {
+        return SNew(SBorder)
+            .BorderImage(RowBrush.Get())
+            .BorderBackgroundColor(FLinearColor(0.08f, 0.11f, 0.13f, 0.78f))
+            .Padding(FMargin(10.0f, 8.0f))
+            [
+                SNew(STextBlock)
+                .Text(BodyText(TEXT("No battles resolved yet. Move an army into a hostile or contested province to generate a battle report.")))
+                .AutoWrapText(true)
+                .Font(FCoreStyle::GetDefaultFontStyle("Regular", 11))
+                .ColorAndOpacity(FLinearColor(1.0f, 0.92f, 0.76f, 1.0f))
+            ];
+    }
+
+    const FDemocracyRtsBattleResolutionState& Battle = RtsWorld.BattleHistory.Last();
+    const FDemocracyRtsArmyGroupState* Army = nullptr;
+    const FDemocracyProvinceOwnershipState* Province = nullptr;
+    for (const FDemocracyRtsArmyGroupState& CandidateArmy : RtsWorld.ArmyGroups)
+    {
+        if (CandidateArmy.ArmyId.Equals(Battle.ArmyId, ESearchCase::IgnoreCase))
+        {
+            Army = &CandidateArmy;
+            break;
+        }
+    }
+    for (const FDemocracyProvinceOwnershipState& CandidateProvince : RtsWorld.Ownership.Provinces)
+    {
+        if (CandidateProvince.ProvinceId.Equals(Battle.ProvinceId, ESearchCase::IgnoreCase))
+        {
+            Province = &CandidateProvince;
+            break;
+        }
+    }
+
+    const FDemocracyRtsOutcomeState OutcomePreview = MakeRtsOutcomeFromBattle(LoadedSaveState.RuntimeState, Battle);
+    const bool bCaptured = Battle.Result.Equals(TEXT("Province Captured"), ESearchCase::IgnoreCase);
+    const bool bLost = Battle.Result.Equals(TEXT("Battle Lost"), ESearchCase::IgnoreCase);
+    const FLinearColor ResultColor = bCaptured ? FLinearColor(0.05f, 0.75f, 0.26f, 0.95f) : (bLost ? FLinearColor(0.88f, 0.08f, 0.08f, 0.95f) : FLinearColor(0.95f, 0.68f, 0.16f, 0.95f));
+    const FLinearColor ResultTextColor = bLost ? FLinearColor::White : FLinearColor::Black;
+    const FString ProvinceLabel = Province ? FString::Printf(TEXT("%s (%s)"), *Province->ProvinceName, *Province->ProvinceId) : Battle.ProvinceId;
+    const bool bProvinceContested = Province && !Province->CurrentOwnerCountryName.Equals(Province->CurrentControllerCountryName, ESearchCase::IgnoreCase);
+    const FString ProvinceStatus = Province ? FString::Printf(TEXT("%s | owner %s | controller %s | stability %d | unrest %d"),
+        bProvinceContested ? TEXT("Occupied/contested") : TEXT("Stable control"),
+        *Province->CurrentOwnerCountryName,
+        *Province->CurrentControllerCountryName,
+        Province->Stability,
+        Province->Unrest) : FString(TEXT("Unknown province state"));
+
+    auto MetricRow = [this](const FString& Label, const FString& Value, const FLinearColor& Color) -> TSharedRef<SWidget>
+    {
+        return SNew(SBorder)
+            .BorderImage(RowBrush.Get())
+            .BorderBackgroundColor(Color)
+            .Padding(FMargin(7.0f, 4.0f))
+            [
+                SNew(SVerticalBox)
+                + SVerticalBox::Slot().AutoHeight()
+                [
+                    SNew(STextBlock)
+                    .Text(BodyText(Label))
+                    .Font(FCoreStyle::GetDefaultFontStyle("Bold", 8))
+                    .ColorAndOpacity(FLinearColor(0.82f, 0.92f, 0.96f, 1.0f))
+                ]
+                + SVerticalBox::Slot().AutoHeight()
+                [
+                    SNew(STextBlock)
+                    .Text(BodyText(Value))
+                    .Font(FCoreStyle::GetDefaultFontStyle("Bold", 12))
+                    .ColorAndOpacity(FLinearColor::White)
+                ]
+            ];
+    };
+
+    auto FollowUpOrder = [this, Battle](const FString& OrderType) -> FReply
+    {
+        RtsSelectedArmyId = Battle.ArmyId;
+        for (FDemocracyRtsArmyGroupState& CandidateArmy : LoadedSaveState.RuntimeState.RtsWorld.ArmyGroups)
+        {
+            CandidateArmy.bSelected = CandidateArmy.ArmyId.Equals(Battle.ArmyId, ESearchCase::IgnoreCase);
+        }
+        return HandleSelectRtsOrder(OrderType);
+    };
+
+    const FString PrimaryFollowUp = bCaptured ? TEXT("Defend") : TEXT("Reinforce");
+    const FString SecondaryFollowUp = bCaptured ? TEXT("Reinforce") : (bLost ? TEXT("Defend") : TEXT("Patrol/Scout"));
+    const FString TertiaryFollowUp = bCaptured ? TEXT("Patrol/Scout") : TEXT("Move");
+
+    return SNew(SBorder)
+        .BorderImage(RowBrush.Get())
+        .BorderBackgroundColor(FLinearColor(0.07f, 0.09f, 0.11f, 0.86f))
+        .Padding(FMargin(10.0f, 8.0f))
+        [
+            SNew(SVerticalBox)
+            + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 6.0f)
+            [
+                SNew(SBorder)
+                .BorderImage(RowBrush.Get())
+                .BorderBackgroundColor(ResultColor)
+                .Padding(FMargin(8.0f, 5.0f))
+                [
+                    SNew(STextBlock)
+                    .Text(BodyText(FString::Printf(TEXT("%s | %s"), *Battle.Result, *ProvinceLabel)))
+                    .AutoWrapText(true)
+                    .Font(FCoreStyle::GetDefaultFontStyle("Bold", 12))
+                    .ColorAndOpacity(ResultTextColor)
+                ]
+            ]
+            + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 6.0f)
+            [
+                SNew(STextBlock)
+                .Text(BodyText(FString::Printf(TEXT("Attacker: %s\nDefender: %s\nProvince: %s"), Army ? *Army->DisplayName : *Battle.ArmyId, Battle.OpponentCountry.IsEmpty() ? TEXT("unknown") : *Battle.OpponentCountry, *ProvinceStatus)))
+                .AutoWrapText(true)
+                .Font(FCoreStyle::GetDefaultFontStyle("Regular", 10))
+                .ColorAndOpacity(FLinearColor::White)
+            ]
+            + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 6.0f)
+            [
+                SNew(SHorizontalBox)
+                + SHorizontalBox::Slot().FillWidth(1.0f).Padding(0.0f, 0.0f, 4.0f, 0.0f)[MetricRow(TEXT("ATTACK"), FString::FromInt(Battle.PlayerScore), FLinearColor(0.11f, 0.25f, 0.18f, 0.95f))]
+                + SHorizontalBox::Slot().FillWidth(1.0f).Padding(0.0f, 0.0f, 4.0f, 0.0f)[MetricRow(TEXT("DEFENSE"), FString::FromInt(Battle.OpponentScore), FLinearColor(0.24f, 0.12f, 0.14f, 0.95f))]
+                + SHorizontalBox::Slot().FillWidth(1.0f)[MetricRow(TEXT("CASUALTIES"), FString::FromInt(OutcomePreview.Casualties), FLinearColor(0.22f, 0.18f, 0.12f, 0.95f))]
+            ]
+            + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 6.0f)
+            [
+                SNew(STextBlock)
+                .Text(BodyText(FString::Printf(TEXT("Modifiers: readiness %+d | terrain %+d (%s) | supply %+d | tech %+d | morale %+d"), Battle.ReadinessModifier, Battle.TerrainModifier, Battle.TerrainType.IsEmpty() ? TEXT("unknown") : *Battle.TerrainType, Battle.SupplyModifier, Battle.TechModifier, Battle.MoraleModifier)))
+                .AutoWrapText(true)
+                .Font(FCoreStyle::GetDefaultFontStyle("Regular", 10))
+                .ColorAndOpacity(FLinearColor(0.92f, 0.96f, 1.0f, 1.0f))
+            ]
+            + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 6.0f)
+            [
+                SNew(STextBlock)
+                .Text(BodyText(FString::Printf(TEXT("Simulation backflow: territory %+d | resource disruption %+d | war fatigue %+d | stability %+d | budget strain %+d | diplomacy damage %+d | invasion risk %+d"), OutcomePreview.TerritoryDelta, OutcomePreview.ResourceDisruption, OutcomePreview.WarFatigueDelta, OutcomePreview.StabilityDelta, OutcomePreview.BudgetStrain, OutcomePreview.DiplomaticDamage, OutcomePreview.InvasionRiskDelta)))
+                .AutoWrapText(true)
+                .Font(FCoreStyle::GetDefaultFontStyle("Regular", 10))
+                .ColorAndOpacity(FLinearColor(1.0f, 0.92f, 0.76f, 1.0f))
+            ]
+            + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 6.0f)
+            [
+                SNew(STextBlock)
+                .Text(BodyText(Battle.Summary.IsEmpty() ? TEXT("No battle summary generated.") : Battle.Summary))
+                .AutoWrapText(true)
+                .Font(FCoreStyle::GetDefaultFontStyle("Regular", 10))
+                .ColorAndOpacity(FLinearColor::White)
+            ]
+            + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 2.0f, 0.0f, 0.0f)
+            [
+                SNew(SHorizontalBox)
+                + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 5.0f, 0.0f)
+                [BuildButton(PrimaryFollowUp, FOnClicked::CreateLambda([FollowUpOrder, PrimaryFollowUp]() mutable { return FollowUpOrder(PrimaryFollowUp); }), 96.0f, 30.0f, Army != nullptr)]
+                + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 5.0f, 0.0f)
+                [BuildButton(SecondaryFollowUp, FOnClicked::CreateLambda([FollowUpOrder, SecondaryFollowUp]() mutable { return FollowUpOrder(SecondaryFollowUp); }), 104.0f, 30.0f, Army != nullptr)]
+                + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 5.0f, 0.0f)
+                [BuildButton(TertiaryFollowUp, FOnClicked::CreateLambda([FollowUpOrder, TertiaryFollowUp]() mutable { return FollowUpOrder(TertiaryFollowUp); }), 104.0f, 30.0f, Army != nullptr)]
+                + SHorizontalBox::Slot().AutoWidth()
+                [BuildButton(TEXT("Office"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleCloseOfficeOverlayClicked), 86.0f, 30.0f)]
+            ]
+        ];
+}
 FString ALoginHUD::BuildRtsCommandConsequenceText(const FString& OrderType, const FString& TargetProvinceId) const
 {
     if (!bHasLoadedRuntimeState || OrderType.IsEmpty() || TargetProvinceId.IsEmpty())
@@ -9077,11 +9250,7 @@ TSharedRef<SWidget> ALoginHUD::BuildOfficeWorldRtsScreen()
                             ]
                             + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 12.0f)
                             [
-                                SNew(STextBlock)
-                                .Text(BodyText(BuildRtsBattlePresentationText()))
-                                .AutoWrapText(true)
-                                .Font(FCoreStyle::GetDefaultFontStyle("Regular", 11))
-                                .ColorAndOpacity(FLinearColor(1.0f, 0.92f, 0.76f, 1.0f))
+                                BuildRtsBattlePresentationWidget()
                             ]
                             + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 14.0f, 0.0f, 8.0f)
                             [

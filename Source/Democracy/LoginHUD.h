@@ -191,6 +191,7 @@ private:
     FString BuildRtsSelectedArmyText() const;
     FString BuildRtsActionText() const;
     FString BuildRtsBattlePresentationText() const;
+    TSharedRef<SWidget> BuildRtsBattlePresentationWidget();
     FString BuildRtsCommandConsequenceText(const FString& OrderType, const FString& TargetProvinceId) const;
     FString BuildRtsConstructionAvailabilityText(const FDemocracyRtsBuildingState* Building, int32 SlotIndex, const FString& SlotFocus, bool bUpgrade) const;
     FString BuildRtsCityBaseSummaryText() const;
