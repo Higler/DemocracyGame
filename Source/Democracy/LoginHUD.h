@@ -106,7 +106,12 @@ private:
     float RtsMapZoom = 1.0f;
     FVector2D RtsMapPan = FVector2D::ZeroVector;
     bool bIsDraggingRtsMap = false;
+    bool bRtsMapDragMoved = false;
     FVector2D LastRtsMapDragScreenPosition = FVector2D::ZeroVector;
+    FVector2D RtsMapMouseDownScreenPosition = FVector2D::ZeroVector;
+    FString RtsSelectedCountryName;
+    FString RtsSelectedProvinceId;
+    FString RtsSelectedArmyId;
     FDemocracyLoadedSaveState LoadedSaveState;
     bool bHasLoadedRuntimeState = false;
     FTimerHandle SimulationTickTimerHandle;
@@ -172,6 +177,12 @@ private:
     FReply HandleZoomRtsMapInClicked();
     FReply HandleZoomRtsMapOutClicked();
     FReply HandleResetRtsMapViewClicked();
+    FString GetRtsZoomModeLabel() const;
+    FString BuildRtsSelectedTerritoryText() const;
+    FString BuildRtsSelectedArmyText() const;
+    FString BuildRtsActionText() const;
+    TSharedRef<SWidget> BuildRtsArmyMarkersWidget(float MapWidth, float MapHeight);
+    void SelectRtsMapAtViewportPosition(const FGeometry& Geometry, const FVector2D& ScreenPosition);
     TSharedRef<SWidget> BuildOfficeAdvisorWarningsScreen();
     TSharedRef<SWidget> BuildOfficeMeetingAdvisorScreen();
     TSharedRef<SWidget> BuildOfficePressReleaseScreen();

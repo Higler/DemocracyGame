@@ -13,6 +13,9 @@
 #include "HAL/FileManager.h"
 #include "Misc/Guid.h"
 #include "Misc/FileHelper.h"
+#include "Dom/JsonObject.h"
+#include "Serialization/JsonReader.h"
+#include "Serialization/JsonSerializer.h"
 #include "HAL/PlatformFilemanager.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Misc/Paths.h"
@@ -129,6 +132,71 @@ namespace
         return Text;
     }
 
+
+    struct FDuliaCountryMapPoint
+    {
+        int32 CountryIndex = 0;
+        FVector2D Centroid = FVector2D::ZeroVector;
+    };
+
+    const TArray<FDuliaCountryMapPoint>& GetDuliaCountryMapPoints()
+    {
+        static bool bLoaded = false;
+        static TArray<FDuliaCountryMapPoint> Points;
+        if (bLoaded)
+        {
+            return Points;
+        }
+
+        bLoaded = true;
+        const FString ManifestPath = FPaths::ProjectContentDir() / TEXT("World/Dulia/Generated/Dulia_Country_Manifest.json");
+        FString ManifestJson;
+        if (!FFileHelper::LoadFileToString(ManifestJson, *ManifestPath))
+        {
+            UE_LOG(LogTemp, Warning, TEXT("RTS map selection could not load Dulia manifest: %s"), *ManifestPath);
+            return Points;
+        }
+
+        TSharedPtr<FJsonObject> RootObject;
+        const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(ManifestJson);
+        if (!FJsonSerializer::Deserialize(Reader, RootObject) || !RootObject.IsValid())
+        {
+            UE_LOG(LogTemp, Warning, TEXT("RTS map selection could not parse Dulia manifest: %s"), *ManifestPath);
+            return Points;
+        }
+
+        const TArray<TSharedPtr<FJsonValue>>* Countries = nullptr;
+        if (!RootObject->TryGetArrayField(TEXT("countries"), Countries) || Countries == nullptr)
+        {
+            return Points;
+        }
+
+        for (const TSharedPtr<FJsonValue>& CountryValue : *Countries)
+        {
+            const TSharedPtr<FJsonObject> CountryObject = CountryValue.IsValid() ? CountryValue->AsObject() : nullptr;
+            if (!CountryObject.IsValid())
+            {
+                continue;
+            }
+
+            const TSharedPtr<FJsonObject>* CentroidObject = nullptr;
+            if (!CountryObject->TryGetObjectField(TEXT("centroid"), CentroidObject) || CentroidObject == nullptr || !CentroidObject->IsValid())
+            {
+                continue;
+            }
+
+            FDuliaCountryMapPoint Point;
+            Point.CountryIndex = FMath::RoundToInt(CountryObject->GetNumberField(TEXT("id")));
+            Point.Centroid.X = (*CentroidObject)->GetNumberField(TEXT("x"));
+            Point.Centroid.Y = (*CentroidObject)->GetNumberField(TEXT("y"));
+            if (Point.CountryIndex > 0)
+            {
+                Points.Add(Point);
+            }
+        }
+
+        return Points;
+    }
     FString SaveTimestamp()
     {
         return FDateTime::UtcNow().ToIso8601();
@@ -6441,7 +6509,9 @@ FReply ALoginHUD::HandleRtsMapMouseButtonDown(const FGeometry& Geometry, const F
     if (MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
     {
         bIsDraggingRtsMap = true;
-        LastRtsMapDragScreenPosition = MouseEvent.GetScreenSpacePosition();
+        bRtsMapDragMoved = false;
+        RtsMapMouseDownScreenPosition = MouseEvent.GetScreenSpacePosition();
+        LastRtsMapDragScreenPosition = RtsMapMouseDownScreenPosition;
         return FReply::Handled();
     }
 
@@ -6452,7 +6522,12 @@ FReply ALoginHUD::HandleRtsMapMouseButtonUp(const FGeometry& Geometry, const FPo
 {
     if (MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
     {
+        if (!bRtsMapDragMoved && FVector2D::Distance(RtsMapMouseDownScreenPosition, MouseEvent.GetScreenSpacePosition()) < 5.0f)
+        {
+            SelectRtsMapAtViewportPosition(Geometry, MouseEvent.GetScreenSpacePosition());
+        }
         bIsDraggingRtsMap = false;
+        bRtsMapDragMoved = false;
         return FReply::Handled();
     }
 
@@ -6464,13 +6539,19 @@ FReply ALoginHUD::HandleRtsMapMouseMove(const FGeometry& Geometry, const FPointe
     if (bIsDraggingRtsMap && MouseEvent.IsMouseButtonDown(EKeys::LeftMouseButton))
     {
         const FVector2D CurrentPosition = MouseEvent.GetScreenSpacePosition();
-        RtsMapPan += CurrentPosition - LastRtsMapDragScreenPosition;
-        LastRtsMapDragScreenPosition = CurrentPosition;
-        RefreshLoginWidget();
+        const FVector2D Delta = CurrentPosition - LastRtsMapDragScreenPosition;
+        if (!Delta.IsNearlyZero())
+        {
+            RtsMapPan += Delta;
+            LastRtsMapDragScreenPosition = CurrentPosition;
+            bRtsMapDragMoved = bRtsMapDragMoved || FVector2D::Distance(RtsMapMouseDownScreenPosition, CurrentPosition) >= 5.0f;
+            RefreshLoginWidget();
+        }
         return FReply::Handled();
     }
 
     bIsDraggingRtsMap = false;
+    bRtsMapDragMoved = false;
     return FReply::Unhandled();
 }
 
@@ -6493,10 +6574,299 @@ FReply ALoginHUD::HandleResetRtsMapViewClicked()
     RtsMapZoom = 1.0f;
     RtsMapPan = FVector2D::ZeroVector;
     bIsDraggingRtsMap = false;
+    bRtsMapDragMoved = false;
     RefreshLoginWidget();
     return FReply::Handled();
 }
 
+FString ALoginHUD::GetRtsZoomModeLabel() const
+{
+    if (RtsMapZoom >= 4.5f)
+    {
+        return TEXT("Province / City View");
+    }
+    if (RtsMapZoom >= 1.8f)
+    {
+        return TEXT("Country View");
+    }
+    return TEXT("World View");
+}
+
+FString ALoginHUD::BuildRtsSelectedTerritoryText() const
+{
+    if (!bHasLoadedRuntimeState)
+    {
+        return TEXT("No state loaded.");
+    }
+
+    const FDemocracySimulationState& State = LoadedSaveState.RuntimeState;
+    const FDemocracyProvinceOwnershipState* SelectedProvince = nullptr;
+    const FDemocracyCountryOwnershipState* SelectedCountry = nullptr;
+
+    for (const FDemocracyProvinceOwnershipState& Province : State.RtsWorld.Ownership.Provinces)
+    {
+        if (Province.ProvinceId.Equals(RtsSelectedProvinceId, ESearchCase::IgnoreCase))
+        {
+            SelectedProvince = &Province;
+            break;
+        }
+    }
+
+    const FString CountryNameToFind = SelectedProvince ? SelectedProvince->CurrentControllerCountryName : RtsSelectedCountryName;
+    for (const FDemocracyCountryOwnershipState& Country : State.RtsWorld.Ownership.Countries)
+    {
+        if (Country.CountryName.Equals(CountryNameToFind, ESearchCase::IgnoreCase) || Country.CountryName.Equals(RtsSelectedCountryName, ESearchCase::IgnoreCase))
+        {
+            SelectedCountry = &Country;
+            break;
+        }
+    }
+
+    if (!SelectedProvince && !SelectedCountry)
+    {
+        return FString::Printf(TEXT("Click a country or province to inspect it.\nMode: %s | Zoom %.0f%%"), *GetRtsZoomModeLabel(), RtsMapZoom * 100.0f);
+    }
+
+    TArray<FString> Lines;
+    if (SelectedCountry)
+    {
+        Lines.Add(FString::Printf(TEXT("Country: %s"), *SelectedCountry->CountryName));
+        Lines.Add(FString::Printf(TEXT("Government: %s | map id %d"), *SelectedCountry->GovernmentType, SelectedCountry->MapCountryIndex));
+        Lines.Add(FString::Printf(TEXT("Control: %d/%d provinces | occupied %d | lost %d | border %d"), SelectedCountry->ControlledProvinces, SelectedCountry->TotalProvinces, SelectedCountry->OccupiedProvinces, SelectedCountry->LostProvinces, SelectedCountry->BorderProvinces));
+        Lines.Add(FString::Printf(TEXT("Resources: base %d | military %d | population %d | area %d"), SelectedCountry->ResourceBase, SelectedCountry->MilitaryValue, SelectedCountry->PopulationWeight, SelectedCountry->AreaWeight));
+    }
+    if (SelectedProvince)
+    {
+        Lines.Add(FString::Printf(TEXT("Province: %s (%s)"), *SelectedProvince->ProvinceName, *SelectedProvince->ProvinceId));
+        Lines.Add(FString::Printf(TEXT("Owner: %s | controller: %s"), *SelectedProvince->CurrentOwnerCountryName, *SelectedProvince->CurrentControllerCountryName));
+        Lines.Add(FString::Printf(TEXT("Terrain: %s | resource: %s | climate: %s"), *SelectedProvince->TerrainType, *SelectedProvince->ResourceFocus, *SelectedProvince->Climate));
+        Lines.Add(FString::Printf(TEXT("Stability %d | unrest %d | strategic %d | border %s"), SelectedProvince->Stability, SelectedProvince->Unrest, SelectedProvince->StrategicValue, SelectedProvince->bBorderProvince ? TEXT("yes") : TEXT("no")));
+    }
+
+    TArray<FString> PresentArmies;
+    for (const FDemocracyRtsArmyGroupState& Army : State.RtsWorld.ArmyGroups)
+    {
+        if (SelectedProvince && Army.CurrentProvinceId.Equals(SelectedProvince->ProvinceId, ESearchCase::IgnoreCase))
+        {
+            PresentArmies.Add(FString::Printf(TEXT("%s strength %d order %s"), *Army.DisplayName, Army.TotalStrength, *Army.ActiveOrderType));
+        }
+    }
+    Lines.Add(PresentArmies.Num() > 0 ? FString::Printf(TEXT("Armies: %s"), *FString::Join(PresentArmies, TEXT("; "))) : TEXT("Armies: none visible here."));
+
+    TArray<FString> Buildings;
+    for (const FDemocracyRtsBuildingState& Building : State.RtsWorld.CityBase.Buildings)
+    {
+        if (Buildings.Num() >= 5) { break; }
+        Buildings.Add(FString::Printf(TEXT("%s L%d %s"), *Building.DisplayName, Building.Level, *Building.Status));
+    }
+    Lines.Add(Buildings.Num() > 0 ? FString::Printf(TEXT("Buildings: %s"), *FString::Join(Buildings, TEXT("; "))) : TEXT("Buildings: none loaded."));
+
+    TArray<FString> Orders;
+    for (const FDemocracyRtsMovementOrderState& Order : State.RtsWorld.MovementOrders)
+    {
+        if (SelectedProvince && (Order.SourceProvinceId.Equals(SelectedProvince->ProvinceId, ESearchCase::IgnoreCase) || Order.TargetProvinceId.Equals(SelectedProvince->ProvinceId, ESearchCase::IgnoreCase)))
+        {
+            Orders.Add(FString::Printf(TEXT("%s %s -> %s, %d turns"), *Order.OrderType, *Order.SourceProvinceId, *Order.TargetProvinceId, Order.TurnsRemaining));
+        }
+    }
+    Lines.Add(Orders.Num() > 0 ? FString::Printf(TEXT("Current orders: %s"), *FString::Join(Orders, TEXT("; "))) : TEXT("Current orders: none for selected territory."));
+    return FString::Join(Lines, TEXT("\n"));
+}
+
+FString ALoginHUD::BuildRtsSelectedArmyText() const
+{
+    if (!bHasLoadedRuntimeState)
+    {
+        return TEXT("No army data loaded.");
+    }
+
+    const FDemocracyRtsArmyGroupState* SelectedArmy = nullptr;
+    for (const FDemocracyRtsArmyGroupState& Army : LoadedSaveState.RuntimeState.RtsWorld.ArmyGroups)
+    {
+        if ((!RtsSelectedArmyId.IsEmpty() && Army.ArmyId.Equals(RtsSelectedArmyId, ESearchCase::IgnoreCase)) || (RtsSelectedArmyId.IsEmpty() && Army.bSelected))
+        {
+            SelectedArmy = &Army;
+            break;
+        }
+    }
+
+    if (!SelectedArmy)
+    {
+        return TEXT("No army selected. Click a province with an army marker.");
+    }
+
+    return FString::Printf(TEXT("Army: %s\nStrength %d | morale %d | supply %d%s\nUnits: infantry %d | vehicles %d | aircraft %d | logistics %d | scouts %d | defense %d\nLocation: %s | destination: %s\nOrder: %s %s | movement: %s | turns %d\nOrders queued: %s"),
+        *SelectedArmy->DisplayName,
+        SelectedArmy->TotalStrength,
+        SelectedArmy->Morale,
+        SelectedArmy->SupplyStatus,
+        SelectedArmy->bSupplyRouteBroken ? TEXT(" | BROKEN") : TEXT(""),
+        SelectedArmy->InfantryCount,
+        SelectedArmy->VehicleCount,
+        SelectedArmy->AircraftCount,
+        SelectedArmy->LogisticsCount,
+        SelectedArmy->ScoutCount,
+        SelectedArmy->DefensiveUnitCount,
+        *SelectedArmy->CurrentProvinceId,
+        SelectedArmy->DestinationProvinceId.IsEmpty() ? TEXT("none") : *SelectedArmy->DestinationProvinceId,
+        *SelectedArmy->ActiveOrderType,
+        SelectedArmy->OrderTargetProvinceId.IsEmpty() ? TEXT("") : *SelectedArmy->OrderTargetProvinceId,
+        *SelectedArmy->MovementState,
+        SelectedArmy->MovementTurnsRemaining,
+        SelectedArmy->Orders.Num() > 0 ? *FString::Join(SelectedArmy->Orders, TEXT(", ")) : TEXT("none"));
+}
+
+FString ALoginHUD::BuildRtsActionText() const
+{
+    if (!bHasLoadedRuntimeState)
+    {
+        return TEXT("No RTS actions loaded.");
+    }
+
+    const FDemocracyRtsHudState& Hud = LoadedSaveState.RuntimeState.RtsWorld.Hud;
+    TArray<FString> Lines;
+    Lines.Add(FString::Printf(TEXT("Orders: %s"), Hud.ArmyOrderButtons.Num() > 0 ? *FString::Join(Hud.ArmyOrderButtons, TEXT(" | ")) : TEXT("none")));
+    Lines.Add(Hud.BuildMenuSummary);
+    Lines.Add(FString::Printf(TEXT("Build: %s"), Hud.BuildMenuOptions.Num() > 0 ? *FString::Join(Hud.BuildMenuOptions, TEXT(" | ")) : TEXT("none")));
+    Lines.Add(Hud.MinimapSummary);
+    Lines.Add(FString::Printf(TEXT("Alerts: %s"), *Hud.AlertSummary));
+    return FString::Join(Lines, TEXT("\n"));
+}
+
+TSharedRef<SWidget> ALoginHUD::BuildRtsArmyMarkersWidget(float MapWidth, float MapHeight)
+{
+    TSharedRef<SOverlay> MarkerOverlay = SNew(SOverlay);
+    if (!bHasLoadedRuntimeState)
+    {
+        return MarkerOverlay;
+    }
+
+    const TArray<FDuliaCountryMapPoint>& Points = GetDuliaCountryMapPoints();
+    const FDemocracySimulationState& State = LoadedSaveState.RuntimeState;
+    const float ScaleX = MapWidth / 2242.0f;
+    const float ScaleY = MapHeight / 1104.0f;
+
+    for (const FDemocracyRtsArmyGroupState& Army : State.RtsWorld.ArmyGroups)
+    {
+        const FDemocracyProvinceOwnershipState* Province = nullptr;
+        for (const FDemocracyProvinceOwnershipState& CandidateProvince : State.RtsWorld.Ownership.Provinces)
+        {
+            if (CandidateProvince.ProvinceId.Equals(Army.CurrentProvinceId, ESearchCase::IgnoreCase))
+            {
+                Province = &CandidateProvince;
+                break;
+            }
+        }
+        if (!Province) { continue; }
+
+        const FDemocracyCountryOwnershipState* Country = nullptr;
+        for (const FDemocracyCountryOwnershipState& CandidateCountry : State.RtsWorld.Ownership.Countries)
+        {
+            if (CandidateCountry.CountryName.Equals(Province->CurrentControllerCountryName, ESearchCase::IgnoreCase) || CandidateCountry.CountryName.Equals(Army.CurrentCountryName, ESearchCase::IgnoreCase))
+            {
+                Country = &CandidateCountry;
+                break;
+            }
+        }
+        if (!Country) { continue; }
+
+        const FDuliaCountryMapPoint* Point = nullptr;
+        for (const FDuliaCountryMapPoint& CandidatePoint : Points)
+        {
+            if (CandidatePoint.CountryIndex == Country->MapCountryIndex)
+            {
+                Point = &CandidatePoint;
+                break;
+            }
+        }
+        if (!Point) { continue; }
+
+        const bool bSelected = Army.ArmyId.Equals(RtsSelectedArmyId, ESearchCase::IgnoreCase) || Army.bSelected;
+        const FLinearColor OwnerColor = bSelected ? FLinearColor(1.0f, 0.86f, 0.16f, 0.94f) : (Province->bPlayerControlled ? FLinearColor(0.05f, 0.85f, 0.26f, 0.88f) : (Province->GovernmentType.Equals(TEXT("Dictatorship"), ESearchCase::IgnoreCase) ? FLinearColor(0.9f, 0.08f, 0.08f, 0.88f) : FLinearColor(0.1f, 0.38f, 0.95f, 0.88f)));
+        const float MarkerX = FMath::Clamp(Point->Centroid.X * ScaleX - 20.0f, 0.0f, FMath::Max(0.0f, MapWidth - 70.0f));
+        const float MarkerY = FMath::Clamp(Point->Centroid.Y * ScaleY - 20.0f, 0.0f, FMath::Max(0.0f, MapHeight - 38.0f));
+        MarkerOverlay->AddSlot().HAlign(HAlign_Left).VAlign(VAlign_Top).Padding(FMargin(MarkerX, MarkerY, 0.0f, 0.0f))
+        [
+            SNew(SBorder)
+            .BorderImage(RowBrush.Get())
+            .BorderBackgroundColor(OwnerColor)
+            .Padding(FMargin(5.0f, 3.0f))
+            [
+                SNew(STextBlock)
+                .Text(BodyText(FString::Printf(TEXT("A%d"), Army.TotalStrength)))
+                .Font(FCoreStyle::GetDefaultFontStyle("Bold", 10))
+                .ColorAndOpacity(FLinearColor::White)
+            ]
+        ];
+    }
+
+    return MarkerOverlay;
+}
+
+void ALoginHUD::SelectRtsMapAtViewportPosition(const FGeometry& Geometry, const FVector2D& ScreenPosition)
+{
+    if (!bHasLoadedRuntimeState)
+    {
+        return;
+    }
+
+    FDemocracySimulationState& State = LoadedSaveState.RuntimeState;
+    const FVector2D ViewCenter = Geometry.GetLocalSize() * 0.5f;
+    const FVector2D CursorLocal = Geometry.AbsoluteToLocal(ScreenPosition);
+    const FVector2D MapPoint = (CursorLocal - ViewCenter - RtsMapPan) / FMath::Max(RtsMapZoom, 0.01f) + FVector2D(1121.0f, 552.0f);
+    if (MapPoint.X < 0.0f || MapPoint.Y < 0.0f || MapPoint.X > 2242.0f || MapPoint.Y > 1104.0f)
+    {
+        return;
+    }
+
+    const TArray<FDuliaCountryMapPoint>& Points = GetDuliaCountryMapPoints();
+    const FDemocracyCountryOwnershipState* BestCountry = nullptr;
+    float BestDistanceSquared = TNumericLimits<float>::Max();
+    for (const FDemocracyCountryOwnershipState& Country : State.RtsWorld.Ownership.Countries)
+    {
+        for (const FDuliaCountryMapPoint& Point : Points)
+        {
+            if (Point.CountryIndex != Country.MapCountryIndex) { continue; }
+            const float DistanceSquared = FVector2D::DistSquared(MapPoint, Point.Centroid);
+            if (DistanceSquared < BestDistanceSquared)
+            {
+                BestDistanceSquared = DistanceSquared;
+                BestCountry = &Country;
+            }
+            break;
+        }
+    }
+
+    if (!BestCountry || BestDistanceSquared > FMath::Square(180.0f))
+    {
+        return;
+    }
+
+    RtsSelectedCountryName = BestCountry->CountryName;
+    RtsSelectedProvinceId = BestCountry->ProvinceIds.Num() > 0 ? BestCountry->ProvinceIds[0] : TEXT("");
+    RtsSelectedArmyId.Empty();
+
+    for (FDemocracyRtsArmyGroupState& Army : State.RtsWorld.ArmyGroups)
+    {
+        Army.bSelected = !RtsSelectedProvinceId.IsEmpty() && Army.CurrentProvinceId.Equals(RtsSelectedProvinceId, ESearchCase::IgnoreCase);
+        if (Army.bSelected && RtsSelectedArmyId.IsEmpty())
+        {
+            RtsSelectedArmyId = Army.ArmyId;
+        }
+    }
+
+    for (FDemocracyRtsSelectableTargetState& Target : State.RtsWorld.WorldInteraction.SelectableTargets)
+    {
+        Target.bSelected = Target.CountryName.Equals(RtsSelectedCountryName, ESearchCase::IgnoreCase) || (!RtsSelectedProvinceId.IsEmpty() && Target.ProvinceId.Equals(RtsSelectedProvinceId, ESearchCase::IgnoreCase));
+    }
+
+    State.RtsWorld.WorldInteraction.ActiveSelectionId = RtsSelectedProvinceId.IsEmpty() ? BestCountry->CountryId : RtsSelectedProvinceId;
+    State.RtsWorld.WorldInteraction.ActiveSelectionType = RtsSelectedProvinceId.IsEmpty() ? TEXT("Country") : TEXT("Province");
+    State.RtsWorld.WorldInteraction.LastInteractionSummary = FString::Printf(TEXT("Selected %s in %s."), *RtsSelectedCountryName, *GetRtsZoomModeLabel());
+    State.RtsWorld.ActiveViewMode = GetRtsZoomModeLabel();
+    RefreshRtsHudState(State);
+    RefreshLoginWidget();
+}
 TSharedRef<SWidget> ALoginHUD::BuildOfficeWorldRtsScreen()
 {
     if (bHasLoadedRuntimeState)
@@ -6518,12 +6888,17 @@ TSharedRef<SWidget> ALoginHUD::BuildOfficeWorldRtsScreen()
 
     if (bRtsEntry)
     {
+        if (bHasLoadedRuntimeState)
+        {
+            LoadedSaveState.RuntimeState.RtsWorld.ActiveViewMode = GetRtsZoomModeLabel();
+        }
+
         const float MapWidth = 2242.0f * RtsMapZoom;
         const float MapHeight = 1104.0f * RtsMapZoom;
-        const FString CompactStatus = FString::Printf(TEXT("%s\n%s | %s"),
-            *PlayerCountry,
+        const FString CompactStatus = FString::Printf(TEXT("%s | %s | Zoom %.0f%%"),
+            *GetRtsZoomModeLabel(),
             bHasLoadedRuntimeState ? *LoadedSaveState.RuntimeState.RtsWorld.Hud.ResourceSummary : TEXT("No RTS resources loaded."),
-            bHasLoadedRuntimeState ? *LoadedSaveState.RuntimeState.RtsWorld.Hud.ArmyOrderSummary : TEXT("No army selected."));
+            RtsMapZoom * 100.0f);
 
         return SNew(SOverlay)
             + SOverlay::Slot()
@@ -6545,8 +6920,16 @@ TSharedRef<SWidget> ALoginHUD::BuildOfficeWorldRtsScreen()
                             .WidthOverride(MapWidth)
                             .HeightOverride(MapHeight)
                             [
-                                SNew(SImage)
-                                .Image(RtsLandMapBrush.IsValid() ? RtsLandMapBrush.Get() : WorldMapBrush.Get())
+                                SNew(SOverlay)
+                                + SOverlay::Slot()
+                                [
+                                    SNew(SImage)
+                                    .Image(RtsLandMapBrush.IsValid() ? RtsLandMapBrush.Get() : WorldMapBrush.Get())
+                                ]
+                                + SOverlay::Slot()
+                                [
+                                    BuildRtsArmyMarkersWidget(MapWidth, MapHeight)
+                                ]
                             ]
                         ]
                     ]
@@ -6556,16 +6939,16 @@ TSharedRef<SWidget> ALoginHUD::BuildOfficeWorldRtsScreen()
             [
                 SNew(SBorder)
                 .BorderImage(RowBrush.Get())
-                .BorderBackgroundColor(FLinearColor(0.015f, 0.018f, 0.022f, 0.82f))
+                .BorderBackgroundColor(FLinearColor(0.015f, 0.018f, 0.022f, 0.84f))
                 .Padding(12.0f)
                 [
                     SNew(SBox)
-                    .WidthOverride(560.0f)
+                    .WidthOverride(720.0f)
                     [
                         SNew(STextBlock)
-                        .Text(BodyText(FString::Printf(TEXT("RTS Command Map\n%s"), *CompactStatus)))
+                        .Text(BodyText(FString::Printf(TEXT("RTS Command Map | %s\nClick country/province to inspect | Drag to pan | Mouse wheel zooms | Esc returns"), *CompactStatus)))
                         .AutoWrapText(true)
-                        .Font(FCoreStyle::GetDefaultFontStyle("Bold", 14))
+                        .Font(FCoreStyle::GetDefaultFontStyle("Bold", 13))
                         .ColorAndOpacity(FLinearColor::White)
                     ]
                 ]
@@ -6574,7 +6957,7 @@ TSharedRef<SWidget> ALoginHUD::BuildOfficeWorldRtsScreen()
             [
                 SNew(SBorder)
                 .BorderImage(RowBrush.Get())
-                .BorderBackgroundColor(FLinearColor(0.015f, 0.018f, 0.022f, 0.82f))
+                .BorderBackgroundColor(FLinearColor(0.015f, 0.018f, 0.022f, 0.86f))
                 .Padding(8.0f)
                 [
                     SNew(SHorizontalBox)
@@ -6585,24 +6968,78 @@ TSharedRef<SWidget> ALoginHUD::BuildOfficeWorldRtsScreen()
                     + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 10.0f, 0.0f)
                     [BuildButton(TEXT("+"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleZoomRtsMapInClicked), 42.0f, 34.0f)]
                     + SHorizontalBox::Slot().AutoWidth()
-                    [BuildButton(TEXT("Return"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleCloseOfficeOverlayClicked), 100.0f, 34.0f)]
+                    [BuildButton(TEXT("Return To Office"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleCloseOfficeOverlayClicked), 172.0f, 34.0f)]
+                ]
+            ]
+            + SOverlay::Slot().HAlign(HAlign_Right).VAlign(VAlign_Center).Padding(18.0f, 82.0f, 18.0f, 18.0f)
+            [
+                SNew(SBorder)
+                .BorderImage(RowBrush.Get())
+                .BorderBackgroundColor(FLinearColor(0.02f, 0.025f, 0.03f, 0.84f))
+                .Padding(12.0f)
+                [
+                    SNew(SBox)
+                    .WidthOverride(450.0f)
+                    .MaxDesiredHeight(620.0f)
+                    [
+                        SNew(SScrollBox)
+                        + SScrollBox::Slot()
+                        [
+                            SNew(SVerticalBox)
+                            + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 10.0f)
+                            [
+                                SNew(STextBlock)
+                                .Text(BodyText(TEXT("Selected Territory")))
+                                .Font(FCoreStyle::GetDefaultFontStyle("Bold", 14))
+                                .ColorAndOpacity(FLinearColor(0.86f, 0.95f, 1.0f, 1.0f))
+                            ]
+                            + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 14.0f)
+                            [
+                                SNew(STextBlock)
+                                .Text(BodyText(BuildRtsSelectedTerritoryText()))
+                                .AutoWrapText(true)
+                                .Font(FCoreStyle::GetDefaultFontStyle("Regular", 11))
+                                .ColorAndOpacity(FLinearColor::White)
+                            ]
+                            + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 10.0f)
+                            [
+                                SNew(STextBlock)
+                                .Text(BodyText(TEXT("Selected Army")))
+                                .Font(FCoreStyle::GetDefaultFontStyle("Bold", 14))
+                                .ColorAndOpacity(FLinearColor(0.86f, 0.95f, 1.0f, 1.0f))
+                            ]
+                            + SVerticalBox::Slot().AutoHeight()
+                            [
+                                SNew(STextBlock)
+                                .Text(BodyText(BuildRtsSelectedArmyText()))
+                                .AutoWrapText(true)
+                                .Font(FCoreStyle::GetDefaultFontStyle("Regular", 11))
+                                .ColorAndOpacity(FLinearColor::White)
+                            ]
+                        ]
+                    ]
                 ]
             ]
             + SOverlay::Slot().HAlign(HAlign_Left).VAlign(VAlign_Bottom).Padding(18.0f)
             [
                 SNew(SBorder)
                 .BorderImage(RowBrush.Get())
-                .BorderBackgroundColor(FLinearColor(0.02f, 0.04f, 0.03f, 0.78f))
+                .BorderBackgroundColor(FLinearColor(0.02f, 0.04f, 0.03f, 0.80f))
                 .Padding(10.0f)
                 [
                     SNew(SBox)
-                    .WidthOverride(520.0f)
+                    .WidthOverride(760.0f)
+                    .MaxDesiredHeight(210.0f)
                     [
-                        SNew(STextBlock)
-                        .Text(BodyText(FString::Printf(TEXT("Mouse wheel zooms | Drag map to pan | Esc returns\nZoom %.0f%% | %s"), RtsMapZoom * 100.0f, *OwnershipSummary)))
-                        .AutoWrapText(true)
-                        .Font(FCoreStyle::GetDefaultFontStyle("Regular", 12))
-                        .ColorAndOpacity(FLinearColor(0.82f, 0.94f, 0.86f, 1.0f))
+                        SNew(SScrollBox)
+                        + SScrollBox::Slot()
+                        [
+                            SNew(STextBlock)
+                            .Text(BodyText(BuildRtsActionText()))
+                            .AutoWrapText(true)
+                            .Font(FCoreStyle::GetDefaultFontStyle("Regular", 11))
+                            .ColorAndOpacity(FLinearColor(0.82f, 0.94f, 0.86f, 1.0f))
+                        ]
                     ]
                 ]
             ];
