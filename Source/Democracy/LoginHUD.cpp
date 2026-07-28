@@ -1447,8 +1447,11 @@ namespace
                 const bool bOpponentProvince = Province.CurrentControllerCountryName.Equals(Outcome.OpponentCountry, ESearchCase::IgnoreCase) || Province.OriginalCountryName.Equals(Outcome.OpponentCountry, ESearchCase::IgnoreCase);
                 if (!Province.bPlayerControlled && (bOpponentProvince || Province.bBorderProvince))
                 {
+                    if (Province.CurrentOwnerCountryName.IsEmpty())
+                    {
+                        Province.CurrentOwnerCountryName = Province.OriginalCountryName;
+                    }
                     Province.CurrentControllerCountryName = PlayerName;
-                    Province.CurrentOwnerCountryName = PlayerName;
                     Province.GovernmentType = TEXT("Democracy");
                     Province.bPlayerControlled = true;
                     Province.bBorderProvince = true;
@@ -1457,7 +1460,7 @@ namespace
                     --TransfersRemaining;
                 }
             }
-            if (Captured.Num() > 0) TransferSummary = FString::Printf(TEXT("Captured %s."), *FString::Join(Captured, TEXT(", ")));
+            if (Captured.Num() > 0) TransferSummary = FString::Printf(TEXT("Occupied %s. Ownership transfer pending occupation timer."), *FString::Join(Captured, TEXT(", ")));
         }
         else if (Outcome.TerritoryDelta < 0)
         {
@@ -1468,8 +1471,11 @@ namespace
                 FDemocracyProvinceOwnershipState& Province = Ownership.Provinces[Index];
                 if (Province.bPlayerControlled && Province.bBorderProvince)
                 {
+                    if (Province.CurrentOwnerCountryName.IsEmpty())
+                    {
+                        Province.CurrentOwnerCountryName = PlayerName;
+                    }
                     Province.CurrentControllerCountryName = Outcome.OpponentCountry.IsEmpty() ? Province.OriginalCountryName : Outcome.OpponentCountry;
-                    Province.CurrentOwnerCountryName = Province.CurrentControllerCountryName;
                     Province.bPlayerControlled = false;
                     Province.bBorderProvince = true;
                     Province.LastChangedTurn = State.Turn;
@@ -1477,7 +1483,7 @@ namespace
                     --TransfersRemaining;
                 }
             }
-            if (Lost.Num() > 0) TransferSummary = FString::Printf(TEXT("Lost %s."), *FString::Join(Lost, TEXT(", ")));
+            if (Lost.Num() > 0) TransferSummary = FString::Printf(TEXT("Lost control of %s. Ownership transfer pending occupation timer."), *FString::Join(Lost, TEXT(", ")));
         }
         Ownership.LastUpdatedTurn = State.Turn;
         RefreshRuntimeMapOwnership(Ownership);
@@ -1486,6 +1492,55 @@ namespace
         return TransferSummary;
     }
 
+    void ResolveRtsOccupationOwnershipTimers(FDemocracySimulationState& State)
+    {
+        InitializeRuntimeMapOwnershipIfMissing(State);
+        FDemocracyMapOwnershipState& Ownership = State.RtsWorld.Ownership;
+        constexpr int32 RequiredOccupationTurns = 3;
+        TArray<FString> Transfers;
+
+        for (FDemocracyProvinceOwnershipState& Province : Ownership.Provinces)
+        {
+            if (Province.CurrentControllerCountryName.IsEmpty())
+            {
+                Province.CurrentControllerCountryName = Province.CurrentOwnerCountryName.IsEmpty() ? Province.OriginalCountryName : Province.CurrentOwnerCountryName;
+            }
+            if (Province.CurrentOwnerCountryName.IsEmpty())
+            {
+                Province.CurrentOwnerCountryName = Province.OriginalCountryName;
+            }
+            if (Province.CurrentControllerCountryName.Equals(Province.CurrentOwnerCountryName, ESearchCase::IgnoreCase))
+            {
+                continue;
+            }
+
+            const int32 OccupationTurns = State.Turn - Province.LastChangedTurn;
+            if (OccupationTurns < RequiredOccupationTurns)
+            {
+                continue;
+            }
+
+            Province.CurrentOwnerCountryName = Province.CurrentControllerCountryName;
+            Province.bPlayerControlled = Province.CurrentOwnerCountryName.Equals(State.PlayerCountry.CountryName, ESearchCase::IgnoreCase);
+            Province.GovernmentType = Province.bPlayerControlled ? TEXT("Democracy") : (Province.GovernmentType.IsEmpty() ? TEXT("Dictatorship") : Province.GovernmentType);
+            Province.LastChangedTurn = State.Turn;
+            Transfers.Add(FString::Printf(TEXT("%s -> %s"), *Province.ProvinceName, *Province.CurrentOwnerCountryName));
+        }
+
+        if (Transfers.Num() > 0)
+        {
+            Ownership.LastUpdatedTurn = State.Turn;
+            RefreshRuntimeMapOwnership(Ownership);
+            State.RtsWorld.ControlledTerritories = Ownership.PlayerControlledProvinces;
+            State.RtsWorld.BorderTerritories = Ownership.BorderProvinceCount;
+            State.RtsWorld.Backflow.LastImportQueueSummary = FString::Printf(TEXT("Occupation ownership finalized: %s."), *FString::Join(Transfers, TEXT(", ")));
+            State.RtsWorld.Hud.Alerts.Add(State.RtsWorld.Backflow.LastImportQueueSummary);
+            if (State.RtsWorld.Hud.Alerts.Num() > 8)
+            {
+                State.RtsWorld.Hud.Alerts.RemoveAt(0, State.RtsWorld.Hud.Alerts.Num() - 8);
+            }
+        }
+    }
     void ApplyRtsBackflowOutcome(FDemocracySimulationState& State, FDemocracyRtsOutcomeState& Outcome)
     {
         FDemocracyCountryState& Country = State.PlayerCountry;
@@ -1840,6 +1895,8 @@ namespace
             return;
         }
 
+        ResolveRtsOccupationOwnershipTimers(State);
+
         for (FDemocracyRtsMovementOrderState& Order : State.RtsWorld.MovementOrders)
         {
             if (!Order.bActive || Order.bComplete || Order.bCancelled)
@@ -1875,6 +1932,76 @@ namespace
 
             Order.bComplete = true;
             Order.bActive = false;
+
+            const FDemocracyProvinceOwnershipState* TargetProvince = FindRtsProvinceById(State, Order.TargetProvinceId);
+            const bool bHostileTarget = TargetProvince && !TargetProvince->CurrentControllerCountryName.Equals(State.PlayerCountry.CountryName, ESearchCase::IgnoreCase);
+            const bool bCombatCapableOrder = Order.OrderType.Equals(TEXT("Move"), ESearchCase::IgnoreCase)
+                || Order.OrderType.Equals(TEXT("Rally"), ESearchCase::IgnoreCase)
+                || Order.OrderType.Equals(TEXT("Reinforce"), ESearchCase::IgnoreCase)
+                || Order.OrderType.Equals(TEXT("Defend"), ESearchCase::IgnoreCase)
+                || Order.OrderType.Equals(TEXT("Patrol/Scout"), ESearchCase::IgnoreCase);
+            if (TargetProvince && bHostileTarget && bCombatCapableOrder)
+            {
+                FDemocracyRtsBattleResolutionState Battle = ResolveDeterministicRtsBattle(State, *Army, *TargetProvince, Order.OrderType);
+                State.RtsWorld.BattleHistory.Add(Battle);
+                if (State.RtsWorld.BattleHistory.Num() > 20)
+                {
+                    State.RtsWorld.BattleHistory.RemoveAt(0, State.RtsWorld.BattleHistory.Num() - 20);
+                }
+                QueueRtsOutcomeImport(State, MakeRtsOutcomeFromBattle(State, Battle));
+                if (FDemocracyRtsFogProvinceState* FogProvince = FindMutableFogProvince(State.RtsWorld.FogOfWar, Order.TargetProvinceId))
+                {
+                    FogProvince->VisibilityState = Battle.Result.Equals(TEXT("Province Captured"), ESearchCase::IgnoreCase) ? TEXT("Known") : TEXT("Contested");
+                    FogProvince->bKnown = true;
+                    FogProvince->bContested = !Battle.Result.Equals(TEXT("Province Captured"), ESearchCase::IgnoreCase);
+                    FogProvince->ScoutStrength = FMath::Clamp(FogProvince->ScoutStrength + 35, 0, 100);
+                    FogProvince->LastScoutedTurn = State.Turn;
+                    FogProvince->IntelSummary = Battle.Summary;
+                }
+
+                if (Battle.Result.Equals(TEXT("Province Captured"), ESearchCase::IgnoreCase))
+                {
+                    Army->CurrentProvinceId = Order.TargetProvinceId;
+                    Army->DestinationProvinceId = Order.TargetProvinceId;
+                    Army->MovementState = TEXT("Occupying");
+                    Army->Morale = FMath::Clamp(Army->Morale + 4, 0, 100);
+                }
+                else
+                {
+                    Army->CurrentProvinceId = Order.SourceProvinceId;
+                    Army->DestinationProvinceId = Order.SourceProvinceId;
+                    Army->MovementState = Battle.Result;
+                    Army->Morale = FMath::Clamp(Army->Morale + (Battle.Result.Equals(TEXT("Battle Lost"), ESearchCase::IgnoreCase) ? -6 : -2), 0, 100);
+                }
+                Army->ActiveOrderType = TEXT("None");
+                Army->OrderTurnsRemaining = 0;
+                Army->MovementTurnsRemaining = 0;
+                Order.StatusSummary = Battle.Summary;
+                continue;
+            }
+
+            if (TargetProvince && Order.OrderType.Equals(TEXT("Patrol/Scout"), ESearchCase::IgnoreCase))
+            {
+                if (FDemocracyRtsFogProvinceState* FogProvince = FindMutableFogProvince(State.RtsWorld.FogOfWar, Order.TargetProvinceId))
+                {
+                    FogProvince->VisibilityState = TEXT("Known");
+                    FogProvince->bKnown = true;
+                    FogProvince->bContested = false;
+                    FogProvince->ScoutStrength = FMath::Clamp(FogProvince->ScoutStrength + 25, 0, 100);
+                    FogProvince->LastScoutedTurn = State.Turn;
+                    FogProvince->IntelSummary = FString::Printf(TEXT("%s scouted %s without hostile contact."), *Army->DisplayName, *TargetProvince->ProvinceName);
+                }
+                Army->CurrentProvinceId = Order.TargetProvinceId;
+                Army->DestinationProvinceId = Order.TargetProvinceId;
+                Army->MovementState = TEXT("Scouted");
+                Army->Morale = FMath::Clamp(Army->Morale + 1, 0, 100);
+                Army->ActiveOrderType = TEXT("None");
+                Army->OrderTurnsRemaining = 0;
+                Army->MovementTurnsRemaining = 0;
+                Order.StatusSummary = FString::Printf(TEXT("%s scouted %s without hostile contact."), *Army->DisplayName, *TargetProvince->ProvinceName);
+                continue;
+            }
+
             if (Order.OrderType.Equals(TEXT("Move"), ESearchCase::IgnoreCase) || Order.OrderType.Equals(TEXT("Rally"), ESearchCase::IgnoreCase) || Order.OrderType.Equals(TEXT("Reinforce"), ESearchCase::IgnoreCase))
             {
                 Army->CurrentProvinceId = Order.TargetProvinceId;
@@ -6725,6 +6852,7 @@ FString ALoginHUD::BuildRtsActionText() const
 
     const FDemocracyRtsHudState& Hud = LoadedSaveState.RuntimeState.RtsWorld.Hud;
     TArray<FString> Lines;
+    Lines.Add(PendingRtsOrderType.IsEmpty() ? TEXT("Order flow: click an army marker, choose an order, then click a destination province/country.") : FString::Printf(TEXT("Pending %s order: click a destination province/country."), *PendingRtsOrderType));
     Lines.Add(FString::Printf(TEXT("Orders: %s"), Hud.ArmyOrderButtons.Num() > 0 ? *FString::Join(Hud.ArmyOrderButtons, TEXT(" | ")) : TEXT("none")));
     Lines.Add(Hud.BuildMenuSummary);
     Lines.Add(FString::Printf(TEXT("Build: %s"), Hud.BuildMenuOptions.Num() > 0 ? *FString::Join(Hud.BuildMenuOptions, TEXT(" | ")) : TEXT("none")));
@@ -6803,6 +6931,134 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsArmyMarkersWidget(float MapWidth, float M
     return MarkerOverlay;
 }
 
+TSharedRef<SWidget> ALoginHUD::BuildRtsOrderButtonsWidget()
+{
+    const bool bCanIssueOrder = bHasLoadedRuntimeState && !RtsSelectedArmyId.IsEmpty();
+    return SNew(SHorizontalBox)
+        + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 6.0f, 0.0f)
+        [BuildButton(TEXT("Move"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleSelectRtsOrder, FString(TEXT("Move"))), 78.0f, 32.0f, bCanIssueOrder)]
+        + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 6.0f, 0.0f)
+        [BuildButton(TEXT("Defend"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleSelectRtsOrder, FString(TEXT("Defend"))), 86.0f, 32.0f, bCanIssueOrder)]
+        + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 6.0f, 0.0f)
+        [BuildButton(TEXT("Rally"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleSelectRtsOrder, FString(TEXT("Rally"))), 78.0f, 32.0f, bCanIssueOrder)]
+        + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 6.0f, 0.0f)
+        [BuildButton(TEXT("Scout"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleSelectRtsOrder, FString(TEXT("Patrol/Scout"))), 78.0f, 32.0f, bCanIssueOrder)]
+        + SHorizontalBox::Slot().AutoWidth()
+        [BuildButton(TEXT("Reinforce"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleSelectRtsOrder, FString(TEXT("Reinforce"))), 108.0f, 32.0f, bCanIssueOrder)];
+}
+
+FReply ALoginHUD::HandleSelectRtsOrder(FString OrderType)
+{
+    if (!bHasLoadedRuntimeState || RtsSelectedArmyId.IsEmpty())
+    {
+        return FReply::Handled();
+    }
+
+    PendingRtsOrderType = OrderType;
+    LoadedSaveState.RuntimeState.RtsWorld.WorldInteraction.LastInteractionSummary = FString::Printf(TEXT("%s order selected. Click a destination province or country."), *PendingRtsOrderType);
+    RefreshRtsHudState(LoadedSaveState.RuntimeState);
+    RefreshLoginWidget();
+    return FReply::Handled();
+}
+
+bool ALoginHUD::TryIssueRtsOrderToProvince(const FString& TargetProvinceId)
+{
+    if (!bHasLoadedRuntimeState || PendingRtsOrderType.IsEmpty() || RtsSelectedArmyId.IsEmpty() || TargetProvinceId.IsEmpty())
+    {
+        return false;
+    }
+
+    FDemocracySimulationState& State = LoadedSaveState.RuntimeState;
+    FDemocracyRtsArmyGroupState* Army = nullptr;
+    for (FDemocracyRtsArmyGroupState& CandidateArmy : State.RtsWorld.ArmyGroups)
+    {
+        if (CandidateArmy.ArmyId.Equals(RtsSelectedArmyId, ESearchCase::IgnoreCase))
+        {
+            Army = &CandidateArmy;
+            break;
+        }
+    }
+    if (!Army)
+    {
+        PendingRtsOrderType.Empty();
+        return false;
+    }
+
+    const FDemocracyProvinceOwnershipState* TargetProvince = FindRtsProvinceById(State, TargetProvinceId);
+    if (!TargetProvince)
+    {
+        return false;
+    }
+
+    for (FDemocracyRtsMovementOrderState& ExistingOrder : State.RtsWorld.MovementOrders)
+    {
+        if (ExistingOrder.ArmyId.Equals(Army->ArmyId, ESearchCase::IgnoreCase) && ExistingOrder.bActive && !ExistingOrder.bComplete)
+        {
+            ExistingOrder.bCancelled = true;
+            ExistingOrder.bActive = false;
+            ExistingOrder.StatusSummary = FString::Printf(TEXT("Cancelled by new %s order."), *PendingRtsOrderType);
+        }
+    }
+
+    const bool bSameProvince = Army->CurrentProvinceId.Equals(TargetProvinceId, ESearchCase::IgnoreCase);
+    const bool bHostileTarget = !TargetProvince->CurrentControllerCountryName.Equals(State.PlayerCountry.CountryName, ESearchCase::IgnoreCase);
+    FDemocracyRtsMovementOrderState Order;
+    Order.OrderId = FString::Printf(TEXT("RTS-ORDER-%d-%d"), State.Turn, State.RtsWorld.MovementOrders.Num() + 1);
+    Order.ArmyId = Army->ArmyId;
+    Order.OrderType = PendingRtsOrderType;
+    Order.SourceProvinceId = Army->CurrentProvinceId;
+    Order.TargetProvinceId = TargetProvinceId;
+    Order.RallyPointId = PendingRtsOrderType.Equals(TEXT("Rally"), ESearchCase::IgnoreCase) ? TargetProvinceId : TEXT("");
+    Order.IssuedTurn = State.Turn;
+    Order.TotalTurns = FMath::Clamp((bSameProvince ? 1 : 2) + (Army->bSupplyRouteBroken ? 1 : 0) + (bHostileTarget ? 1 : 0), 1, 5);
+    Order.TurnsRemaining = Order.TotalTurns;
+    Order.StatusSummary = FString::Printf(TEXT("%s ordered to %s. ETA %d turn(s)%s."), *Army->DisplayName, *TargetProvince->ProvinceName, Order.TurnsRemaining, bHostileTarget ? TEXT("; hostile contact possible") : TEXT(""));
+    Order.AllowedFollowUps = { TEXT("Cancel"), TEXT("Change Order"), TEXT("Inspect Target") };
+    State.RtsWorld.MovementOrders.Add(Order);
+
+    Army->DestinationProvinceId = TargetProvinceId;
+    Army->ActiveOrderType = PendingRtsOrderType;
+    Army->OrderTargetProvinceId = TargetProvinceId;
+    Army->OrderTargetType = TEXT("Province");
+    Army->OrderTurnsRemaining = Order.TurnsRemaining;
+    Army->MovementTurnsRemaining = Order.TurnsRemaining;
+    Army->MovementState = FString::Printf(TEXT("%s Ordered"), *PendingRtsOrderType);
+    Army->Orders.Add(Order.StatusSummary);
+    if (Army->Orders.Num() > 8)
+    {
+        Army->Orders.RemoveAt(0, Army->Orders.Num() - 8);
+    }
+
+    bool bUpdatedRoute = false;
+    for (FDemocracyRtsSupplyRouteState& Route : State.RtsWorld.SupplyRoutes)
+    {
+        if (Route.ArmyId.Equals(Army->ArmyId, ESearchCase::IgnoreCase))
+        {
+            Route.SourceProvinceId = Order.SourceProvinceId;
+            Route.DestinationProvinceId = TargetProvinceId;
+            Route.StatusSummary = FString::Printf(TEXT("Supply route recalculated for %s order."), *PendingRtsOrderType);
+            bUpdatedRoute = true;
+            break;
+        }
+    }
+    if (!bUpdatedRoute)
+    {
+        FDemocracyRtsSupplyRouteState Route;
+        Route.RouteId = FString::Printf(TEXT("SUPPLY-%s"), *Army->ArmyId);
+        Route.ArmyId = Army->ArmyId;
+        Route.SourceProvinceId = Order.SourceProvinceId;
+        Route.DestinationProvinceId = TargetProvinceId;
+        Route.StatusSummary = TEXT("Supply route created for new movement order.");
+        State.RtsWorld.SupplyRoutes.Add(Route);
+    }
+
+    State.RtsWorld.WorldInteraction.ActiveSelectionId = TargetProvinceId;
+    State.RtsWorld.WorldInteraction.ActiveSelectionType = TEXT("Order Destination");
+    State.RtsWorld.WorldInteraction.LastInteractionSummary = Order.StatusSummary;
+    PendingRtsOrderType.Empty();
+    RefreshRtsHudState(State);
+    return true;
+}
 void ALoginHUD::SelectRtsMapAtViewportPosition(const FGeometry& Geometry, const FVector2D& ScreenPosition)
 {
     if (!bHasLoadedRuntimeState)
@@ -6842,8 +7098,18 @@ void ALoginHUD::SelectRtsMapAtViewportPosition(const FGeometry& Geometry, const 
         return;
     }
 
+    const FString TargetProvinceId = BestCountry->ProvinceIds.Num() > 0 ? BestCountry->ProvinceIds[0] : TEXT("");
+    if (!PendingRtsOrderType.IsEmpty() && !RtsSelectedArmyId.IsEmpty() && !TargetProvinceId.IsEmpty())
+    {
+        RtsSelectedCountryName = BestCountry->CountryName;
+        RtsSelectedProvinceId = TargetProvinceId;
+        TryIssueRtsOrderToProvince(TargetProvinceId);
+        RefreshLoginWidget();
+        return;
+    }
+
     RtsSelectedCountryName = BestCountry->CountryName;
-    RtsSelectedProvinceId = BestCountry->ProvinceIds.Num() > 0 ? BestCountry->ProvinceIds[0] : TEXT("");
+    RtsSelectedProvinceId = TargetProvinceId;
     RtsSelectedArmyId.Empty();
 
     for (FDemocracyRtsArmyGroupState& Army : State.RtsWorld.ArmyGroups)
@@ -7008,13 +7274,24 @@ TSharedRef<SWidget> ALoginHUD::BuildOfficeWorldRtsScreen()
                                 .Font(FCoreStyle::GetDefaultFontStyle("Bold", 14))
                                 .ColorAndOpacity(FLinearColor(0.86f, 0.95f, 1.0f, 1.0f))
                             ]
-                            + SVerticalBox::Slot().AutoHeight()
+                            + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 12.0f)
                             [
                                 SNew(STextBlock)
                                 .Text(BodyText(BuildRtsSelectedArmyText()))
                                 .AutoWrapText(true)
                                 .Font(FCoreStyle::GetDefaultFontStyle("Regular", 11))
                                 .ColorAndOpacity(FLinearColor::White)
+                            ]
+                            + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 8.0f)
+                            [
+                                SNew(STextBlock)
+                                .Text(BodyText(PendingRtsOrderType.IsEmpty() ? FString(TEXT("Choose Order")) : FString::Printf(TEXT("%s selected: click destination"), *PendingRtsOrderType)))
+                                .Font(FCoreStyle::GetDefaultFontStyle("Bold", 13))
+                                .ColorAndOpacity(PendingRtsOrderType.IsEmpty() ? FLinearColor(0.86f, 0.95f, 1.0f, 1.0f) : FLinearColor(1.0f, 0.86f, 0.16f, 1.0f))
+                            ]
+                            + SVerticalBox::Slot().AutoHeight()
+                            [
+                                BuildRtsOrderButtonsWidget()
                             ]
                         ]
                     ]
@@ -7688,6 +7965,19 @@ bool ALoginHUD::LoadSinglePlayerSaveIntoRuntime(const FString& SavePath)
     RefreshFailureValidationState(LoadedSaveState.RuntimeState);
     RefreshWarConflictState(LoadedSaveState.RuntimeState);
     RefreshSimulationToRtsContract(LoadedSaveState.RuntimeState);
+    {
+        const FDemocracyRtsWorldState& RtsWorld = LoadedSaveState.RuntimeState.RtsWorld;
+        LastSaveStatus = FString::Printf(TEXT("%s | RTS persisted: armies %d, orders %d, supply routes %d, construction queues %d, fog provinces %d, battles %d, ownership provinces %d."),
+            *LastSaveStatus,
+            RtsWorld.ArmyGroups.Num(),
+            RtsWorld.MovementOrders.Num(),
+            RtsWorld.SupplyRoutes.Num(),
+            RtsWorld.CityBase.ConstructionQueue.Num(),
+            RtsWorld.FogOfWar.Provinces.Num(),
+            RtsWorld.BattleHistory.Num(),
+            RtsWorld.Ownership.Provinces.Num());
+        UE_LOG(LogTemp, Log, TEXT("%s"), *LastSaveStatus);
+    }
     LoadedSaveSummary = LoadedSaveState.ToSummaryText();
     SimulationTickSummary = BuildSimulationStatusText();
 

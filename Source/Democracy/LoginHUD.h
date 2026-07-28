@@ -112,6 +112,7 @@ private:
     FString RtsSelectedCountryName;
     FString RtsSelectedProvinceId;
     FString RtsSelectedArmyId;
+    FString PendingRtsOrderType;
     FDemocracyLoadedSaveState LoadedSaveState;
     bool bHasLoadedRuntimeState = false;
     FTimerHandle SimulationTickTimerHandle;
@@ -182,7 +183,10 @@ private:
     FString BuildRtsSelectedArmyText() const;
     FString BuildRtsActionText() const;
     TSharedRef<SWidget> BuildRtsArmyMarkersWidget(float MapWidth, float MapHeight);
+    TSharedRef<SWidget> BuildRtsOrderButtonsWidget();
     void SelectRtsMapAtViewportPosition(const FGeometry& Geometry, const FVector2D& ScreenPosition);
+    bool TryIssueRtsOrderToProvince(const FString& TargetProvinceId);
+    FReply HandleSelectRtsOrder(FString OrderType);
     TSharedRef<SWidget> BuildOfficeAdvisorWarningsScreen();
     TSharedRef<SWidget> BuildOfficeMeetingAdvisorScreen();
     TSharedRef<SWidget> BuildOfficePressReleaseScreen();
