@@ -4776,6 +4776,9 @@ void ALoginHUD::BeginPlay()
         FVector2D(1680.0f, 945.0f));
     const FString WorldMapImagePath = FPaths::ProjectDir() / TEXT("Generated/Dulia_World_Government_Map.png");
     WorldMapBrush = MakeShared<FSlateDynamicImageBrush>(FName(*WorldMapImagePath), FVector2D(2242.0f, 1104.0f));
+    const FString RtsLandMapImagePath = FPaths::ProjectDir() / TEXT("Generated/Dulia_World_Government_LandOverlay.png");
+    RtsLandMapBrush = MakeShared<FSlateDynamicImageBrush>(FName(*RtsLandMapImagePath), FVector2D(2242.0f, 1104.0f));
+    RtsWaterBrush = MakeShared<FSlateColorBrush>(FLinearColor(0.274f, 0.612f, 0.690f, 1.0f));
     OverlayBrush = MakeShared<FSlateColorBrush>(FLinearColor(0.0f, 0.0f, 0.0f, 0.24f));
     PanelBrush = MakeShared<FSlateColorBrush>(FLinearColor(0.025f, 0.028f, 0.032f, 0.88f));
     RowBrush = MakeShared<FSlateColorBrush>(FLinearColor(0.06f, 0.065f, 0.075f, 0.80f));
@@ -4812,6 +4815,8 @@ void ALoginHUD::EndPlay(const EEndPlayReason::Type EndPlayReason)
     RowBrush.Reset();
     PanelBrush.Reset();
     OverlayBrush.Reset();
+    RtsWaterBrush.Reset();
+    RtsLandMapBrush.Reset();
     WorldMapBrush.Reset();
     BackgroundBrush.Reset();
 
@@ -6541,7 +6546,7 @@ TSharedRef<SWidget> ALoginHUD::BuildOfficeWorldRtsScreen()
                             .HeightOverride(MapHeight)
                             [
                                 SNew(SImage)
-                                .Image(RtsLandMapBrush.Get())
+                                .Image(RtsLandMapBrush.IsValid() ? RtsLandMapBrush.Get() : WorldMapBrush.Get())
                             ]
                         ]
                     ]
