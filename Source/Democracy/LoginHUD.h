@@ -185,11 +185,16 @@ private:
     FString BuildRtsCityBaseSummaryText() const;
     FString BuildRtsOfficeAlertText() const;
     TSharedRef<SWidget> BuildRtsCityBasePlaceholderWidget();
+    TSharedRef<SWidget> BuildRtsResourceNodesWidget() const;
     TSharedRef<SWidget> BuildRtsArmyMarkersWidget(float MapWidth, float MapHeight);
     TSharedRef<SWidget> BuildRtsOrderButtonsWidget();
     void SelectRtsMapAtViewportPosition(const FGeometry& Geometry, const FVector2D& ScreenPosition);
     bool TryIssueRtsOrderToProvince(const FString& TargetProvinceId);
     FReply HandleSelectRtsOrder(FString OrderType);
+    FReply HandleSelectRtsBuildingSlot(int32 SlotIndex);
+    FReply HandleQueueRtsBuildSlot(int32 SlotIndex, FString ResourceFocus);
+    FReply HandleQueueRtsUpgrade(FString BuildingId);
+    FReply HandleCancelRtsConstruction(FString QueueId);
     TSharedRef<SWidget> BuildOfficeAdvisorWarningsScreen();
     TSharedRef<SWidget> BuildOfficeMeetingAdvisorScreen();
     TSharedRef<SWidget> BuildOfficePressReleaseScreen();

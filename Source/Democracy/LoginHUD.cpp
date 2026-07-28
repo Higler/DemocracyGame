@@ -1092,6 +1092,117 @@ namespace
         }
         RtsWorld.Hud.AlertSummary = FString::Join(RtsWorld.Hud.Alerts, TEXT(" | "));
     }
+    FString GetRtsSlotResourceFocus(int32 SlotIndex)
+    {
+        static const TArray<FString> Focuses = { TEXT("Food"), TEXT("Fuel"), TEXT("Wood"), TEXT("Metals"), TEXT("Readiness"), TEXT("Reserve"), TEXT("Research"), TEXT("Security"), TEXT("Supply"), TEXT("Command"), TEXT("Industry"), TEXT("Logistics") };
+        return Focuses.IsValidIndex(SlotIndex) ? Focuses[SlotIndex] : TEXT("Supply");
+    }
+
+    FString GetRtsResourceBuildingName(const FString& ResourceFocus)
+    {
+        if (ResourceFocus.Equals(TEXT("Food"), ESearchCase::IgnoreCase)) { return TEXT("Agriculture Site"); }
+        if (ResourceFocus.Equals(TEXT("Fuel"), ESearchCase::IgnoreCase)) { return TEXT("Fuel Extraction Site"); }
+        if (ResourceFocus.Equals(TEXT("Wood"), ESearchCase::IgnoreCase)) { return TEXT("Forestry Site"); }
+        if (ResourceFocus.Equals(TEXT("Metals"), ESearchCase::IgnoreCase)) { return TEXT("Metals Extraction Site"); }
+        if (ResourceFocus.Equals(TEXT("Readiness"), ESearchCase::IgnoreCase)) { return TEXT("Training Ground"); }
+        if (ResourceFocus.Equals(TEXT("Research"), ESearchCase::IgnoreCase)) { return TEXT("Comms Research Annex"); }
+        if (ResourceFocus.Equals(TEXT("Security"), ESearchCase::IgnoreCase)) { return TEXT("Security Checkpoint"); }
+        if (ResourceFocus.Equals(TEXT("Industry"), ESearchCase::IgnoreCase)) { return TEXT("Industrial Yard"); }
+        if (ResourceFocus.Equals(TEXT("Logistics"), ESearchCase::IgnoreCase)) { return TEXT("Logistics Yard"); }
+        return TEXT("Supply Depot");
+    }
+
+    FDemocracyRtsBuildingState MakeRtsPlaceholderBuildingForSlot(int32 SlotIndex, const FString& ResourceFocus)
+    {
+        FDemocracyRtsBuildingState Building;
+        Building.BuildingId = FString::Printf(TEXT("city_slot_%02d_%s"), SlotIndex + 1, *ResourceFocus.ToLower());
+        Building.DisplayName = GetRtsResourceBuildingName(ResourceFocus);
+        Building.BuildingType = ResourceFocus.Equals(TEXT("Readiness"), ESearchCase::IgnoreCase) || ResourceFocus.Equals(TEXT("Security"), ESearchCase::IgnoreCase) ? TEXT("Defense") : TEXT("Resource");
+        Building.ResourceFocus = ResourceFocus;
+        Building.CandidateAssetHint = FString::Printf(TEXT("Placeholder %s building slot; replace with final RTS city/base asset."), *ResourceFocus);
+        Building.Level = 0;
+        Building.BuildCost = 45 + SlotIndex * 4;
+        Building.UpgradeCost = 80 + SlotIndex * 6;
+        Building.BuildTimeTurns = FMath::Clamp(1 + SlotIndex / 4, 1, 4);
+        Building.ProductionPerTick = FMath::Clamp(4 + SlotIndex % 4, 3, 9);
+        Building.DefenseValue = ResourceFocus.Equals(TEXT("Security"), ESearchCase::IgnoreCase) || ResourceFocus.Equals(TEXT("Readiness"), ESearchCase::IgnoreCase) ? 16 : 0;
+        Building.bConstructed = false;
+        Building.bUpgradeQueued = false;
+        Building.Status = TEXT("Queued Site");
+        Building.RuntimeTags = { TEXT("placeholder"), TEXT("city-base"), ResourceFocus };
+        Building.MaxHealth = 100;
+        Building.CurrentHealth = 0;
+        Building.DamagePercent = 0;
+        Building.RepairCost = FMath::Max(10, Building.UpgradeCost / 3);
+        return Building;
+    }
+
+    void RecountRtsCityBaseQueues(FDemocracyRtsCityBaseState& Base)
+    {
+        int32 ActiveBuildCount = 0;
+        int32 ActiveUpgradeCount = 0;
+        for (const FDemocracyRtsConstructionQueueEntryState& QueueEntry : Base.ConstructionQueue)
+        {
+            if (QueueEntry.bCancelled || QueueEntry.bComplete)
+            {
+                continue;
+            }
+            if (QueueEntry.QueueType.Equals(TEXT("Upgrade"), ESearchCase::IgnoreCase))
+            {
+                ++ActiveUpgradeCount;
+            }
+            else
+            {
+                ++ActiveBuildCount;
+            }
+        }
+        Base.BuildQueueCount = ActiveBuildCount + ActiveUpgradeCount;
+        Base.UpgradeQueueCount = ActiveUpgradeCount;
+    }
+
+    bool HasActiveRtsConstructionQueue(const FDemocracyRtsCityBaseState& Base, const FString& BuildingId)
+    {
+        for (const FDemocracyRtsConstructionQueueEntryState& QueueEntry : Base.ConstructionQueue)
+        {
+            if (QueueEntry.BuildingId.Equals(BuildingId, ESearchCase::IgnoreCase) && !QueueEntry.bCancelled && !QueueEntry.bComplete)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    FString BuildRtsCostText(int32 TreasuryCost, int32 FoodCost, int32 FuelCost, int32 WoodCost, int32 MetalsCost)
+    {
+        return FString::Printf(TEXT("Cost T%d F%d G%d W%d M%d"), TreasuryCost, FoodCost, FuelCost, WoodCost, MetalsCost);
+    }
+
+    bool CanPayRtsCost(const FDemocracyCountryState& Country, int32 TreasuryCost, int32 FoodCost, int32 FuelCost, int32 WoodCost, int32 MetalsCost)
+    {
+        return Country.Treasury >= TreasuryCost
+            && Country.Resources.Food >= FoodCost
+            && Country.Resources.GasOil >= FuelCost
+            && Country.Resources.Wood >= WoodCost
+            && Country.Resources.Metals >= MetalsCost;
+    }
+
+    void ApplyRtsCost(FDemocracyCountryState& Country, int32 TreasuryCost, int32 FoodCost, int32 FuelCost, int32 WoodCost, int32 MetalsCost)
+    {
+        Country.Treasury = FMath::Max(0, Country.Treasury - TreasuryCost);
+        Country.Resources.Food = FMath::Max(0, Country.Resources.Food - FoodCost);
+        Country.Resources.GasOil = FMath::Max(0, Country.Resources.GasOil - FuelCost);
+        Country.Resources.Wood = FMath::Max(0, Country.Resources.Wood - WoodCost);
+        Country.Resources.Metals = FMath::Max(0, Country.Resources.Metals - MetalsCost);
+    }
+
+    void RefundRtsCost(FDemocracyCountryState& Country, const FDemocracyRtsConstructionQueueEntryState& QueueEntry)
+    {
+        Country.Treasury += QueueEntry.TreasuryCost / 2;
+        Country.Resources.Food += QueueEntry.FoodCost / 2;
+        Country.Resources.GasOil += QueueEntry.FuelCost / 2;
+        Country.Resources.Wood += QueueEntry.WoodCost / 2;
+        Country.Resources.Metals += QueueEntry.MetalsCost / 2;
+    }
     void RefreshRtsBackflowCounters(FDemocracyRtsBackflowState& Backflow)
     {
         Backflow.PendingOutcomeCount = Backflow.PendingOutcomes.Num();
@@ -1961,14 +2072,16 @@ namespace
                 Order.StatusSummary = TEXT("Order cannot resolve because the assigned army is missing.");
                 continue;
             }
-
             Army->ActiveOrderType = Order.OrderType;
             Army->OrderTargetProvinceId = Order.TargetProvinceId;
             Army->OrderTurnsRemaining = Order.TurnsRemaining;
-            Army->MovementState = Order.OrderType;
+            Army->MovementTurnsRemaining = Order.TurnsRemaining;
+            Army->DestinationProvinceId = Order.TargetProvinceId;
+            Army->MovementState = Order.TurnsRemaining > 0 ? FString::Printf(TEXT("En route: %s"), *Order.OrderType) : Order.OrderType;
             if (Order.TurnsRemaining > 0)
             {
-                Order.StatusSummary = FString::Printf(TEXT("%s order has %d turn(s) remaining."), *Order.OrderType, Order.TurnsRemaining);
+                Order.StatusSummary = FString::Printf(TEXT("Route preview: %s from %s to %s, %d/%d turn(s) remaining."), *Order.OrderType, *Order.SourceProvinceId, *Order.TargetProvinceId, Order.TurnsRemaining, Order.TotalTurns);
+                AddRtsHudAlert(State.RtsWorld, Order.StatusSummary);
                 continue;
             }
 
@@ -2084,6 +2197,47 @@ namespace
                     Order.StatusSummary = Battle.Summary;
                 }
             }
+        }
+
+        for (FDemocracyRtsArmyGroupState& Army : State.RtsWorld.ArmyGroups)
+        {
+            if (Army.CurrentProvinceId.IsEmpty() || Army.MovementTurnsRemaining > 0)
+            {
+                continue;
+            }
+
+            const FDemocracyProvinceOwnershipState* CurrentProvince = FindRtsProvinceById(State, Army.CurrentProvinceId);
+            if (!CurrentProvince || CurrentProvince->CurrentControllerCountryName.Equals(State.PlayerCountry.CountryName, ESearchCase::IgnoreCase))
+            {
+                continue;
+            }
+
+            bool bAlreadyQueuedForThisContact = false;
+            for (const FDemocracyRtsOutcomeState& Outcome : State.RtsWorld.Backflow.PendingOutcomes)
+            {
+                if (Outcome.AffectedProvinceId.Equals(CurrentProvince->ProvinceId, ESearchCase::IgnoreCase) && Outcome.Summary.Contains(Army.ArmyId))
+                {
+                    bAlreadyQueuedForThisContact = true;
+                    break;
+                }
+            }
+            if (bAlreadyQueuedForThisContact)
+            {
+                continue;
+            }
+
+            FDemocracyRtsBattleResolutionState Battle = ResolveDeterministicRtsBattle(State, Army, *CurrentProvince, Army.ActiveOrderType.IsEmpty() ? TEXT("Move") : Army.ActiveOrderType);
+            Battle.BattleId = FString::Printf(TEXT("BATTLE-CONTACT-%d-%s"), State.Turn, *Army.ArmyId);
+            Battle.Summary = FString::Printf(TEXT("Automatic hostile contact: %s. %s"), *Army.ArmyId, *Battle.Summary);
+            State.RtsWorld.BattleHistory.Add(Battle);
+            if (State.RtsWorld.BattleHistory.Num() > 20)
+            {
+                State.RtsWorld.BattleHistory.RemoveAt(0, State.RtsWorld.BattleHistory.Num() - 20);
+            }
+            QueueRtsOutcomeImport(State, MakeRtsOutcomeFromBattle(State, Battle));
+            Army.MovementState = Battle.Result;
+            Army.Morale = FMath::Clamp(Army.Morale + (Battle.Result.Equals(TEXT("Province Captured"), ESearchCase::IgnoreCase) ? 3 : -4), 0, 100);
+            AddRtsHudAlert(State.RtsWorld, FString::Printf(TEXT("Battle triggered in %s: %s"), *CurrentProvince->ProvinceName, *Battle.Result));
         }
     }
 
@@ -6968,18 +7122,288 @@ FString ALoginHUD::BuildRtsOfficeAlertText() const
     return FString::Join(Lines, TEXT("\n"));
 }
 
+FReply ALoginHUD::HandleSelectRtsBuildingSlot(int32 SlotIndex)
+{
+    if (!bHasLoadedRuntimeState)
+    {
+        return FReply::Handled();
+    }
+
+    FDemocracyRtsWorldState& RtsWorld = LoadedSaveState.RuntimeState.RtsWorld;
+    const FDemocracyRtsBuildingState* Building = RtsWorld.CityBase.Buildings.IsValidIndex(SlotIndex) ? &RtsWorld.CityBase.Buildings[SlotIndex] : nullptr;
+    RtsWorld.WorldInteraction.ActiveSelectionType = Building ? TEXT("City Building") : TEXT("Empty Building Slot");
+    RtsWorld.WorldInteraction.ActiveSelectionId = Building ? Building->BuildingId : FString::Printf(TEXT("empty_slot_%02d"), SlotIndex + 1);
+    RtsWorld.WorldInteraction.LastInteractionSummary = Building
+        ? FString::Printf(TEXT("Selected %s: L%d | %s | output %+d | %s."), *Building->DisplayName, Building->Level, *Building->Status, Building->ProductionPerTick, *BuildRtsCostText(Building->UpgradeCost, 0, FMath::Max(0, Building->UpgradeCost / 10), FMath::Max(0, Building->UpgradeCost / 5), FMath::Max(0, Building->UpgradeCost / 6)))
+        : FString::Printf(TEXT("Selected empty city/base slot %02d. Suggested focus: %s."), SlotIndex + 1, *GetRtsSlotResourceFocus(SlotIndex));
+    RefreshRtsHudState(LoadedSaveState.RuntimeState);
+    RefreshLoginWidget();
+    return FReply::Handled();
+}
+
+FReply ALoginHUD::HandleQueueRtsBuildSlot(int32 SlotIndex, FString ResourceFocus)
+{
+    if (!bHasLoadedRuntimeState)
+    {
+        return FReply::Handled();
+    }
+
+    FDemocracySimulationState& State = LoadedSaveState.RuntimeState;
+    FDemocracyRtsCityBaseState& Base = State.RtsWorld.CityBase;
+    if (Base.Buildings.IsValidIndex(SlotIndex) && Base.Buildings[SlotIndex].bConstructed)
+    {
+        Base.RuntimeNotes.Add(FString::Printf(TEXT("Slot %02d already has %s. Use upgrade instead."), SlotIndex + 1, *Base.Buildings[SlotIndex].DisplayName));
+        RefreshLoginWidget();
+        return FReply::Handled();
+    }
+
+    FDemocracyRtsBuildingState Building = Base.Buildings.IsValidIndex(SlotIndex) ? Base.Buildings[SlotIndex] : MakeRtsPlaceholderBuildingForSlot(SlotIndex, ResourceFocus);
+    if (HasActiveRtsConstructionQueue(Base, Building.BuildingId))
+    {
+        Base.RuntimeNotes.Add(FString::Printf(TEXT("%s already has an active queue item."), *Building.DisplayName));
+        RefreshLoginWidget();
+        return FReply::Handled();
+    }
+
+    const int32 TreasuryCost = Building.BuildCost;
+    const int32 FoodCost = ResourceFocus.Equals(TEXT("Food"), ESearchCase::IgnoreCase) ? 8 : 0;
+    const int32 FuelCost = ResourceFocus.Equals(TEXT("Fuel"), ESearchCase::IgnoreCase) || ResourceFocus.Equals(TEXT("Logistics"), ESearchCase::IgnoreCase) ? 8 : 4;
+    const int32 WoodCost = ResourceFocus.Equals(TEXT("Wood"), ESearchCase::IgnoreCase) ? 8 : 14;
+    const int32 MetalsCost = ResourceFocus.Equals(TEXT("Metals"), ESearchCase::IgnoreCase) || ResourceFocus.Equals(TEXT("Security"), ESearchCase::IgnoreCase) ? 12 : 8;
+    if (!CanPayRtsCost(State.PlayerCountry, TreasuryCost, FoodCost, FuelCost, WoodCost, MetalsCost))
+    {
+        Base.RuntimeNotes.Add(FString::Printf(TEXT("Cannot build %s: insufficient resources. %s."), *Building.DisplayName, *BuildRtsCostText(TreasuryCost, FoodCost, FuelCost, WoodCost, MetalsCost)));
+        RefreshLoginWidget();
+        return FReply::Handled();
+    }
+
+    ApplyRtsCost(State.PlayerCountry, TreasuryCost, FoodCost, FuelCost, WoodCost, MetalsCost);
+    Building.bConstructed = false;
+    Building.Status = TEXT("Building");
+    if (Base.Buildings.IsValidIndex(SlotIndex))
+    {
+        Base.Buildings[SlotIndex] = Building;
+    }
+    else
+    {
+        while (Base.Buildings.Num() < SlotIndex)
+        {
+            Base.Buildings.Add(MakeRtsPlaceholderBuildingForSlot(Base.Buildings.Num(), GetRtsSlotResourceFocus(Base.Buildings.Num())));
+        }
+        Base.Buildings.Add(Building);
+    }
+
+    FDemocracyRtsConstructionQueueEntryState QueueEntry;
+    QueueEntry.QueueId = FString::Printf(TEXT("queue_build_%s_%d"), *Building.BuildingId, State.Turn);
+    QueueEntry.BuildingId = Building.BuildingId;
+    QueueEntry.DisplayName = FString::Printf(TEXT("Build %s"), *Building.DisplayName);
+    QueueEntry.QueueType = TEXT("Build");
+    QueueEntry.TargetLevel = 1;
+    QueueEntry.TotalTurns = FMath::Max(1, Building.BuildTimeTurns);
+    QueueEntry.TurnsRemaining = QueueEntry.TotalTurns;
+    QueueEntry.FoodCost = FoodCost;
+    QueueEntry.FuelCost = FuelCost;
+    QueueEntry.WoodCost = WoodCost;
+    QueueEntry.MetalsCost = MetalsCost;
+    QueueEntry.TreasuryCost = TreasuryCost;
+    QueueEntry.Prerequisites = Building.Prerequisites;
+    Base.ConstructionQueue.Add(QueueEntry);
+    RecountRtsCityBaseQueues(Base);
+    Base.RuntimeNotes.Add(FString::Printf(TEXT("Queued %s in slot %02d. %s. Completes in %d turn(s)."), *Building.DisplayName, SlotIndex + 1, *BuildRtsCostText(TreasuryCost, FoodCost, FuelCost, WoodCost, MetalsCost), QueueEntry.TotalTurns));
+    State.RtsWorld.WorldInteraction.ActiveSelectionType = TEXT("City Building Queue");
+    State.RtsWorld.WorldInteraction.ActiveSelectionId = Building.BuildingId;
+    State.RtsWorld.WorldInteraction.LastInteractionSummary = Base.RuntimeNotes.Last();
+    RefreshRtsHudState(State);
+    RefreshLoginWidget();
+    return FReply::Handled();
+}
+
+FReply ALoginHUD::HandleQueueRtsUpgrade(FString BuildingId)
+{
+    if (!bHasLoadedRuntimeState || BuildingId.IsEmpty())
+    {
+        return FReply::Handled();
+    }
+
+    FDemocracySimulationState& State = LoadedSaveState.RuntimeState;
+    FDemocracyRtsCityBaseState& Base = State.RtsWorld.CityBase;
+    FDemocracyRtsBuildingState* Building = nullptr;
+    for (FDemocracyRtsBuildingState& Candidate : Base.Buildings)
+    {
+        if (Candidate.BuildingId.Equals(BuildingId, ESearchCase::IgnoreCase))
+        {
+            Building = &Candidate;
+            break;
+        }
+    }
+    if (!Building || !Building->bConstructed || Building->bDisabled || HasActiveRtsConstructionQueue(Base, BuildingId))
+    {
+        Base.RuntimeNotes.Add(Building ? FString::Printf(TEXT("Cannot upgrade %s right now."), *Building->DisplayName) : TEXT("Cannot upgrade: building not found."));
+        RefreshLoginWidget();
+        return FReply::Handled();
+    }
+
+    const int32 TreasuryCost = Building->UpgradeCost;
+    const int32 FoodCost = 0;
+    const int32 FuelCost = FMath::Max(4, Building->UpgradeCost / 12);
+    const int32 WoodCost = FMath::Max(8, Building->UpgradeCost / 5);
+    const int32 MetalsCost = FMath::Max(8, Building->UpgradeCost / 6);
+    if (!CanPayRtsCost(State.PlayerCountry, TreasuryCost, FoodCost, FuelCost, WoodCost, MetalsCost))
+    {
+        Base.RuntimeNotes.Add(FString::Printf(TEXT("Cannot upgrade %s: insufficient resources. %s."), *Building->DisplayName, *BuildRtsCostText(TreasuryCost, FoodCost, FuelCost, WoodCost, MetalsCost)));
+        RefreshLoginWidget();
+        return FReply::Handled();
+    }
+
+    ApplyRtsCost(State.PlayerCountry, TreasuryCost, FoodCost, FuelCost, WoodCost, MetalsCost);
+    Building->bUpgradeQueued = true;
+    Building->Status = TEXT("Upgrade Queued");
+    FDemocracyRtsConstructionQueueEntryState QueueEntry;
+    QueueEntry.QueueId = FString::Printf(TEXT("queue_upgrade_%s_%d"), *Building->BuildingId, State.Turn);
+    QueueEntry.BuildingId = Building->BuildingId;
+    QueueEntry.DisplayName = FString::Printf(TEXT("Upgrade %s"), *Building->DisplayName);
+    QueueEntry.QueueType = TEXT("Upgrade");
+    QueueEntry.TargetLevel = Building->Level + 1;
+    QueueEntry.TotalTurns = FMath::Clamp(Building->BuildTimeTurns + Building->Level, 1, 6);
+    QueueEntry.TurnsRemaining = QueueEntry.TotalTurns;
+    QueueEntry.FoodCost = FoodCost;
+    QueueEntry.FuelCost = FuelCost;
+    QueueEntry.WoodCost = WoodCost;
+    QueueEntry.MetalsCost = MetalsCost;
+    QueueEntry.TreasuryCost = TreasuryCost;
+    QueueEntry.Prerequisites = Building->Prerequisites;
+    Base.ConstructionQueue.Add(QueueEntry);
+    RecountRtsCityBaseQueues(Base);
+    Base.RuntimeNotes.Add(FString::Printf(TEXT("Queued upgrade for %s to level %d. %s. Completes in %d turn(s)."), *Building->DisplayName, QueueEntry.TargetLevel, *BuildRtsCostText(TreasuryCost, FoodCost, FuelCost, WoodCost, MetalsCost), QueueEntry.TotalTurns));
+    State.RtsWorld.WorldInteraction.ActiveSelectionType = TEXT("City Upgrade Queue");
+    State.RtsWorld.WorldInteraction.ActiveSelectionId = Building->BuildingId;
+    State.RtsWorld.WorldInteraction.LastInteractionSummary = Base.RuntimeNotes.Last();
+    RefreshRtsHudState(State);
+    RefreshLoginWidget();
+    return FReply::Handled();
+}
+
+FReply ALoginHUD::HandleCancelRtsConstruction(FString QueueId)
+{
+    if (!bHasLoadedRuntimeState || QueueId.IsEmpty())
+    {
+        return FReply::Handled();
+    }
+
+    FDemocracySimulationState& State = LoadedSaveState.RuntimeState;
+    FDemocracyRtsCityBaseState& Base = State.RtsWorld.CityBase;
+    for (FDemocracyRtsConstructionQueueEntryState& QueueEntry : Base.ConstructionQueue)
+    {
+        if (!QueueEntry.QueueId.Equals(QueueId, ESearchCase::IgnoreCase) || QueueEntry.bCancelled || QueueEntry.bComplete || !QueueEntry.bCanCancel)
+        {
+            continue;
+        }
+
+        QueueEntry.bCancelled = true;
+        RefundRtsCost(State.PlayerCountry, QueueEntry);
+        for (FDemocracyRtsBuildingState& Building : Base.Buildings)
+        {
+            if (Building.BuildingId.Equals(QueueEntry.BuildingId, ESearchCase::IgnoreCase))
+            {
+                Building.bUpgradeQueued = false;
+                if (QueueEntry.QueueType.Equals(TEXT("Build"), ESearchCase::IgnoreCase) && !Building.bConstructed)
+                {
+                    Building.Status = TEXT("Cancelled Site");
+                    Building.CurrentHealth = 0;
+                }
+                else
+                {
+                    Building.Status = TEXT("Operational");
+                }
+                break;
+            }
+        }
+        RecountRtsCityBaseQueues(Base);
+        Base.RuntimeNotes.Add(FString::Printf(TEXT("Cancelled %s. Half of the unspent cost was refunded."), *QueueEntry.DisplayName));
+        State.RtsWorld.WorldInteraction.LastInteractionSummary = Base.RuntimeNotes.Last();
+        RefreshRtsHudState(State);
+        RefreshLoginWidget();
+        return FReply::Handled();
+    }
+
+    Base.RuntimeNotes.Add(FString::Printf(TEXT("Could not cancel queue item %s."), *QueueId));
+    RefreshLoginWidget();
+    return FReply::Handled();
+}
+TSharedRef<SWidget> ALoginHUD::BuildRtsResourceNodesWidget() const
+{
+    TSharedRef<SUniformGridPanel> NodeGrid = SNew(SUniformGridPanel).SlotPadding(FMargin(6.0f));
+    if (!bHasLoadedRuntimeState)
+    {
+        return NodeGrid;
+    }
+
+    const FDemocracyRtsWorldState& RtsWorld = LoadedSaveState.RuntimeState.RtsWorld;
+    const TArray<FString> NodeNames = { TEXT("Food"), TEXT("Fuel"), TEXT("Wood"), TEXT("Metals") };
+    for (int32 Index = 0; Index < NodeNames.Num(); ++Index)
+    {
+        const FString& ResourceName = NodeNames[Index];
+        int32 BuildingOutput = 0;
+        int32 ProvinceOutput = 0;
+        if (ResourceName.Equals(TEXT("Food"), ESearchCase::IgnoreCase)) { BuildingOutput = RtsWorld.ResourceCollection.FoodFromBuildings; ProvinceOutput = RtsWorld.ResourceCollection.FoodFromProvinces; }
+        else if (ResourceName.Equals(TEXT("Fuel"), ESearchCase::IgnoreCase)) { BuildingOutput = RtsWorld.ResourceCollection.FuelFromBuildings; ProvinceOutput = RtsWorld.ResourceCollection.FuelFromProvinces; }
+        else if (ResourceName.Equals(TEXT("Wood"), ESearchCase::IgnoreCase)) { BuildingOutput = RtsWorld.ResourceCollection.WoodFromBuildings; ProvinceOutput = RtsWorld.ResourceCollection.WoodFromProvinces; }
+        else { BuildingOutput = RtsWorld.ResourceCollection.MetalsFromBuildings; ProvinceOutput = RtsWorld.ResourceCollection.MetalsFromProvinces; }
+
+        int32 NodeCount = 0;
+        for (const FDemocracyProvinceOwnershipState& Province : RtsWorld.Ownership.Provinces)
+        {
+            if (Province.bPlayerControlled && Province.ResourceFocus.Equals(ResourceName, ESearchCase::IgnoreCase))
+            {
+                ++NodeCount;
+            }
+        }
+
+        const FString NodeText = FString::Printf(TEXT("%s Node\nOwned zones %d\nBuildings %+d | provinces %+d\nSupply link: %s"),
+            *ResourceName,
+            NodeCount,
+            BuildingOutput,
+            ProvinceOutput,
+            RtsWorld.SupplyRoutes.Num() > 0 ? TEXT("active") : TEXT("base-only"));
+        NodeGrid->AddSlot(Index, 0)
+        [
+            SNew(SBorder)
+            .BorderImage(RowBrush.Get())
+            .BorderBackgroundColor(FLinearColor(0.07f, 0.13f, 0.15f, 0.88f))
+            .Padding(8.0f)
+            [
+                SNew(SBox)
+                .WidthOverride(170.0f)
+                .HeightOverride(78.0f)
+                [
+                    SNew(STextBlock)
+                    .Text(BodyText(NodeText))
+                    .AutoWrapText(true)
+                    .Font(FCoreStyle::GetDefaultFontStyle("Regular", 10))
+                    .ColorAndOpacity(FLinearColor(0.86f, 0.96f, 1.0f, 1.0f))
+                ]
+            ]
+        ];
+    }
+    return NodeGrid;
+}
+
 TSharedRef<SWidget> ALoginHUD::BuildRtsCityBasePlaceholderWidget()
 {
-    const FDemocracyRtsWorldState& RtsWorld = LoadedSaveState.RuntimeState.RtsWorld;
-    const FDemocracyRtsCityBaseState& Base = RtsWorld.CityBase;
+    FDemocracyRtsWorldState& RtsWorld = LoadedSaveState.RuntimeState.RtsWorld;
+    FDemocracyRtsCityBaseState& Base = RtsWorld.CityBase;
+    RecountRtsCityBaseQueues(Base);
+
     TSharedRef<SUniformGridPanel> SlotGrid = SNew(SUniformGridPanel).SlotPadding(FMargin(6.0f));
     const int32 DisplaySlots = 12;
     for (int32 Index = 0; Index < DisplaySlots; ++Index)
     {
         const FDemocracyRtsBuildingState* Building = Base.Buildings.IsValidIndex(Index) ? &Base.Buildings[Index] : nullptr;
+        const FString SlotFocus = Building ? Building->ResourceFocus : GetRtsSlotResourceFocus(Index);
+        const bool bHasActiveQueue = Building && HasActiveRtsConstructionQueue(Base, Building->BuildingId);
         const FString SlotLabel = Building
-            ? FString::Printf(TEXT("%s\nL%d | %s\nOutput %+d | HP %d/%d"), *Building->DisplayName, Building->Level, *Building->Status, Building->ProductionPerTick, Building->CurrentHealth, Building->MaxHealth)
-            : FString::Printf(TEXT("Empty Slot %02d\nFuture building placement"), Index + 1);
+            ? FString::Printf(TEXT("%s\nL%d | %s | %s\nOutput %+d | cost %d | upg %d\nBuild time %d turn(s) | HP %d/%d"), *Building->DisplayName, Building->Level, *Building->ResourceFocus, *Building->Status, Building->ProductionPerTick, Building->BuildCost, Building->UpgradeCost, Building->BuildTimeTurns, Building->CurrentHealth, Building->MaxHealth)
+            : FString::Printf(TEXT("Empty Slot %02d\nFocus: %s\nBuilds %s\nCost and timer shown before queue."), Index + 1, *SlotFocus, *GetRtsResourceBuildingName(SlotFocus));
         const bool bDisabled = Building && (Building->bDisabled || Building->DamagePercent >= 75);
         const FLinearColor SlotColor = !Building ? FLinearColor(0.08f, 0.10f, 0.11f, 0.78f) : (bDisabled ? FLinearColor(0.36f, 0.08f, 0.07f, 0.88f) : FLinearColor(0.08f, 0.18f, 0.14f, 0.88f));
         SlotGrid->AddSlot(Index % 4, Index / 4)
@@ -6987,19 +7411,66 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsCityBasePlaceholderWidget()
             SNew(SBorder)
             .BorderImage(RowBrush.Get())
             .BorderBackgroundColor(SlotColor)
-            .Padding(10.0f)
+            .Padding(8.0f)
             [
                 SNew(SBox)
-                .WidthOverride(185.0f)
-                .HeightOverride(92.0f)
+                .WidthOverride(205.0f)
+                .HeightOverride(144.0f)
                 [
-                    SNew(STextBlock)
-                    .Text(BodyText(SlotLabel))
-                    .AutoWrapText(true)
-                    .Font(FCoreStyle::GetDefaultFontStyle("Regular", 10))
-                    .ColorAndOpacity(FLinearColor::White)
+                    SNew(SVerticalBox)
+                    + SVerticalBox::Slot().FillHeight(1.0f)
+                    [
+                        SNew(STextBlock)
+                        .Text(BodyText(SlotLabel))
+                        .AutoWrapText(true)
+                        .Font(FCoreStyle::GetDefaultFontStyle("Regular", 10))
+                        .ColorAndOpacity(FLinearColor::White)
+                    ]
+                    + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 6.0f, 0.0f, 0.0f)
+                    [
+                        SNew(SHorizontalBox)
+                        + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 4.0f, 0.0f)
+                        [BuildButton(TEXT("Select"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleSelectRtsBuildingSlot, Index), 62.0f, 28.0f)]
+                        + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 4.0f, 0.0f)
+                        [Building && Building->bConstructed ? BuildButton(TEXT("Upgrade"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleQueueRtsUpgrade, Building->BuildingId), 78.0f, 28.0f, !bHasActiveQueue && !Building->bDisabled) : BuildButton(TEXT("Build"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleQueueRtsBuildSlot, Index, SlotFocus), 66.0f, 28.0f, !bHasActiveQueue)]
+                    ]
                 ]
             ]
+        ];
+    }
+
+    TSharedRef<SVerticalBox> QueueList = SNew(SVerticalBox);
+    int32 DisplayedQueueRows = 0;
+    for (const FDemocracyRtsConstructionQueueEntryState& QueueEntry : Base.ConstructionQueue)
+    {
+        if (QueueEntry.bCancelled || QueueEntry.bComplete)
+        {
+            continue;
+        }
+        ++DisplayedQueueRows;
+        QueueList->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 5.0f)
+        [
+            SNew(SHorizontalBox)
+            + SHorizontalBox::Slot().FillWidth(1.0f)
+            [
+                SNew(STextBlock)
+                .Text(BodyText(FString::Printf(TEXT("%s | %s -> L%d | %d/%d turns | %s"), *QueueEntry.QueueType, *QueueEntry.DisplayName, QueueEntry.TargetLevel, QueueEntry.TurnsRemaining, QueueEntry.TotalTurns, *BuildRtsCostText(QueueEntry.TreasuryCost, QueueEntry.FoodCost, QueueEntry.FuelCost, QueueEntry.WoodCost, QueueEntry.MetalsCost))))
+                .AutoWrapText(true)
+                .Font(FCoreStyle::GetDefaultFontStyle("Regular", 10))
+                .ColorAndOpacity(FLinearColor(0.93f, 0.95f, 0.88f, 1.0f))
+            ]
+            + SHorizontalBox::Slot().AutoWidth().Padding(8.0f, 0.0f, 0.0f, 0.0f)
+            [BuildButton(TEXT("Cancel"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleCancelRtsConstruction, QueueEntry.QueueId), 78.0f, 28.0f, QueueEntry.bCanCancel)]
+        ];
+    }
+    if (DisplayedQueueRows == 0)
+    {
+        QueueList->AddSlot().AutoHeight()
+        [
+            SNew(STextBlock)
+            .Text(BodyText(TEXT("No active construction or upgrade queue.")))
+            .Font(FCoreStyle::GetDefaultFontStyle("Regular", 10))
+            .ColorAndOpacity(FLinearColor(0.78f, 0.86f, 0.82f, 1.0f))
         ];
     }
 
@@ -7015,7 +7486,7 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsCityBasePlaceholderWidget()
                 + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 14.0f)
                 [
                     SNew(STextBlock)
-                    .Text(BodyText(FString::Printf(TEXT("%s - City/Base Placeholder"), *Base.DisplayName)))
+                    .Text(BodyText(FString::Printf(TEXT("%s - City/Base Control"), *Base.DisplayName)))
                     .Font(FCoreStyle::GetDefaultFontStyle("Bold", 22))
                     .ColorAndOpacity(FLinearColor::White)
                 ]
@@ -7026,6 +7497,16 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsCityBasePlaceholderWidget()
                     .AutoWrapText(true)
                     .Font(FCoreStyle::GetDefaultFontStyle("Regular", 12))
                     .ColorAndOpacity(FLinearColor(0.85f, 0.94f, 0.88f, 1.0f))
+                ]
+                + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 12.0f)
+                [BuildRtsResourceNodesWidget()]
+                + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 12.0f)
+                [
+                    SNew(SBorder)
+                    .BorderImage(RowBrush.Get())
+                    .BorderBackgroundColor(FLinearColor(0.08f, 0.10f, 0.12f, 0.78f))
+                    .Padding(10.0f)
+                    [QueueList]
                 ]
                 + SVerticalBox::Slot().FillHeight(1.0f)
                 [SlotGrid]
@@ -7040,6 +7521,7 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsCityBasePlaceholderWidget()
             [BuildButton(TEXT("Return To Office"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleCloseOfficeOverlayClicked), 172.0f, 36.0f)]
         ];
 }
+
 TSharedRef<SWidget> ALoginHUD::BuildRtsArmyMarkersWidget(float MapWidth, float MapHeight)
 {
     TSharedRef<SOverlay> MarkerOverlay = SNew(SOverlay);
@@ -9156,6 +9638,7 @@ void ALoginHUD::RunSimulationTick()
             {
                 QueueEntry.bComplete = true;
                 ++CompletedConstructionCount;
+                bool bUpdatedExistingBuilding = false;
                 for (FDemocracyRtsBuildingState& Building : State.RtsWorld.CityBase.Buildings)
                 {
                     if (Building.BuildingId.Equals(QueueEntry.BuildingId, ESearchCase::IgnoreCase))
@@ -9167,8 +9650,21 @@ void ALoginHUD::RunSimulationTick()
                         Building.MaxHealth += QueueEntry.QueueType.Equals(TEXT("Upgrade"), ESearchCase::IgnoreCase) ? 25 : 0;
                         Building.CurrentHealth = Building.MaxHealth;
                         Building.Status = TEXT("Operational");
+                        bUpdatedExistingBuilding = true;
                         break;
                     }
+                }
+                if (!bUpdatedExistingBuilding && QueueEntry.QueueType.Equals(TEXT("Build"), ESearchCase::IgnoreCase))
+                {
+                    FDemocracyRtsBuildingState NewBuilding = MakeRtsPlaceholderBuildingForSlot(State.RtsWorld.CityBase.Buildings.Num(), TEXT("Supply"));
+                    NewBuilding.BuildingId = QueueEntry.BuildingId;
+                    NewBuilding.DisplayName = QueueEntry.DisplayName.Replace(TEXT("Build "), TEXT(""));
+                    NewBuilding.Level = FMath::Max(1, QueueEntry.TargetLevel);
+                    NewBuilding.bConstructed = true;
+                    NewBuilding.Status = TEXT("Operational");
+                    NewBuilding.MaxHealth = 125;
+                    NewBuilding.CurrentHealth = NewBuilding.MaxHealth;
+                    State.RtsWorld.CityBase.Buildings.Add(NewBuilding);
                 }
             }
             else if (QueueEntry.QueueType.Equals(TEXT("Upgrade"), ESearchCase::IgnoreCase))
