@@ -15,7 +15,8 @@ public class Democracy : ModuleRules
             "Slate",
             "SlateCore",
             "UMG",
-            "Json"
+            "Json",
+            "ImageWrapper"
         });
     }
 }

@@ -11,6 +11,8 @@
 #include "OfficeLevelBuilder.h"
 #include "GameFramework/PlayerController.h"
 #include "HAL/FileManager.h"
+#include "IImageWrapper.h"
+#include "IImageWrapperModule.h"
 #include "Misc/Guid.h"
 #include "Misc/FileHelper.h"
 #include "Dom/JsonObject.h"
@@ -19,6 +21,7 @@
 #include "HAL/PlatformFilemanager.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Misc/Paths.h"
+#include "Modules/ModuleManager.h"
 #include "SlateOptMacros.h"
 #include "TimerManager.h"
 #include "Blueprint/UserWidget.h"
@@ -143,6 +146,88 @@ namespace
         TArray<FVector2D> Footprint;
     };
 
+
+    struct FDuliaCountryIdMask
+    {
+        bool bLoadAttempted = false;
+        bool bLoaded = false;
+        int32 Width = 0;
+        int32 Height = 0;
+        TArray<int32> CountryIds;
+    };
+
+    FDuliaCountryIdMask& GetMutableDuliaCountryIdMask()
+    {
+        static FDuliaCountryIdMask Mask;
+        if (Mask.bLoadAttempted)
+        {
+            return Mask;
+        }
+
+        Mask.bLoadAttempted = true;
+        const FString MaskPath = FPaths::ProjectContentDir() / TEXT("World/Dulia/Generated/Dulia_Country_Id_Map.png");
+        TArray<uint8> CompressedData;
+        if (!FFileHelper::LoadFileToArray(CompressedData, *MaskPath))
+        {
+            UE_LOG(LogTemp, Warning, TEXT("RTS map selection could not load Dulia country ID mask: %s"), *MaskPath);
+            return Mask;
+        }
+
+        IImageWrapperModule& ImageWrapperModule = FModuleManager::LoadModuleChecked<IImageWrapperModule>(TEXT("ImageWrapper"));
+        const TSharedPtr<IImageWrapper> ImageWrapper = ImageWrapperModule.CreateImageWrapper(EImageFormat::PNG);
+        if (!ImageWrapper.IsValid() || !ImageWrapper->SetCompressed(CompressedData.GetData(), CompressedData.Num()))
+        {
+            UE_LOG(LogTemp, Warning, TEXT("RTS map selection could not decode Dulia country ID mask: %s"), *MaskPath);
+            return Mask;
+        }
+
+        TArray64<uint8> RawPixels;
+        if (!ImageWrapper->GetRaw(ERGBFormat::RGBA, 8, RawPixels))
+        {
+            UE_LOG(LogTemp, Warning, TEXT("RTS map selection could not read Dulia country ID mask pixels: %s"), *MaskPath);
+            return Mask;
+        }
+
+        Mask.Width = ImageWrapper->GetWidth();
+        Mask.Height = ImageWrapper->GetHeight();
+        const int64 ExpectedBytes = static_cast<int64>(Mask.Width) * static_cast<int64>(Mask.Height) * 4;
+        if (Mask.Width <= 0 || Mask.Height <= 0 || RawPixels.Num() < ExpectedBytes)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("RTS map selection got invalid Dulia ID mask dimensions %dx%d from %s"), Mask.Width, Mask.Height, *MaskPath);
+            return Mask;
+        }
+
+        Mask.CountryIds.SetNumZeroed(Mask.Width * Mask.Height);
+        for (int32 PixelIndex = 0; PixelIndex < Mask.CountryIds.Num(); ++PixelIndex)
+        {
+            const int64 RawIndex = static_cast<int64>(PixelIndex) * 4;
+            const int32 Red = RawPixels[RawIndex];
+            const int32 Green = RawPixels[RawIndex + 1];
+            Mask.CountryIds[PixelIndex] = Red + Green * 256;
+        }
+
+        Mask.bLoaded = true;
+        UE_LOG(LogTemp, Log, TEXT("RTS map selection loaded exact Dulia country ID mask: %dx%d, %d pixels."), Mask.Width, Mask.Height, Mask.CountryIds.Num());
+        return Mask;
+    }
+
+    int32 SampleDuliaCountryIdAtMapPoint(const FVector2D& MapPoint)
+    {
+        FDuliaCountryIdMask& Mask = GetMutableDuliaCountryIdMask();
+        if (!Mask.bLoaded || Mask.Width <= 0 || Mask.Height <= 0)
+        {
+            return 0;
+        }
+
+        const int32 X = FMath::FloorToInt(MapPoint.X);
+        const int32 Y = FMath::FloorToInt(MapPoint.Y);
+        if (X < 0 || Y < 0 || X >= Mask.Width || Y >= Mask.Height)
+        {
+            return 0;
+        }
+
+        return Mask.CountryIds[Y * Mask.Width + X];
+    }
     bool DuliaPointInPolygon(const FVector2D& Point, const TArray<FVector2D>& Polygon)
     {
         if (Polygon.Num() < 3)
@@ -8608,54 +8693,29 @@ void ALoginHUD::SelectRtsMapAtViewportPosition(const FGeometry& Geometry, const 
         return;
     }
 
-    const TArray<FDuliaCountryMapPoint>& Points = GetDuliaCountryMapPoints();
+    const int32 SelectedCountryIndex = SampleDuliaCountryIdAtMapPoint(MapPoint);
     const FDemocracyCountryOwnershipState* BestCountry = nullptr;
-    float BestDistanceSquared = TNumericLimits<float>::Max();
-    bool bMatchedFootprint = false;
-
-    for (const FDemocracyCountryOwnershipState& Country : State.RtsWorld.Ownership.Countries)
+    if (SelectedCountryIndex > 0)
     {
-        const FDuliaCountryMapPoint* Point = nullptr;
-        for (const FDuliaCountryMapPoint& CandidatePoint : Points)
+        for (const FDemocracyCountryOwnershipState& Country : State.RtsWorld.Ownership.Countries)
         {
-            if (CandidatePoint.CountryIndex == Country.MapCountryIndex)
+            if (Country.MapCountryIndex == SelectedCountryIndex)
             {
-                Point = &CandidatePoint;
+                BestCountry = &Country;
                 break;
             }
         }
-        if (!Point)
-        {
-            continue;
-        }
-
-        const float DistanceSquared = FVector2D::DistSquared(MapPoint, Point->Centroid);
-        if (DuliaPointInPolygon(MapPoint, Point->Footprint))
-        {
-            if (!bMatchedFootprint || DistanceSquared < BestDistanceSquared)
-            {
-                BestCountry = &Country;
-                BestDistanceSquared = DistanceSquared;
-                bMatchedFootprint = true;
-            }
-            continue;
-        }
-
-        if (!bMatchedFootprint && DistanceSquared < BestDistanceSquared)
-        {
-            BestCountry = &Country;
-            BestDistanceSquared = DistanceSquared;
-        }
     }
 
-    if (!BestCountry || (!bMatchedFootprint && BestDistanceSquared > FMath::Square(90.0f)))
+    if (!BestCountry)
     {
-        State.RtsWorld.WorldInteraction.LastInteractionSummary = TEXT("Clicked ocean or empty map space. No country/province footprint selected.");
+        State.RtsWorld.WorldInteraction.LastInteractionSummary = SelectedCountryIndex > 0
+            ? FString::Printf(TEXT("Clicked Dulia country id %03d, but no runtime country ownership record matched it."), SelectedCountryIndex)
+            : TEXT("Clicked ocean or empty map space. No country/province footprint selected.");
         RefreshRtsHudState(State);
         RefreshLoginWidget();
         return;
     }
-
     const FString TargetProvinceId = BestCountry->ProvinceIds.Num() > 0 ? BestCountry->ProvinceIds[0] : TEXT("");
     if (!PendingRtsOrderType.IsEmpty() && !RtsSelectedArmyId.IsEmpty() && !TargetProvinceId.IsEmpty())
     {
