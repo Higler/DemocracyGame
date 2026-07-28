@@ -46,6 +46,9 @@ Explanation: Raises unrest and internal failure pressure to test advisor warning
 Administrator Tool: Force Takeover Risk
 Explanation: Raises foreign takeover/invasion pressure while lowering readiness and diplomacy to test invasion warnings and fail-state validation.
 
+Administrator Tool: RTS Save/Load Test
+Explanation: Runs an RTS playtest that issues a movement order, advances battle/capture logic, saves, reloads, and verifies armies, orders, battles, province control, construction queues, fog, and backflow persisted.
+
 Administrator Tool: Test Game Over
 Explanation: Forces critical instability and assassination/collapse conditions to verify the game-over screen and protected reload behavior.
 

@@ -287,6 +287,7 @@ private:
     FReply HandleFasterSimulationClicked();
     FReply HandleSaveRuntimeStateClicked();
     FReply HandleRunAutosaveRecoveryTestClicked();
+    FReply HandleRunRtsSaveLoadPlaytestClicked();
     FReply HandleDebugAddResourcesClicked();
     FReply HandleDebugTriggerEventClicked();
     FReply HandleDebugForceUnrestClicked();

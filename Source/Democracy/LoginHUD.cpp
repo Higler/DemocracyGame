@@ -6420,6 +6420,8 @@ TSharedRef<SWidget> ALoginHUD::BuildOfficeComputerMenuScreen()
                 [BuildButton(TEXT("Force Unrest"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleDebugForceUnrestClicked), 150.0f, 38.0f, bHasLoadedRuntimeState)]
                 + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 8.0f, 0.0f)
                 [BuildButton(TEXT("Force Takeover Risk"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleDebugForceInvasionRiskClicked), 190.0f, 38.0f, bHasLoadedRuntimeState)]
+                + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 8.0f, 0.0f)
+                [BuildButton(TEXT("RTS Save/Load Test"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleRunRtsSaveLoadPlaytestClicked), 190.0f, 38.0f, bHasLoadedRuntimeState && !LoadedSavePath.IsEmpty())]
                 + SHorizontalBox::Slot().AutoWidth()
                 [BuildButton(TEXT("Test Game Over"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleDebugTestGameOverClicked), 170.0f, 38.0f, bHasLoadedRuntimeState)]
             ];
@@ -12149,6 +12151,184 @@ FReply ALoginHUD::HandleDebugTestGameOverClicked()
     {
         RefreshLoginWidget();
     }
+    return FReply::Handled();
+}
+FReply ALoginHUD::HandleRunRtsSaveLoadPlaytestClicked()
+{
+    if (!HasAdministratorDebugAccess())
+    {
+        LastSaveStatus = TEXT("Debug tool denied: RTS save/load playtest requires Administrator role in single-player.");
+        RefreshLoginWidget();
+        return FReply::Handled();
+    }
+    if (!bHasLoadedRuntimeState || LoadedSavePath.IsEmpty())
+    {
+        LastSaveStatus = TEXT("RTS save/load playtest unavailable: load a single-player save first.");
+        RefreshLoginWidget();
+        return FReply::Handled();
+    }
+
+    FDemocracySimulationState& State = LoadedSaveState.RuntimeState;
+    InitializeRuntimeMapOwnershipIfMissing(State);
+    RefreshRtsFogOfWar(State);
+    RefreshRtsHudState(State);
+
+    if (State.RtsWorld.ArmyGroups.Num() == 0 || State.RtsWorld.Ownership.Provinces.Num() == 0)
+    {
+        LastSaveStatus = TEXT("RTS save/load playtest failed: RTS armies or province ownership data are missing.");
+        RefreshLoginWidget();
+        return FReply::Handled();
+    }
+
+    FDemocracyRtsArmyGroupState& TestArmy = State.RtsWorld.ArmyGroups[0];
+    if (TestArmy.CurrentProvinceId.IsEmpty())
+    {
+        TestArmy.CurrentProvinceId = State.RtsWorld.CityBase.LinkedProvinceId;
+    }
+    TestArmy.TotalStrength = FMath::Max(TestArmy.TotalStrength, 260);
+    TestArmy.InfantryCount = FMath::Max(TestArmy.InfantryCount, 8);
+    TestArmy.VehicleCount = FMath::Max(TestArmy.VehicleCount, 4);
+    TestArmy.LogisticsCount = FMath::Max(TestArmy.LogisticsCount, 3);
+    TestArmy.SupplyStatus = 100;
+    TestArmy.Morale = 95;
+    TestArmy.bSupplyRouteBroken = false;
+    TestArmy.bSelected = true;
+
+    const FString PlayerCountryName = State.PlayerCountry.CountryName;
+    FString TargetProvinceId;
+    FString TargetProvinceName;
+    for (const FDemocracyProvinceOwnershipState& Province : State.RtsWorld.Ownership.Provinces)
+    {
+        if (!Province.CurrentControllerCountryName.Equals(PlayerCountryName, ESearchCase::IgnoreCase) && !Province.ProvinceId.Equals(TestArmy.CurrentProvinceId, ESearchCase::IgnoreCase))
+        {
+            TargetProvinceId = Province.ProvinceId;
+            TargetProvinceName = Province.ProvinceName;
+            break;
+        }
+    }
+    if (TargetProvinceId.IsEmpty())
+    {
+        LastSaveStatus = TEXT("RTS save/load playtest failed: no hostile province is available to attack.");
+        RefreshLoginWidget();
+        return FReply::Handled();
+    }
+
+    const int32 StartingTurn = State.Turn;
+    const int32 StartingBattleCount = State.RtsWorld.BattleHistory.Num();
+    const int32 StartingOutcomeHistoryCount = State.RtsWorld.Backflow.OutcomeHistory.Num();
+    const int32 StartingControlledCount = State.RtsWorld.Ownership.PlayerControlledProvinces;
+
+    RtsSelectedArmyId = TestArmy.ArmyId;
+    PendingRtsOrderType = TEXT("Move");
+    if (!TryIssueRtsOrderToProvince(TargetProvinceId))
+    {
+        LastSaveStatus = FString::Printf(TEXT("RTS save/load playtest failed: could not issue move order to %s."), *TargetProvinceId);
+        RefreshLoginWidget();
+        return FReply::Handled();
+    }
+
+    for (int32 TickIndex = 0; TickIndex < 10; ++TickIndex)
+    {
+        ++State.Turn;
+        State.RtsWorld.SimulationSecond += 5;
+        TickRtsMovementOrdersAndSupply(State, true);
+        RefreshRtsFogOfWar(State);
+        RefreshRtsHudState(State);
+        ApplyPendingRtsBackflow(State);
+    }
+    ResolveRtsOccupationOwnershipTimers(State);
+    RefreshRtsFogOfWar(State);
+    RefreshRtsHudState(State);
+    RefreshWarConflictState(State);
+    RefreshSimulationToRtsContract(State);
+
+    FString ChangedProvinceId;
+    FString ChangedProvinceController;
+    FString ChangedProvinceOwner;
+    int32 ChangedProvinceTurn = 0;
+    for (const FDemocracyProvinceOwnershipState& Province : State.RtsWorld.Ownership.Provinces)
+    {
+        if (Province.LastChangedTurn >= StartingTurn && Province.CurrentControllerCountryName.Equals(PlayerCountryName, ESearchCase::IgnoreCase) && !Province.ProvinceId.Equals(TestArmy.CurrentProvinceId, ESearchCase::IgnoreCase))
+        {
+            ChangedProvinceId = Province.ProvinceId;
+            ChangedProvinceController = Province.CurrentControllerCountryName;
+            ChangedProvinceOwner = Province.CurrentOwnerCountryName;
+            ChangedProvinceTurn = Province.LastChangedTurn;
+            break;
+        }
+    }
+
+    const int32 ExpectedBattleCount = State.RtsWorld.BattleHistory.Num();
+    const int32 ExpectedOrderCount = State.RtsWorld.MovementOrders.Num();
+    const int32 ExpectedOutcomeHistoryCount = State.RtsWorld.Backflow.OutcomeHistory.Num();
+    const int32 ExpectedControlledCount = State.RtsWorld.Ownership.PlayerControlledProvinces;
+    const int32 ExpectedConstructionQueueCount = State.RtsWorld.CityBase.ConstructionQueue.Num();
+    const int32 ExpectedFogProvinceCount = State.RtsWorld.FogOfWar.Provinces.Num();
+    const FString ExpectedArmyProvince = State.RtsWorld.ArmyGroups[0].CurrentProvinceId;
+    const FString ExpectedLastBattleProvince = State.RtsWorld.BattleHistory.Num() > 0 ? State.RtsWorld.BattleHistory.Last().ProvinceId : TEXT("");
+    const FString ExpectedLastBattleResult = State.RtsWorld.BattleHistory.Num() > 0 ? State.RtsWorld.BattleHistory.Last().Result : TEXT("No Battle");
+
+    const bool bBattleRan = ExpectedBattleCount > StartingBattleCount;
+    const bool bBackflowRan = ExpectedOutcomeHistoryCount > StartingOutcomeHistoryCount;
+    const bool bCaptureRan = ExpectedControlledCount > StartingControlledCount || !ChangedProvinceId.IsEmpty();
+
+    FString SaveError;
+    if (!FDemocracySaveGameRuntime::SaveSinglePlayerRuntimeState(LoadedSaveState, SaveError))
+    {
+        LastSaveStatus = FString::Printf(TEXT("RTS save/load playtest failed during save: %s"), *SaveError);
+        RefreshLoginWidget();
+        return FReply::Handled();
+    }
+
+    FDemocracyLoadedSaveState ReloadedSave;
+    FString ReloadError;
+    if (!FDemocracySaveGameRuntime::LoadSinglePlayerSaveWithFallback(LoadedSavePath, ReloadedSave, ReloadError))
+    {
+        LastSaveStatus = FString::Printf(TEXT("RTS save/load playtest failed during reload: %s"), *ReloadError);
+        RefreshLoginWidget();
+        return FReply::Handled();
+    }
+
+    const FDemocracyRtsWorldState& ReloadedRts = ReloadedSave.RuntimeState.RtsWorld;
+    const bool bArmyPersisted = ReloadedRts.ArmyGroups.Num() > 0 && ReloadedRts.ArmyGroups[0].CurrentProvinceId.Equals(ExpectedArmyProvince, ESearchCase::IgnoreCase);
+    const bool bOrdersPersisted = ReloadedRts.MovementOrders.Num() == ExpectedOrderCount;
+    const bool bBattlesPersisted = ReloadedRts.BattleHistory.Num() == ExpectedBattleCount && (ExpectedLastBattleProvince.IsEmpty() || ReloadedRts.BattleHistory.Last().ProvinceId.Equals(ExpectedLastBattleProvince, ESearchCase::IgnoreCase));
+    const bool bBackflowPersisted = ReloadedRts.Backflow.OutcomeHistory.Num() == ExpectedOutcomeHistoryCount;
+    const bool bConstructionPersisted = ReloadedRts.CityBase.ConstructionQueue.Num() == ExpectedConstructionQueueCount;
+    const bool bFogPersisted = ReloadedRts.FogOfWar.Provinces.Num() == ExpectedFogProvinceCount;
+    bool bCapturePersisted = ChangedProvinceId.IsEmpty();
+    if (!ChangedProvinceId.IsEmpty())
+    {
+        for (const FDemocracyProvinceOwnershipState& Province : ReloadedRts.Ownership.Provinces)
+        {
+            if (Province.ProvinceId.Equals(ChangedProvinceId, ESearchCase::IgnoreCase))
+            {
+                bCapturePersisted = Province.CurrentControllerCountryName.Equals(ChangedProvinceController, ESearchCase::IgnoreCase)
+                    && Province.CurrentOwnerCountryName.Equals(ChangedProvinceOwner, ESearchCase::IgnoreCase)
+                    && Province.LastChangedTurn == ChangedProvinceTurn;
+                break;
+            }
+        }
+    }
+
+    const bool bPassed = bBattleRan && bBackflowRan && bCaptureRan && bArmyPersisted && bOrdersPersisted && bBattlesPersisted && bBackflowPersisted && bCapturePersisted && bConstructionPersisted && bFogPersisted;
+    LoadedSaveState = ReloadedSave;
+    LoadedSavePath = ReloadedSave.SavePath;
+    LoadedStateName = ReloadedSave.StateName;
+    LoadedSaveSummary = LoadedSaveState.ToSummaryText();
+    SimulationTickSummary = BuildSimulationStatusText();
+    bHasLoadedRuntimeState = true;
+
+    TArray<FString> ReportLines;
+    ReportLines.Add(bPassed ? TEXT("RTS save/load playtest passed.") : TEXT("RTS save/load playtest found an issue."));
+    ReportLines.Add(FString::Printf(TEXT("Order: %s -> %s | battle result %s | target battle province %s."), *RtsSelectedArmyId, *TargetProvinceName, *ExpectedLastBattleResult, *ExpectedLastBattleProvince));
+    ReportLines.Add(FString::Printf(TEXT("Runtime changed: battles %d->%d, outcome history %d->%d, controlled provinces %d->%d, changed province %s controller %s owner %s."), StartingBattleCount, ExpectedBattleCount, StartingOutcomeHistoryCount, ExpectedOutcomeHistoryCount, StartingControlledCount, ExpectedControlledCount, ChangedProvinceId.IsEmpty() ? TEXT("none") : *ChangedProvinceId, *ChangedProvinceController, *ChangedProvinceOwner));
+    ReportLines.Add(FString::Printf(TEXT("Reload verified: army %s, orders %s, battles %s, capture %s, backflow %s, construction %s, fog %s."), bArmyPersisted ? TEXT("ok") : TEXT("failed"), bOrdersPersisted ? TEXT("ok") : TEXT("failed"), bBattlesPersisted ? TEXT("ok") : TEXT("failed"), bCapturePersisted ? TEXT("ok") : TEXT("failed"), bBackflowPersisted ? TEXT("ok") : TEXT("failed"), bConstructionPersisted ? TEXT("ok") : TEXT("failed"), bFogPersisted ? TEXT("ok") : TEXT("failed")));
+    LastSaveStatus = FString::Join(ReportLines, TEXT("\n"));
+    LoadedSaveState.RuntimeState.RtsWorld.WorldInteraction.LastInteractionSummary = LastSaveStatus;
+    LogDecision(LoadedSaveState.RuntimeState, TEXT("Debug Tool"), TEXT("RTS Save/Load Playtest"), TEXT("Administrator ran the RTS movement, battle, capture, save, reload persistence path."), LastSaveStatus, bPassed ? 1 : 70, { TEXT("debug"), TEXT("rts"), TEXT("save-load") });
+    UE_LOG(LogTemp, Log, TEXT("%s"), *LastSaveStatus);
+    RefreshLoginWidget();
     return FReply::Handled();
 }
 #endif

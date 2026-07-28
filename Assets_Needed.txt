@@ -36,3 +36,9 @@ Office interaction pass - 2026-07-21:
 - Globe is now placed as an office interactable and opens the placeholder World RTS Command overlay.
 - Computer now opens the office save/settings workstation overlay.
 - Door now moves the player into the newly created hallway beyond the office door.
+
+RTS Art Replacement Pass - 2026-07-28
+- Found and wired candidate FabLibrary references for RTS visuals: RTS Modern Combat Vehicle Pack Free, Vehicle Variety Pack Volume 2, Arctic Military Soldier, Middle Eastern Armed Fighter, Naval Tactical Soldier, Tactical Crowd AI Toolkit, MW Landscape Auto Material, Industry Props Pack 6, and Concrete Road Barrier.
+- Current implementation records these candidates in RTS scope/building/unit data so placeholders remain traceable until the assets are imported into Content and assigned to final meshes/materials/icons.
+- Still needed: final Planet Dulia multi-zoom map art/country masks, terrain tile set, city/base building meshes, soldier/tank/supply-carrier unit icons and LOD meshes, route/path VFX, fog/scouting overlays, occupation/capture markers, battle report art, and polished RTS HUD icons.
+- Art replacement rule: do not remove working RTS placeholder mechanics when swapping visuals; replace one asset class at a time and keep missing or deferred assets listed here.

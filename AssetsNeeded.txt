@@ -101,3 +101,9 @@ RTS Placeholder / Permanent Asset Needs
 - Permanent world-map tactical icons: known/scouted/hidden/contested province overlays, rally point, patrol route, supply route open/broken, battle marker, province captured/lost, capital threatened, resource disruption, and construction complete.
 - Multiplayer/server authority UI indicators: server-owned state badge, pending validation spinner, rejected command alert, reconciliation notice, and anti-cheat validation warning.
 - RTS HUD icon set: food, fuel, wood, metals, selected unit/building, build menu, army orders, minimap, alerts, return-to-office, casualties, war fatigue, budget strain, diplomacy damage, stability/unrest impact.
+
+RTS Art Replacement Pass - 2026-07-28
+- Found and wired candidate FabLibrary references for RTS visuals: RTS Modern Combat Vehicle Pack Free, Vehicle Variety Pack Volume 2, Arctic Military Soldier, Middle Eastern Armed Fighter, Naval Tactical Soldier, Tactical Crowd AI Toolkit, MW Landscape Auto Material, Industry Props Pack 6, and Concrete Road Barrier.
+- Current implementation records these candidates in RTS scope/building/unit data so placeholders remain traceable until the assets are imported into Content and assigned to final meshes/materials/icons.
+- Still needed: final Planet Dulia multi-zoom map art/country masks, terrain tile set, city/base building meshes, soldier/tank/supply-carrier unit icons and LOD meshes, route/path VFX, fog/scouting overlays, occupation/capture markers, battle report art, and polished RTS HUD icons.
+- Art replacement rule: do not remove working RTS placeholder mechanics when swapping visuals; replace one asset class at a time and keep missing or deferred assets listed here.
