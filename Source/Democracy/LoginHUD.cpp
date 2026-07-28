@@ -12715,6 +12715,7 @@ FReply ALoginHUD::HandleRunRtsSaveLoadPlaytestClicked()
     const int32 StartingTurn = State.Turn;
     const int32 StartingBattleCount = State.RtsWorld.BattleHistory.Num();
     const int32 StartingOutcomeHistoryCount = State.RtsWorld.Backflow.OutcomeHistory.Num();
+    const int32 StartingHudAlertCount = State.RtsWorld.Hud.Alerts.Num();
     const int32 StartingControlledCount = State.RtsWorld.Ownership.PlayerControlledProvinces;
 
     RtsSelectedArmyId = TestArmy.ArmyId;
@@ -12760,6 +12761,8 @@ FReply ALoginHUD::HandleRunRtsSaveLoadPlaytestClicked()
     const int32 ExpectedBattleCount = State.RtsWorld.BattleHistory.Num();
     const int32 ExpectedOrderCount = State.RtsWorld.MovementOrders.Num();
     const int32 ExpectedOutcomeHistoryCount = State.RtsWorld.Backflow.OutcomeHistory.Num();
+    const int32 ExpectedHudAlertCount = State.RtsWorld.Hud.Alerts.Num();
+    const FString ExpectedHudAlertSummary = State.RtsWorld.Hud.AlertSummary;
     const int32 ExpectedControlledCount = State.RtsWorld.Ownership.PlayerControlledProvinces;
     const int32 ExpectedConstructionQueueCount = State.RtsWorld.CityBase.ConstructionQueue.Num();
     const int32 ExpectedFogProvinceCount = State.RtsWorld.FogOfWar.Provinces.Num();
@@ -12769,6 +12772,7 @@ FReply ALoginHUD::HandleRunRtsSaveLoadPlaytestClicked()
 
     const bool bBattleRan = ExpectedBattleCount > StartingBattleCount;
     const bool bBackflowRan = ExpectedOutcomeHistoryCount > StartingOutcomeHistoryCount;
+    const bool bOfficeAlertsRan = ExpectedHudAlertCount > StartingHudAlertCount || !ExpectedHudAlertSummary.Equals(TEXT("No RTS alerts."), ESearchCase::IgnoreCase);
     const bool bCaptureRan = ExpectedControlledCount > StartingControlledCount || !ChangedProvinceId.IsEmpty();
 
     FString SaveError;
@@ -12793,6 +12797,7 @@ FReply ALoginHUD::HandleRunRtsSaveLoadPlaytestClicked()
     const bool bOrdersPersisted = ReloadedRts.MovementOrders.Num() == ExpectedOrderCount;
     const bool bBattlesPersisted = ReloadedRts.BattleHistory.Num() == ExpectedBattleCount && (ExpectedLastBattleProvince.IsEmpty() || ReloadedRts.BattleHistory.Last().ProvinceId.Equals(ExpectedLastBattleProvince, ESearchCase::IgnoreCase));
     const bool bBackflowPersisted = ReloadedRts.Backflow.OutcomeHistory.Num() == ExpectedOutcomeHistoryCount;
+    const bool bOfficeAlertsPersisted = ReloadedRts.Hud.Alerts.Num() == ExpectedHudAlertCount && ReloadedRts.Hud.AlertSummary.Equals(ExpectedHudAlertSummary, ESearchCase::IgnoreCase);
     const bool bConstructionPersisted = ReloadedRts.CityBase.ConstructionQueue.Num() == ExpectedConstructionQueueCount;
     const bool bFogPersisted = ReloadedRts.FogOfWar.Provinces.Num() == ExpectedFogProvinceCount;
     bool bCapturePersisted = ChangedProvinceId.IsEmpty();
@@ -12810,7 +12815,7 @@ FReply ALoginHUD::HandleRunRtsSaveLoadPlaytestClicked()
         }
     }
 
-    const bool bPassed = bBattleRan && bBackflowRan && bCaptureRan && bArmyPersisted && bOrdersPersisted && bBattlesPersisted && bBackflowPersisted && bCapturePersisted && bConstructionPersisted && bFogPersisted;
+    const bool bPassed = bBattleRan && bBackflowRan && bOfficeAlertsRan && bCaptureRan && bArmyPersisted && bOrdersPersisted && bBattlesPersisted && bBackflowPersisted && bOfficeAlertsPersisted && bCapturePersisted && bConstructionPersisted && bFogPersisted;
     LoadedSaveState = ReloadedSave;
     LoadedSavePath = ReloadedSave.SavePath;
     LoadedStateName = ReloadedSave.StateName;
@@ -12822,7 +12827,8 @@ FReply ALoginHUD::HandleRunRtsSaveLoadPlaytestClicked()
     ReportLines.Add(bPassed ? TEXT("RTS save/load playtest passed.") : TEXT("RTS save/load playtest found an issue."));
     ReportLines.Add(FString::Printf(TEXT("Order: %s -> %s | battle result %s | target battle province %s."), *RtsSelectedArmyId, *TargetProvinceName, *ExpectedLastBattleResult, *ExpectedLastBattleProvince));
     ReportLines.Add(FString::Printf(TEXT("Runtime changed: battles %d->%d, outcome history %d->%d, controlled provinces %d->%d, changed province %s controller %s owner %s."), StartingBattleCount, ExpectedBattleCount, StartingOutcomeHistoryCount, ExpectedOutcomeHistoryCount, StartingControlledCount, ExpectedControlledCount, ChangedProvinceId.IsEmpty() ? TEXT("none") : *ChangedProvinceId, *ChangedProvinceController, *ChangedProvinceOwner));
-    ReportLines.Add(FString::Printf(TEXT("Reload verified: army %s, orders %s, battles %s, capture %s, backflow %s, construction %s, fog %s."), bArmyPersisted ? TEXT("ok") : TEXT("failed"), bOrdersPersisted ? TEXT("ok") : TEXT("failed"), bBattlesPersisted ? TEXT("ok") : TEXT("failed"), bCapturePersisted ? TEXT("ok") : TEXT("failed"), bBackflowPersisted ? TEXT("ok") : TEXT("failed"), bConstructionPersisted ? TEXT("ok") : TEXT("failed"), bFogPersisted ? TEXT("ok") : TEXT("failed")));
+    ReportLines.Add(FString::Printf(TEXT("Reload verified: army %s, orders %s, battles %s, capture %s, backflow %s, office alerts %s, construction %s, fog %s."), bArmyPersisted ? TEXT("ok") : TEXT("failed"), bOrdersPersisted ? TEXT("ok") : TEXT("failed"), bBattlesPersisted ? TEXT("ok") : TEXT("failed"), bCapturePersisted ? TEXT("ok") : TEXT("failed"), bBackflowPersisted ? TEXT("ok") : TEXT("failed"), bOfficeAlertsPersisted ? TEXT("ok") : TEXT("failed"), bConstructionPersisted ? TEXT("ok") : TEXT("failed"), bFogPersisted ? TEXT("ok") : TEXT("failed")));
+    ReportLines.Add(FString::Printf(TEXT("Office alerts: %d->%d | generated %s | summary %s"), StartingHudAlertCount, ExpectedHudAlertCount, bOfficeAlertsRan ? TEXT("ok") : TEXT("failed"), ExpectedHudAlertSummary.IsEmpty() ? TEXT("none") : *ExpectedHudAlertSummary));
     LastSaveStatus = FString::Join(ReportLines, TEXT("\n"));
     LoadedSaveState.RuntimeState.RtsWorld.WorldInteraction.LastInteractionSummary = LastSaveStatus;
     LogDecision(LoadedSaveState.RuntimeState, TEXT("Debug Tool"), TEXT("RTS Save/Load Playtest"), TEXT("Administrator ran the RTS movement, battle, capture, save, reload persistence path."), LastSaveStatus, bPassed ? 1 : 70, { TEXT("debug"), TEXT("rts"), TEXT("save-load") });
