@@ -113,6 +113,8 @@ private:
     FString RtsSelectedProvinceId;
     FString RtsSelectedArmyId;
     FString PendingRtsOrderType;
+    FString PendingRtsOrderTargetProvinceId;
+    FString PendingRtsOrderConfirmationText;
     FDemocracyLoadedSaveState LoadedSaveState;
     bool bHasLoadedRuntimeState = false;
     FTimerHandle SimulationTickTimerHandle;
@@ -184,10 +186,14 @@ private:
     FString BuildRtsSelectedArmyText() const;
     FString BuildRtsActionText() const;
     FString BuildRtsBattlePresentationText() const;
+    FString BuildRtsCommandConsequenceText(const FString& OrderType, const FString& TargetProvinceId) const;
+    FString BuildRtsConstructionAvailabilityText(const FDemocracyRtsBuildingState* Building, int32 SlotIndex, const FString& SlotFocus, bool bUpgrade) const;
     FString BuildRtsCityBaseSummaryText() const;
     FString BuildRtsOfficeAlertText() const;
     TSharedRef<SWidget> BuildRtsCityBasePlaceholderWidget();
     TSharedRef<SWidget> BuildRtsResourceNodesWidget() const;
+    TSharedRef<SWidget> BuildRtsProvinceStateOverlaysWidget(float MapWidth, float MapHeight) const;
+    TSharedRef<SWidget> BuildRtsFogOverlaysWidget(float MapWidth, float MapHeight) const;
     TSharedRef<SWidget> BuildRtsArmyMarkersWidget(float MapWidth, float MapHeight);
     TSharedRef<SWidget> BuildRtsOrderButtonsWidget();
     void SelectRtsMapAtViewportPosition(const FGeometry& Geometry, const FVector2D& ScreenPosition);
@@ -195,6 +201,8 @@ private:
     void ClampRtsMapView();
     void FocusRtsMapOnSelection();
     FReply HandleSelectRtsOrder(FString OrderType);
+    FReply HandleConfirmRtsOrderClicked();
+    FReply HandleCancelRtsOrderConfirmationClicked();
     FReply HandleSelectRtsBuildingSlot(int32 SlotIndex);
     FReply HandleQueueRtsBuildSlot(int32 SlotIndex, FString ResourceFocus);
     FReply HandleQueueRtsUpgrade(FString BuildingId);

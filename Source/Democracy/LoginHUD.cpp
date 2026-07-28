@@ -7202,6 +7202,18 @@ FString ALoginHUD::BuildRtsSelectedTerritoryText() const
         Lines.Add(FString::Printf(TEXT("Owner: %s | controller: %s"), *SelectedProvince->CurrentOwnerCountryName, *SelectedProvince->CurrentControllerCountryName));
         Lines.Add(FString::Printf(TEXT("Terrain: %s | resource: %s | climate: %s"), *SelectedProvince->TerrainType, *SelectedProvince->ResourceFocus, *SelectedProvince->Climate));
         Lines.Add(FString::Printf(TEXT("Stability %d | unrest %d | strategic %d | border %s"), SelectedProvince->Stability, SelectedProvince->Unrest, SelectedProvince->StrategicValue, SelectedProvince->bBorderProvince ? TEXT("yes") : TEXT("no")));
+        const bool bProvinceOccupied = !SelectedProvince->CurrentOwnerCountryName.Equals(SelectedProvince->CurrentControllerCountryName, ESearchCase::IgnoreCase);
+        const int32 OccupationHeldTurns = bProvinceOccupied ? FMath::Max(0, State.Turn - SelectedProvince->LastChangedTurn) : 0;
+        const int32 CaptureTurnsRemaining = bProvinceOccupied ? FMath::Max(0, 3 - OccupationHeldTurns) : 0;
+        Lines.Add(FString::Printf(TEXT("Occupation: %s%s"), bProvinceOccupied ? TEXT("occupied/contested") : TEXT("owned/settled"), bProvinceOccupied ? *FString::Printf(TEXT(" | capture timer %d | peace required"), CaptureTurnsRemaining) : TEXT("")));
+        for (const FDemocracyRtsFogProvinceState& FogProvince : State.RtsWorld.FogOfWar.Provinces)
+        {
+            if (FogProvince.ProvinceId.Equals(SelectedProvince->ProvinceId, ESearchCase::IgnoreCase))
+            {
+                Lines.Add(FString::Printf(TEXT("Fog/intel: %s | scout %d | %s"), *FogProvince.VisibilityState, FogProvince.ScoutStrength, *FogProvince.IntelSummary));
+                break;
+            }
+        }
     }
 
     TArray<FString> PresentArmies;
@@ -7377,6 +7389,101 @@ FString ALoginHUD::BuildRtsBattlePresentationText() const
     Lines.Add(FString::Printf(TEXT("Summary: %s"), Battle.Summary.IsEmpty() ? TEXT("No battle summary generated.") : *Battle.Summary));
     Lines.Add(FString::Printf(TEXT("Follow-up: %s"), *FollowUp));
     return FString::Join(Lines, TEXT("\n"));
+}
+
+FString ALoginHUD::BuildRtsCommandConsequenceText(const FString& OrderType, const FString& TargetProvinceId) const
+{
+    if (!bHasLoadedRuntimeState || OrderType.IsEmpty() || TargetProvinceId.IsEmpty())
+    {
+        return TEXT("No command pending.");
+    }
+
+    const FDemocracySimulationState& State = LoadedSaveState.RuntimeState;
+    const FDemocracyProvinceOwnershipState* TargetProvince = FindRtsProvinceById(State, TargetProvinceId);
+    const FDemocracyRtsArmyGroupState* Army = nullptr;
+    for (const FDemocracyRtsArmyGroupState& CandidateArmy : State.RtsWorld.ArmyGroups)
+    {
+        if (CandidateArmy.ArmyId.Equals(RtsSelectedArmyId, ESearchCase::IgnoreCase))
+        {
+            Army = &CandidateArmy;
+            break;
+        }
+    }
+
+    if (!TargetProvince || !Army)
+    {
+        return TEXT("Command target or selected army is no longer valid.");
+    }
+
+    const bool bHostileTarget = !TargetProvince->CurrentControllerCountryName.Equals(State.PlayerCountry.CountryName, ESearchCase::IgnoreCase);
+    const bool bOccupiedTarget = !TargetProvince->CurrentOwnerCountryName.Equals(TargetProvince->CurrentControllerCountryName, ESearchCase::IgnoreCase);
+    const bool bSameProvince = Army->CurrentProvinceId.Equals(TargetProvinceId, ESearchCase::IgnoreCase);
+    const int32 EstimatedTurns = FMath::Clamp((bSameProvince ? 1 : 2) + (Army->bSupplyRouteBroken ? 1 : 0) + (bHostileTarget ? 1 : 0), 1, 5);
+    const int32 ReadinessRisk = FMath::Clamp((100 - Army->SupplyStatus) / 4 + (Army->bSupplyRouteBroken ? 18 : 0) + (bHostileTarget ? 15 : 0), 0, 100);
+
+    TArray<FString> Lines;
+    Lines.Add(FString::Printf(TEXT("Confirm %s order for %s."), *OrderType, *Army->DisplayName));
+    Lines.Add(FString::Printf(TEXT("Target: %s | controller %s | owner %s | %s"), *TargetProvince->ProvinceName, *TargetProvince->CurrentControllerCountryName, *TargetProvince->CurrentOwnerCountryName, bHostileTarget ? TEXT("HOSTILE CONTACT LIKELY") : TEXT("friendly/controlled")));
+    Lines.Add(FString::Printf(TEXT("ETA %d turn(s) | readiness risk %d | supply %d%% | morale %d"), EstimatedTurns, ReadinessRisk, Army->SupplyStatus, Army->Morale));
+    if (bHostileTarget)
+    {
+        Lines.Add(TEXT("Possible consequences: battle, casualties, occupation timer, war fatigue, diplomatic damage, and office alerts."));
+    }
+    else if (OrderType.Equals(TEXT("Reinforce"), ESearchCase::IgnoreCase))
+    {
+        Lines.Add(TEXT("Possible consequences: supply spending, stronger defense posture, and reduced readiness if routes are disrupted."));
+    }
+    else if (OrderType.Equals(TEXT("Patrol/Scout"), ESearchCase::IgnoreCase))
+    {
+        Lines.Add(TEXT("Possible consequences: reveals fog, may trigger contact in contested provinces, improves future battle information."));
+    }
+    else
+    {
+        Lines.Add(TEXT("Possible consequences: movement commitment, supply route recalculation, and delayed response elsewhere."));
+    }
+    if (bOccupiedTarget)
+    {
+        Lines.Add(TEXT("Province is already occupied/contested. Peace or held control may be required before ownership is final."));
+    }
+    Lines.Add(TEXT("Confirm to execute, or cancel to choose a different target."));
+    return FString::Join(Lines, TEXT("\n"));
+}
+
+FString ALoginHUD::BuildRtsConstructionAvailabilityText(const FDemocracyRtsBuildingState* Building, int32 SlotIndex, const FString& SlotFocus, bool bUpgrade) const
+{
+    if (!bHasLoadedRuntimeState)
+    {
+        return TEXT("No runtime state loaded.");
+    }
+
+    const FDemocracySimulationState& State = LoadedSaveState.RuntimeState;
+    const FDemocracyRtsCityBaseState& Base = State.RtsWorld.CityBase;
+    FDemocracyRtsBuildingState PreviewBuilding = Building ? *Building : MakeRtsPlaceholderBuildingForSlot(SlotIndex, SlotFocus);
+    const int32 TreasuryCost = bUpgrade ? PreviewBuilding.UpgradeCost : PreviewBuilding.BuildCost;
+    const int32 FoodCost = !bUpgrade && SlotFocus.Equals(TEXT("Food"), ESearchCase::IgnoreCase) ? 8 : 0;
+    const int32 FuelCost = bUpgrade ? FMath::Max(0, TreasuryCost / 10) : ((SlotFocus.Equals(TEXT("Fuel"), ESearchCase::IgnoreCase) || SlotFocus.Equals(TEXT("Logistics"), ESearchCase::IgnoreCase)) ? 8 : 4);
+    const int32 WoodCost = bUpgrade ? FMath::Max(0, TreasuryCost / 5) : (SlotFocus.Equals(TEXT("Wood"), ESearchCase::IgnoreCase) ? 8 : 14);
+    const int32 MetalsCost = bUpgrade ? FMath::Max(0, TreasuryCost / 6) : ((SlotFocus.Equals(TEXT("Metals"), ESearchCase::IgnoreCase) || SlotFocus.Equals(TEXT("Security"), ESearchCase::IgnoreCase)) ? 12 : 8);
+    const bool bQueued = HasActiveRtsConstructionQueue(Base, PreviewBuilding.BuildingId);
+    const bool bCanPay = CanPayRtsCost(State.PlayerCountry, TreasuryCost, FoodCost, FuelCost, WoodCost, MetalsCost);
+    const bool bDisabled = PreviewBuilding.bDisabled || PreviewBuilding.DamagePercent >= 75;
+    const bool bUnavailable = bQueued || !bCanPay || bDisabled || (bUpgrade && (!PreviewBuilding.bConstructed || PreviewBuilding.bUpgradeQueued));
+
+    TArray<FString> Reasons;
+    if (bQueued) { Reasons.Add(TEXT("queue active")); }
+    if (!bCanPay) { Reasons.Add(TEXT("insufficient resources")); }
+    if (bDisabled) { Reasons.Add(PreviewBuilding.DisabledReason.IsEmpty() ? TEXT("building disabled/damaged") : PreviewBuilding.DisabledReason); }
+    if (bUpgrade && !PreviewBuilding.bConstructed) { Reasons.Add(TEXT("not constructed")); }
+    if (bUpgrade && PreviewBuilding.bUpgradeQueued) { Reasons.Add(TEXT("upgrade already queued")); }
+
+    return FString::Printf(TEXT("%s: %s | timer %d turn(s) | output preview %+d -> %+d | %s%s"),
+        bUpgrade ? TEXT("Upgrade") : TEXT("Build"),
+        *BuildRtsCostText(TreasuryCost, FoodCost, FuelCost, WoodCost, MetalsCost),
+        FMath::Max(1, PreviewBuilding.BuildTimeTurns + (bUpgrade ? 1 : 0)),
+        PreviewBuilding.ProductionPerTick,
+        PreviewBuilding.ProductionPerTick + FMath::Max(2, PreviewBuilding.Level + 1),
+        bUnavailable ? TEXT("DISABLED") : TEXT("AVAILABLE"),
+        Reasons.Num() > 0 ? *FString::Printf(TEXT(" (%s)"), *FString::Join(Reasons, TEXT(", "))) : TEXT(""));
 }
 FString ALoginHUD::BuildRtsCityBaseSummaryText() const
 {
@@ -7749,6 +7856,9 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsCityBasePlaceholderWidget()
         const FString SlotLabel = Building
             ? FString::Printf(TEXT("%s\nL%d | %s | %s\nOutput %+d | cost %d | upg %d\nBuild time %d turn(s) | HP %d/%d"), *Building->DisplayName, Building->Level, *Building->ResourceFocus, *Building->Status, Building->ProductionPerTick, Building->BuildCost, Building->UpgradeCost, Building->BuildTimeTurns, Building->CurrentHealth, Building->MaxHealth)
             : FString::Printf(TEXT("Empty Slot %02d\nFocus: %s\nBuilds %s\nCost and timer shown before queue."), Index + 1, *SlotFocus, *GetRtsResourceBuildingName(SlotFocus));
+        const bool bUpgradeAvailable = Building && Building->bConstructed && !Building->bDisabled && !bHasActiveQueue && CanPayRtsCost(LoadedSaveState.RuntimeState.PlayerCountry, Building->UpgradeCost, 0, FMath::Max(0, Building->UpgradeCost / 10), FMath::Max(0, Building->UpgradeCost / 5), FMath::Max(0, Building->UpgradeCost / 6));
+        const FDemocracyRtsBuildingState BuildPreview = Building ? *Building : MakeRtsPlaceholderBuildingForSlot(Index, SlotFocus);
+        const bool bBuildAvailable = !Building && !bHasActiveQueue && CanPayRtsCost(LoadedSaveState.RuntimeState.PlayerCountry, BuildPreview.BuildCost, SlotFocus.Equals(TEXT("Food"), ESearchCase::IgnoreCase) ? 8 : 0, (SlotFocus.Equals(TEXT("Fuel"), ESearchCase::IgnoreCase) || SlotFocus.Equals(TEXT("Logistics"), ESearchCase::IgnoreCase)) ? 8 : 4, SlotFocus.Equals(TEXT("Wood"), ESearchCase::IgnoreCase) ? 8 : 14, (SlotFocus.Equals(TEXT("Metals"), ESearchCase::IgnoreCase) || SlotFocus.Equals(TEXT("Security"), ESearchCase::IgnoreCase)) ? 12 : 8);
         const bool bDisabled = Building && (Building->bDisabled || Building->DamagePercent >= 75);
         const FLinearColor SlotColor = !Building ? FLinearColor(0.08f, 0.10f, 0.11f, 0.78f) : (bDisabled ? FLinearColor(0.36f, 0.08f, 0.07f, 0.88f) : FLinearColor(0.08f, 0.18f, 0.14f, 0.88f));
         SlotGrid->AddSlot(Index % 4, Index / 4)
@@ -7777,7 +7887,7 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsCityBasePlaceholderWidget()
                         + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 4.0f, 0.0f)
                         [BuildButton(TEXT("Select"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleSelectRtsBuildingSlot, Index), 62.0f, 28.0f)]
                         + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 4.0f, 0.0f)
-                        [Building && Building->bConstructed ? BuildButton(TEXT("Upgrade"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleQueueRtsUpgrade, Building->BuildingId), 78.0f, 28.0f, !bHasActiveQueue && !Building->bDisabled) : BuildButton(TEXT("Build"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleQueueRtsBuildSlot, Index, SlotFocus), 66.0f, 28.0f, !bHasActiveQueue)]
+                        [Building && Building->bConstructed ? BuildButton(TEXT("Upgrade"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleQueueRtsUpgrade, Building->BuildingId), 78.0f, 28.0f, bUpgradeAvailable) : BuildButton(TEXT("Build"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleQueueRtsBuildSlot, Index, SlotFocus), 66.0f, 28.0f, bBuildAvailable)]
                     ]
                 ]
             ]
@@ -7916,6 +8026,184 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsCityBasePlaceholderWidget()
         ];
 }
 
+TSharedRef<SWidget> ALoginHUD::BuildRtsProvinceStateOverlaysWidget(float MapWidth, float MapHeight) const
+{
+    TSharedRef<SOverlay> Overlay = SNew(SOverlay);
+    if (!bHasLoadedRuntimeState)
+    {
+        return Overlay;
+    }
+
+    const FDemocracySimulationState& State = LoadedSaveState.RuntimeState;
+    const TArray<FDuliaCountryMapPoint>& Points = GetDuliaCountryMapPoints();
+    const float ScaleX = MapWidth / 2242.0f;
+    const float ScaleY = MapHeight / 1104.0f;
+    constexpr int32 RequiredOccupationTurns = 3;
+
+    for (const FDemocracyCountryOwnershipState& Country : State.RtsWorld.Ownership.Countries)
+    {
+        const FDuliaCountryMapPoint* Point = nullptr;
+        for (const FDuliaCountryMapPoint& CandidatePoint : Points)
+        {
+            if (CandidatePoint.CountryIndex == Country.MapCountryIndex)
+            {
+                Point = &CandidatePoint;
+                break;
+            }
+        }
+        if (!Point)
+        {
+            continue;
+        }
+
+        int32 Controlled = 0;
+        int32 Occupied = 0;
+        int32 PeaceRequired = 0;
+        int32 CaptureTurnsRemaining = 0;
+        for (const FString& ProvinceId : Country.ProvinceIds)
+        {
+            const FDemocracyProvinceOwnershipState* Province = FindRtsProvinceById(State, ProvinceId);
+            if (!Province)
+            {
+                continue;
+            }
+            if (Province->CurrentControllerCountryName.Equals(State.PlayerCountry.CountryName, ESearchCase::IgnoreCase))
+            {
+                ++Controlled;
+            }
+            if (!Province->CurrentOwnerCountryName.Equals(Province->CurrentControllerCountryName, ESearchCase::IgnoreCase))
+            {
+                ++Occupied;
+                ++PeaceRequired;
+                const int32 HeldTurns = FMath::Max(0, State.Turn - Province->LastChangedTurn);
+                CaptureTurnsRemaining = FMath::Max(CaptureTurnsRemaining, FMath::Max(0, RequiredOccupationTurns - HeldTurns));
+            }
+        }
+
+        FString StateLabel = TEXT("Neutral");
+        FLinearColor StateColor = FLinearColor(0.15f, 0.22f, 0.30f, 0.58f);
+        if (Country.bPlayerCountry || Controlled > 0)
+        {
+            StateLabel = Controlled >= Country.TotalProvinces ? TEXT("Owned") : TEXT("Controlled");
+            StateColor = FLinearColor(0.02f, 0.75f, 0.22f, 0.68f);
+        }
+        if (Occupied > 0)
+        {
+            StateLabel = TEXT("Occupied");
+            StateColor = FLinearColor(1.0f, 0.55f, 0.05f, 0.78f);
+        }
+        if (PeaceRequired > 0)
+        {
+            StateLabel = TEXT("Peace Req.");
+            StateColor = FLinearColor(0.90f, 0.12f, 0.04f, 0.78f);
+        }
+
+        const FString LabelText = FString::Printf(TEXT("%s\n%d/%d ctrl%s"), *StateLabel, Controlled, FMath::Max(1, Country.TotalProvinces), CaptureTurnsRemaining > 0 ? *FString::Printf(TEXT(" | cap %d"), CaptureTurnsRemaining) : TEXT(""));
+        const float X = FMath::Clamp(Point->Centroid.X * ScaleX - 42.0f, 0.0f, FMath::Max(0.0f, MapWidth - 92.0f));
+        const float Y = FMath::Clamp(Point->Centroid.Y * ScaleY - 58.0f, 0.0f, FMath::Max(0.0f, MapHeight - 42.0f));
+        Overlay->AddSlot().HAlign(HAlign_Left).VAlign(VAlign_Top).Padding(FMargin(X, Y, 0.0f, 0.0f))
+        [
+            SNew(SBorder)
+            .BorderImage(RowBrush.Get())
+            .BorderBackgroundColor(StateColor)
+            .Padding(FMargin(5.0f, 2.0f))
+            [
+                SNew(STextBlock)
+                .Text(BodyText(LabelText))
+                .AutoWrapText(true)
+                .Font(FCoreStyle::GetDefaultFontStyle("Bold", 8))
+                .ColorAndOpacity(FLinearColor::White)
+            ]
+        ];
+    }
+    return Overlay;
+}
+
+TSharedRef<SWidget> ALoginHUD::BuildRtsFogOverlaysWidget(float MapWidth, float MapHeight) const
+{
+    TSharedRef<SOverlay> Overlay = SNew(SOverlay);
+    if (!bHasLoadedRuntimeState)
+    {
+        return Overlay;
+    }
+
+    const FDemocracySimulationState& State = LoadedSaveState.RuntimeState;
+    const TArray<FDuliaCountryMapPoint>& Points = GetDuliaCountryMapPoints();
+    const float ScaleX = MapWidth / 2242.0f;
+    const float ScaleY = MapHeight / 1104.0f;
+
+    for (const FDemocracyRtsFogProvinceState& FogProvince : State.RtsWorld.FogOfWar.Provinces)
+    {
+        const FDemocracyProvinceOwnershipState* Province = FindRtsProvinceById(State, FogProvince.ProvinceId);
+        if (!Province)
+        {
+            continue;
+        }
+        const FDemocracyCountryOwnershipState* Country = nullptr;
+        for (const FDemocracyCountryOwnershipState& CandidateCountry : State.RtsWorld.Ownership.Countries)
+        {
+            if (CandidateCountry.CountryName.Equals(Province->OriginalCountryName, ESearchCase::IgnoreCase) || CandidateCountry.CountryName.Equals(Province->CurrentControllerCountryName, ESearchCase::IgnoreCase))
+            {
+                Country = &CandidateCountry;
+                break;
+            }
+        }
+        if (!Country)
+        {
+            continue;
+        }
+        const FDuliaCountryMapPoint* Point = nullptr;
+        for (const FDuliaCountryMapPoint& CandidatePoint : Points)
+        {
+            if (CandidatePoint.CountryIndex == Country->MapCountryIndex)
+            {
+                Point = &CandidatePoint;
+                break;
+            }
+        }
+        if (!Point)
+        {
+            continue;
+        }
+
+        FLinearColor FogColor = FLinearColor(0.02f, 0.02f, 0.025f, 0.52f);
+        FString FogLabel = TEXT("Hidden");
+        if (FogProvince.VisibilityState.Equals(TEXT("Known"), ESearchCase::IgnoreCase))
+        {
+            FogColor = FLinearColor(0.03f, 0.28f, 0.10f, 0.34f);
+            FogLabel = TEXT("Known");
+        }
+        else if (FogProvince.VisibilityState.Equals(TEXT("Scouted"), ESearchCase::IgnoreCase))
+        {
+            FogColor = FLinearColor(0.06f, 0.32f, 0.72f, 0.42f);
+            FogLabel = TEXT("Scouted");
+        }
+        else if (FogProvince.VisibilityState.Equals(TEXT("Contested"), ESearchCase::IgnoreCase) || FogProvince.bContested)
+        {
+            FogColor = FLinearColor(0.95f, 0.13f, 0.04f, 0.52f);
+            FogLabel = TEXT("Contested");
+        }
+
+        const float OffsetX = ((Province->ProvinceIndex % 3) - 1) * 22.0f * RtsMapZoom;
+        const float OffsetY = ((Province->ProvinceIndex % 4) - 1) * 14.0f * RtsMapZoom;
+        const float X = FMath::Clamp(Point->Centroid.X * ScaleX + OffsetX - 26.0f, 0.0f, FMath::Max(0.0f, MapWidth - 68.0f));
+        const float Y = FMath::Clamp(Point->Centroid.Y * ScaleY + OffsetY + 24.0f, 0.0f, FMath::Max(0.0f, MapHeight - 28.0f));
+        Overlay->AddSlot().HAlign(HAlign_Left).VAlign(VAlign_Top).Padding(FMargin(X, Y, 0.0f, 0.0f))
+        [
+            SNew(SBorder)
+            .BorderImage(RowBrush.Get())
+            .BorderBackgroundColor(FogColor)
+            .Padding(FMargin(4.0f, 1.0f))
+            [
+                SNew(STextBlock)
+                .Text(BodyText(FString::Printf(TEXT("%s %d"), *FogLabel, FogProvince.ScoutStrength)))
+                .Font(FCoreStyle::GetDefaultFontStyle("Bold", 7))
+                .ColorAndOpacity(FLinearColor::White)
+            ]
+        ];
+    }
+    return Overlay;
+}
 TSharedRef<SWidget> ALoginHUD::BuildRtsArmyMarkersWidget(float MapWidth, float MapHeight)
 {
     TSharedRef<SOverlay> MarkerOverlay = SNew(SOverlay);
@@ -8081,6 +8369,32 @@ FReply ALoginHUD::HandleSelectRtsOrder(FString OrderType)
     return FReply::Handled();
 }
 
+
+FReply ALoginHUD::HandleConfirmRtsOrderClicked()
+{
+    if (!bHasLoadedRuntimeState || PendingRtsOrderTargetProvinceId.IsEmpty())
+    {
+        return FReply::Handled();
+    }
+
+    const FString TargetProvinceId = PendingRtsOrderTargetProvinceId;
+    TryIssueRtsOrderToProvince(TargetProvinceId);
+    RefreshLoginWidget();
+    return FReply::Handled();
+}
+
+FReply ALoginHUD::HandleCancelRtsOrderConfirmationClicked()
+{
+    PendingRtsOrderTargetProvinceId.Empty();
+    PendingRtsOrderConfirmationText.Empty();
+    if (bHasLoadedRuntimeState)
+    {
+        LoadedSaveState.RuntimeState.RtsWorld.WorldInteraction.LastInteractionSummary = PendingRtsOrderType.IsEmpty() ? TEXT("RTS command confirmation cancelled.") : FString::Printf(TEXT("%s target cancelled. Choose another destination or select a different order."), *PendingRtsOrderType);
+        RefreshRtsHudState(LoadedSaveState.RuntimeState);
+    }
+    RefreshLoginWidget();
+    return FReply::Handled();
+}
 bool ALoginHUD::TryIssueRtsOrderToProvince(const FString& TargetProvinceId)
 {
     if (!bHasLoadedRuntimeState || PendingRtsOrderType.IsEmpty() || RtsSelectedArmyId.IsEmpty() || TargetProvinceId.IsEmpty())
