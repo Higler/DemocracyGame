@@ -33,11 +33,61 @@
 #include "Widgets/Layout/SScrollBox.h"
 #include "Widgets/SOverlay.h"
 #include "Widgets/SBoxPanel.h"
+#include "Widgets/SCompoundWidget.h"
 #include "Widgets/Text/STextBlock.h"
 
 namespace
 {
-    struct FPlaceholderServer
+
+    class SRtsMapInputSurface : public SCompoundWidget
+    {
+    public:
+        SLATE_BEGIN_ARGS(SRtsMapInputSurface) {}
+            SLATE_EVENT(FPointerEventHandler, OnMapMouseWheel)
+            SLATE_EVENT(FPointerEventHandler, OnMapMouseButtonDown)
+            SLATE_EVENT(FPointerEventHandler, OnMapMouseButtonUp)
+            SLATE_EVENT(FPointerEventHandler, OnMapMouseMove)
+            SLATE_DEFAULT_SLOT(FArguments, Content)
+        SLATE_END_ARGS()
+
+        void Construct(const FArguments& InArgs)
+        {
+            OnMapMouseWheel = InArgs._OnMapMouseWheel;
+            OnMapMouseButtonDown = InArgs._OnMapMouseButtonDown;
+            OnMapMouseButtonUp = InArgs._OnMapMouseButtonUp;
+            OnMapMouseMove = InArgs._OnMapMouseMove;
+            ChildSlot
+            [
+                InArgs._Content.Widget
+            ];
+        }
+
+        virtual FReply OnMouseWheel(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override
+        {
+            return OnMapMouseWheel.IsBound() ? OnMapMouseWheel.Execute(MyGeometry, MouseEvent) : FReply::Unhandled();
+        }
+
+        virtual FReply OnMouseButtonDown(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override
+        {
+            return OnMapMouseButtonDown.IsBound() ? OnMapMouseButtonDown.Execute(MyGeometry, MouseEvent) : FReply::Unhandled();
+        }
+
+        virtual FReply OnMouseButtonUp(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override
+        {
+            return OnMapMouseButtonUp.IsBound() ? OnMapMouseButtonUp.Execute(MyGeometry, MouseEvent) : FReply::Unhandled();
+        }
+
+        virtual FReply OnMouseMove(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override
+        {
+            return OnMapMouseMove.IsBound() ? OnMapMouseMove.Execute(MyGeometry, MouseEvent) : FReply::Unhandled();
+        }
+
+    private:
+        FPointerEventHandler OnMapMouseWheel;
+        FPointerEventHandler OnMapMouseButtonDown;
+        FPointerEventHandler OnMapMouseButtonUp;
+        FPointerEventHandler OnMapMouseMove;
+    };    struct FPlaceholderServer
     {
         FString Name;
         FString Region;
@@ -4722,7 +4772,7 @@ void ALoginHUD::BeginPlay()
     BackgroundBrush = MakeShared<FSlateImageBrush>(
         FPaths::ProjectContentDir() / TEXT("UI/Login/Office_Login_Background.png"),
         FVector2D(1680.0f, 945.0f));
-    const FString WorldMapImagePath = FPaths::ProjectContentDir() / TEXT("World/Dulia/Generated/Dulia_World_Government_Map.png");
+    const FString WorldMapImagePath = FPaths::ProjectDir() / TEXT("Generated/Dulia_World_Government_Map.png");
     WorldMapBrush = MakeShared<FSlateDynamicImageBrush>(FName(*WorldMapImagePath), FVector2D(2242.0f, 1104.0f));
     OverlayBrush = MakeShared<FSlateColorBrush>(FLinearColor(0.0f, 0.0f, 0.0f, 0.24f));
     PanelBrush = MakeShared<FSlateColorBrush>(FLinearColor(0.025f, 0.028f, 0.032f, 0.88f));
@@ -5210,6 +5260,9 @@ void ALoginHUD::HandleOfficeInteractable(const FString& InteractionName)
     {
         bInOfficeMode = true;
         WorldRtsEntryMode = TEXT("RtsEntry");
+        RtsMapZoom = 1.0f;
+        RtsMapPan = FVector2D::ZeroVector;
+        bIsDraggingRtsMap = false;
         ShowScreen(ELoginFlowScreen::OfficeWorldRts);
         if (PlayerController)
         {
@@ -6358,6 +6411,79 @@ TSharedRef<SWidget> ALoginHUD::BuildOfficeDemographicsScreen()
         + SScrollBox::Slot()
         [Body], 860.0f);
 }
+FReply ALoginHUD::HandleRtsMapMouseWheel(const FGeometry& Geometry, const FPointerEvent& MouseEvent)
+{
+    const float OldZoom = RtsMapZoom;
+    RtsMapZoom = FMath::Clamp(RtsMapZoom + (MouseEvent.GetWheelDelta() > 0.0f ? 0.15f : -0.15f), 0.75f, 3.0f);
+    if (!FMath::IsNearlyEqual(OldZoom, RtsMapZoom))
+    {
+        RefreshLoginWidget();
+    }
+
+    return FReply::Handled();
+}
+
+FReply ALoginHUD::HandleRtsMapMouseButtonDown(const FGeometry& Geometry, const FPointerEvent& MouseEvent)
+{
+    if (MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
+    {
+        bIsDraggingRtsMap = true;
+        LastRtsMapDragScreenPosition = MouseEvent.GetScreenSpacePosition();
+        return FReply::Handled();
+    }
+
+    return FReply::Unhandled();
+}
+
+FReply ALoginHUD::HandleRtsMapMouseButtonUp(const FGeometry& Geometry, const FPointerEvent& MouseEvent)
+{
+    if (MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
+    {
+        bIsDraggingRtsMap = false;
+        return FReply::Handled();
+    }
+
+    return FReply::Unhandled();
+}
+
+FReply ALoginHUD::HandleRtsMapMouseMove(const FGeometry& Geometry, const FPointerEvent& MouseEvent)
+{
+    if (bIsDraggingRtsMap && MouseEvent.IsMouseButtonDown(EKeys::LeftMouseButton))
+    {
+        const FVector2D CurrentPosition = MouseEvent.GetScreenSpacePosition();
+        RtsMapPan += CurrentPosition - LastRtsMapDragScreenPosition;
+        LastRtsMapDragScreenPosition = CurrentPosition;
+        RefreshLoginWidget();
+        return FReply::Handled();
+    }
+
+    bIsDraggingRtsMap = false;
+    return FReply::Unhandled();
+}
+
+FReply ALoginHUD::HandleZoomRtsMapInClicked()
+{
+    RtsMapZoom = FMath::Clamp(RtsMapZoom + 0.25f, 0.75f, 3.0f);
+    RefreshLoginWidget();
+    return FReply::Handled();
+}
+
+FReply ALoginHUD::HandleZoomRtsMapOutClicked()
+{
+    RtsMapZoom = FMath::Clamp(RtsMapZoom - 0.25f, 0.75f, 3.0f);
+    RefreshLoginWidget();
+    return FReply::Handled();
+}
+
+FReply ALoginHUD::HandleResetRtsMapViewClicked()
+{
+    RtsMapZoom = 1.0f;
+    RtsMapPan = FVector2D::ZeroVector;
+    bIsDraggingRtsMap = false;
+    RefreshLoginWidget();
+    return FReply::Handled();
+}
+
 TSharedRef<SWidget> ALoginHUD::BuildOfficeWorldRtsScreen()
 {
     if (bHasLoadedRuntimeState)
@@ -6372,9 +6498,6 @@ TSharedRef<SWidget> ALoginHUD::BuildOfficeWorldRtsScreen()
     const FString DemocracyCount = bHasLoadedRuntimeState ? FString::Printf(TEXT("%d democratic/allied countries"), LoadedSaveState.RuntimeState.WorldMap.DemocraticAllyCount) : TEXT("Democracy count unavailable");
     const FString DictatorshipCount = bHasLoadedRuntimeState ? FString::Printf(TEXT("%d dictatorship/hostile countries"), LoadedSaveState.RuntimeState.WorldMap.NonDemocraticCountryCount) : TEXT("Dictatorship count unavailable");
     const FString OwnershipSummary = bHasLoadedRuntimeState ? BuildMapOwnershipStatusText() : TEXT("Map ownership unavailable until a state is loaded.");
-    const FString RtsFocusSummary = bHasLoadedRuntimeState
-        ? FString::Printf(TEXT("Focused on %s | %s | %s"), *PlayerCountry, *LoadedSaveState.RuntimeState.RtsWorld.Hud.ResourceSummary, *LoadedSaveState.RuntimeState.RtsWorld.Hud.ArmyOrderSummary)
-        : TEXT("Focused player country unavailable until a state is loaded.");
 
     TSharedRef<SWidget> MapImage =
         SNew(SImage)
@@ -6382,48 +6505,92 @@ TSharedRef<SWidget> ALoginHUD::BuildOfficeWorldRtsScreen()
 
     if (bRtsEntry)
     {
+        const float MapWidth = 2242.0f * RtsMapZoom;
+        const float MapHeight = 1104.0f * RtsMapZoom;
+        const FString CompactStatus = FString::Printf(TEXT("%s\n%s | %s"),
+            *PlayerCountry,
+            bHasLoadedRuntimeState ? *LoadedSaveState.RuntimeState.RtsWorld.Hud.ResourceSummary : TEXT("No RTS resources loaded."),
+            bHasLoadedRuntimeState ? *LoadedSaveState.RuntimeState.RtsWorld.Hud.ArmyOrderSummary : TEXT("No army selected."));
+
         return SNew(SOverlay)
             + SOverlay::Slot()
             [
-                SNew(SBorder)
-                .BorderImage(OverlayBrush.Get())
+                SNew(SRtsMapInputSurface)
+                .OnMapMouseWheel(FPointerEventHandler::CreateUObject(this, &ALoginHUD::HandleRtsMapMouseWheel))
+                .OnMapMouseButtonDown(FPointerEventHandler::CreateUObject(this, &ALoginHUD::HandleRtsMapMouseButtonDown))
+                .OnMapMouseButtonUp(FPointerEventHandler::CreateUObject(this, &ALoginHUD::HandleRtsMapMouseButtonUp))
+                .OnMapMouseMove(FPointerEventHandler::CreateUObject(this, &ALoginHUD::HandleRtsMapMouseMove))
                 [
-                    SNew(SImage)
-                    .Image(WorldMapBrush.Get())
+                    SNew(SBorder)
+                    .BorderImage(OverlayBrush.Get())
+                    .Clipping(EWidgetClipping::ClipToBounds)
+                    [
+                        SNew(SOverlay)
+                        + SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Center).Padding(FMargin(RtsMapPan.X, RtsMapPan.Y, 0.0f, 0.0f))
+                        [
+                            SNew(SBox)
+                            .WidthOverride(MapWidth)
+                            .HeightOverride(MapHeight)
+                            [
+                                SNew(SImage)
+                                .Image(WorldMapBrush.Get())
+                            ]
+                        ]
+                    ]
                 ]
             ]
-            + SOverlay::Slot().HAlign(HAlign_Fill).VAlign(VAlign_Top).Padding(18.0f)
+            + SOverlay::Slot().HAlign(HAlign_Left).VAlign(VAlign_Top).Padding(18.0f)
             [
                 SNew(SBorder)
                 .BorderImage(RowBrush.Get())
-                .BorderBackgroundColor(FLinearColor(0.015f, 0.018f, 0.022f, 0.88f))
-                .Padding(14.0f)
+                .BorderBackgroundColor(FLinearColor(0.015f, 0.018f, 0.022f, 0.82f))
+                .Padding(12.0f)
                 [
-                    SNew(SHorizontalBox)
-                    + SHorizontalBox::Slot().FillWidth(1.0f)
+                    SNew(SBox)
+                    .WidthOverride(560.0f)
                     [
                         SNew(STextBlock)
-                        .Text(BodyText(FString::Printf(TEXT("RTS COMMAND MAP  |  %s  |  Green player territory, blue democracies, red dictatorships"), *RtsFocusSummary)))
+                        .Text(BodyText(FString::Printf(TEXT("RTS Command Map\n%s"), *CompactStatus)))
                         .AutoWrapText(true)
-                        .Font(FCoreStyle::GetDefaultFontStyle("Bold", 18))
+                        .Font(FCoreStyle::GetDefaultFontStyle("Bold", 14))
                         .ColorAndOpacity(FLinearColor::White)
                     ]
-                    + SHorizontalBox::Slot().AutoWidth().Padding(12.0f, 0.0f, 0.0f, 0.0f)
-                    [BuildButton(TEXT("Return To Office"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleCloseOfficeOverlayClicked), 190.0f, 38.0f)]
+                ]
+            ]
+            + SOverlay::Slot().HAlign(HAlign_Right).VAlign(VAlign_Top).Padding(18.0f)
+            [
+                SNew(SBorder)
+                .BorderImage(RowBrush.Get())
+                .BorderBackgroundColor(FLinearColor(0.015f, 0.018f, 0.022f, 0.82f))
+                .Padding(8.0f)
+                [
+                    SNew(SHorizontalBox)
+                    + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 6.0f, 0.0f)
+                    [BuildButton(TEXT("-"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleZoomRtsMapOutClicked), 42.0f, 34.0f)]
+                    + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 6.0f, 0.0f)
+                    [BuildButton(TEXT("Reset"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleResetRtsMapViewClicked), 88.0f, 34.0f)]
+                    + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 10.0f, 0.0f)
+                    [BuildButton(TEXT("+"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleZoomRtsMapInClicked), 42.0f, 34.0f)]
+                    + SHorizontalBox::Slot().AutoWidth()
+                    [BuildButton(TEXT("Return"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleCloseOfficeOverlayClicked), 100.0f, 34.0f)]
                 ]
             ]
             + SOverlay::Slot().HAlign(HAlign_Left).VAlign(VAlign_Bottom).Padding(18.0f)
             [
                 SNew(SBorder)
                 .BorderImage(RowBrush.Get())
-                .BorderBackgroundColor(FLinearColor(0.02f, 0.04f, 0.03f, 0.90f))
-                .Padding(14.0f)
+                .BorderBackgroundColor(FLinearColor(0.02f, 0.04f, 0.03f, 0.78f))
+                .Padding(10.0f)
                 [
-                    SNew(STextBlock)
-                    .Text(BodyText(FString::Printf(TEXT("Player focus: %s\nMap ownership: %s\nSimulation-to-RTS: %s\nPress Esc to return to the office."), *PlayerCountry, *OwnershipSummary, *BuildSimulationToRtsContractStatusText())))
-                    .AutoWrapText(true)
-                    .Font(FCoreStyle::GetDefaultFontStyle("Regular", 14))
-                    .ColorAndOpacity(FLinearColor(0.82f, 0.94f, 0.86f, 1.0f))
+                    SNew(SBox)
+                    .WidthOverride(520.0f)
+                    [
+                        SNew(STextBlock)
+                        .Text(BodyText(FString::Printf(TEXT("Mouse wheel zooms | Drag map to pan | Esc returns\nZoom %.0f%% | %s"), RtsMapZoom * 100.0f, *OwnershipSummary)))
+                        .AutoWrapText(true)
+                        .Font(FCoreStyle::GetDefaultFontStyle("Regular", 12))
+                        .ColorAndOpacity(FLinearColor(0.82f, 0.94f, 0.86f, 1.0f))
+                    ]
                 ]
             ];
     }

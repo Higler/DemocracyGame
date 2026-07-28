@@ -3,6 +3,8 @@
 #include "CoreMinimal.h"
 #include "GameFramework/HUD.h"
 #include "Input/Reply.h"
+#include "Input/Events.h"
+#include "Layout/Geometry.h"
 #include "TimerManager.h"
 #include "DemocracySaveGameRuntime.h"
 #include "LoginHUD.generated.h"
@@ -99,6 +101,10 @@ private:
     FString SelectedMeetingAdvisorName;
     FString SelectedMeetingAdvisorFocus;
     FString WorldRtsEntryMode = TEXT("Globe");
+    float RtsMapZoom = 1.0f;
+    FVector2D RtsMapPan = FVector2D::ZeroVector;
+    bool bIsDraggingRtsMap = false;
+    FVector2D LastRtsMapDragScreenPosition = FVector2D::ZeroVector;
     FDemocracyLoadedSaveState LoadedSaveState;
     bool bHasLoadedRuntimeState = false;
     FTimerHandle SimulationTickTimerHandle;
@@ -157,6 +163,13 @@ private:
     TSharedRef<SWidget> BuildOfficeApprovalStabilityScreen();
     TSharedRef<SWidget> BuildOfficeDecisionHistoryScreen();
     TSharedRef<SWidget> BuildOfficeWorldRtsScreen();
+    FReply HandleRtsMapMouseWheel(const FGeometry& Geometry, const FPointerEvent& MouseEvent);
+    FReply HandleRtsMapMouseButtonDown(const FGeometry& Geometry, const FPointerEvent& MouseEvent);
+    FReply HandleRtsMapMouseButtonUp(const FGeometry& Geometry, const FPointerEvent& MouseEvent);
+    FReply HandleRtsMapMouseMove(const FGeometry& Geometry, const FPointerEvent& MouseEvent);
+    FReply HandleZoomRtsMapInClicked();
+    FReply HandleZoomRtsMapOutClicked();
+    FReply HandleResetRtsMapViewClicked();
     TSharedRef<SWidget> BuildOfficeAdvisorWarningsScreen();
     TSharedRef<SWidget> BuildOfficeMeetingAdvisorScreen();
     TSharedRef<SWidget> BuildOfficePressReleaseScreen();
