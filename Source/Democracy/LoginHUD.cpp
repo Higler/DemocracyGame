@@ -36,6 +36,7 @@
 #include "Widgets/Input/SSlider.h"
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Layout/SBox.h"
+#include "Widgets/Layout/SConstraintCanvas.h"
 #include "Widgets/Layout/SScrollBox.h"
 #include "Widgets/Layout/SUniformGridPanel.h"
 #include "Widgets/SOverlay.h"
@@ -8006,7 +8007,9 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsCityBasePlaceholderWidget()
     FDemocracyRtsCityBaseState& Base = RtsWorld.CityBase;
     RecountRtsCityBaseQueues(Base);
 
-    FString SelectedBuildingText = RtsWorld.WorldInteraction.LastInteractionSummary.IsEmpty() ? TEXT("Select a building slot to inspect cost, output, construction state, and upgrade options.") : RtsWorld.WorldInteraction.LastInteractionSummary;
+    FString SelectedBuildingText = RtsWorld.WorldInteraction.LastInteractionSummary.IsEmpty()
+        ? TEXT("Select a building pad to inspect cost, output, construction state, and upgrade options.")
+        : RtsWorld.WorldInteraction.LastInteractionSummary;
     for (const FDemocracyRtsBuildingState& Building : Base.Buildings)
     {
         if (Building.BuildingId.Equals(RtsWorld.WorldInteraction.ActiveSelectionId, ESearchCase::IgnoreCase))
@@ -8030,53 +8033,136 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsCityBasePlaceholderWidget()
         }
     }
 
-    TSharedRef<SUniformGridPanel> SlotGrid = SNew(SUniformGridPanel).SlotPadding(FMargin(8.0f));
-    const int32 DisplaySlots = 12;
-    for (int32 Index = 0; Index < DisplaySlots; ++Index)
+    auto FindActiveQueueForBuilding = [&Base](const FString& BuildingId) -> const FDemocracyRtsConstructionQueueEntryState*
+    {
+        for (const FDemocracyRtsConstructionQueueEntryState& QueueEntry : Base.ConstructionQueue)
+        {
+            if (!QueueEntry.bCancelled && !QueueEntry.bComplete && QueueEntry.BuildingId.Equals(BuildingId, ESearchCase::IgnoreCase))
+            {
+                return &QueueEntry;
+            }
+        }
+        return nullptr;
+    };
+
+    auto MakeBuildingPad = [this, &Base, &RtsWorld, &FindActiveQueueForBuilding](int32 Index) -> TSharedRef<SWidget>
     {
         const FDemocracyRtsBuildingState* Building = Base.Buildings.IsValidIndex(Index) ? &Base.Buildings[Index] : nullptr;
         const FString SlotFocus = Building ? Building->ResourceFocus : GetRtsSlotResourceFocus(Index);
-        const bool bHasActiveQueue = Building && HasActiveRtsConstructionQueue(Base, Building->BuildingId);
-        const FString SlotLabel = Building
-            ? FString::Printf(TEXT("%s\nL%d | %s | %s\nOutput %+d | cost %d | upg %d\nBuild time %d turn(s) | HP %d/%d"), *Building->DisplayName, Building->Level, *Building->ResourceFocus, *Building->Status, Building->ProductionPerTick, Building->BuildCost, Building->UpgradeCost, Building->BuildTimeTurns, Building->CurrentHealth, Building->MaxHealth)
-            : FString::Printf(TEXT("Empty Slot %02d\nFocus: %s\nBuilds %s\nCost and timer shown before queue."), Index + 1, *SlotFocus, *GetRtsResourceBuildingName(SlotFocus));
-        const bool bUpgradeAvailable = Building && Building->bConstructed && !Building->bDisabled && !bHasActiveQueue && CanPayRtsCost(LoadedSaveState.RuntimeState.PlayerCountry, Building->UpgradeCost, 0, FMath::Max(0, Building->UpgradeCost / 10), FMath::Max(0, Building->UpgradeCost / 5), FMath::Max(0, Building->UpgradeCost / 6));
         const FDemocracyRtsBuildingState BuildPreview = Building ? *Building : MakeRtsPlaceholderBuildingForSlot(Index, SlotFocus);
-        const bool bBuildAvailable = !Building && !bHasActiveQueue && CanPayRtsCost(LoadedSaveState.RuntimeState.PlayerCountry, BuildPreview.BuildCost, SlotFocus.Equals(TEXT("Food"), ESearchCase::IgnoreCase) ? 8 : 0, (SlotFocus.Equals(TEXT("Fuel"), ESearchCase::IgnoreCase) || SlotFocus.Equals(TEXT("Logistics"), ESearchCase::IgnoreCase)) ? 8 : 4, SlotFocus.Equals(TEXT("Wood"), ESearchCase::IgnoreCase) ? 8 : 14, (SlotFocus.Equals(TEXT("Metals"), ESearchCase::IgnoreCase) || SlotFocus.Equals(TEXT("Security"), ESearchCase::IgnoreCase)) ? 12 : 8);
+        const FDemocracyRtsConstructionQueueEntryState* QueueEntry = Building ? FindActiveQueueForBuilding(Building->BuildingId) : nullptr;
+        const bool bSelected = Building && Building->BuildingId.Equals(RtsWorld.WorldInteraction.ActiveSelectionId, ESearchCase::IgnoreCase);
         const bool bDisabled = Building && (Building->bDisabled || Building->DamagePercent >= 75);
-        const FLinearColor SlotColor = !Building ? FLinearColor(0.08f, 0.10f, 0.11f, 0.78f) : (bDisabled ? FLinearColor(0.36f, 0.08f, 0.07f, 0.88f) : FLinearColor(0.08f, 0.18f, 0.14f, 0.88f));
-        SlotGrid->AddSlot(Index % 4, Index / 4)
-        [
-            SNew(SBorder)
+        const bool bQueued = QueueEntry != nullptr;
+        const bool bUpgradeAvailable = Building && Building->bConstructed && !bDisabled && !bQueued && CanPayRtsCost(LoadedSaveState.RuntimeState.PlayerCountry, Building->UpgradeCost, 0, FMath::Max(0, Building->UpgradeCost / 10), FMath::Max(0, Building->UpgradeCost / 5), FMath::Max(0, Building->UpgradeCost / 6));
+        const bool bBuildAvailable = !Building && CanPayRtsCost(LoadedSaveState.RuntimeState.PlayerCountry, BuildPreview.BuildCost, SlotFocus.Equals(TEXT("Food"), ESearchCase::IgnoreCase) ? 8 : 0, (SlotFocus.Equals(TEXT("Fuel"), ESearchCase::IgnoreCase) || SlotFocus.Equals(TEXT("Logistics"), ESearchCase::IgnoreCase)) ? 8 : 4, SlotFocus.Equals(TEXT("Wood"), ESearchCase::IgnoreCase) ? 8 : 14, (SlotFocus.Equals(TEXT("Metals"), ESearchCase::IgnoreCase) || SlotFocus.Equals(TEXT("Security"), ESearchCase::IgnoreCase)) ? 12 : 8);
+        const FString PadTitle = Building ? Building->DisplayName : FString::Printf(TEXT("Empty Pad %02d"), Index + 1);
+        const FString QueueLine = QueueEntry ? FString::Printf(TEXT("%s %d/%d turns"), *QueueEntry->QueueType, QueueEntry->TurnsRemaining, QueueEntry->TotalTurns) : TEXT("No active queue");
+        const FString PadText = Building
+            ? FString::Printf(TEXT("%s\nL%d %s | %+d/tick\n%s\nHP %d/%d"), *PadTitle, Building->Level, *Building->ResourceFocus, Building->ProductionPerTick, *QueueLine, Building->CurrentHealth, Building->MaxHealth)
+            : FString::Printf(TEXT("%s\nFocus %s\nBuild %s\nCost %s"), *PadTitle, *SlotFocus, *GetRtsResourceBuildingName(SlotFocus), *BuildRtsCostText(BuildPreview.BuildCost, SlotFocus.Equals(TEXT("Food"), ESearchCase::IgnoreCase) ? 8 : 0, (SlotFocus.Equals(TEXT("Fuel"), ESearchCase::IgnoreCase) || SlotFocus.Equals(TEXT("Logistics"), ESearchCase::IgnoreCase)) ? 8 : 4, SlotFocus.Equals(TEXT("Wood"), ESearchCase::IgnoreCase) ? 8 : 14, (SlotFocus.Equals(TEXT("Metals"), ESearchCase::IgnoreCase) || SlotFocus.Equals(TEXT("Security"), ESearchCase::IgnoreCase)) ? 12 : 8));
+        const FLinearColor PadColor = bSelected
+            ? FLinearColor(0.18f, 0.32f, 0.42f, 0.96f)
+            : (bQueued ? FLinearColor(0.42f, 0.28f, 0.08f, 0.94f) : (bDisabled ? FLinearColor(0.34f, 0.06f, 0.06f, 0.92f) : (Building ? FLinearColor(0.08f, 0.20f, 0.14f, 0.92f) : FLinearColor(0.08f, 0.10f, 0.11f, 0.86f))));
+
+        return SNew(SBorder)
             .BorderImage(RowBrush.Get())
-            .BorderBackgroundColor(SlotColor)
+            .BorderBackgroundColor(PadColor)
             .Padding(8.0f)
             [
-                SNew(SBox)
-                .WidthOverride(205.0f)
-                .HeightOverride(144.0f)
+                SNew(SVerticalBox)
+                + SVerticalBox::Slot().FillHeight(1.0f)
                 [
-                    SNew(SVerticalBox)
-                    + SVerticalBox::Slot().FillHeight(1.0f)
-                    [
-                        SNew(STextBlock)
-                        .Text(BodyText(SlotLabel))
-                        .AutoWrapText(true)
-                        .Font(FCoreStyle::GetDefaultFontStyle("Regular", 10))
-                        .ColorAndOpacity(FLinearColor::White)
-                    ]
-                    + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 6.0f, 0.0f, 0.0f)
-                    [
-                        SNew(SHorizontalBox)
-                        + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 4.0f, 0.0f)
-                        [BuildButton(TEXT("Select"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleSelectRtsBuildingSlot, Index), 62.0f, 28.0f)]
-                        + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 4.0f, 0.0f)
-                        [Building && Building->bConstructed ? BuildButton(TEXT("Upgrade"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleQueueRtsUpgrade, Building->BuildingId), 78.0f, 28.0f, bUpgradeAvailable) : BuildButton(TEXT("Build"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleQueueRtsBuildSlot, Index, SlotFocus), 66.0f, 28.0f, bBuildAvailable)]
-                    ]
+                    SNew(STextBlock)
+                    .Text(BodyText(PadText))
+                    .AutoWrapText(true)
+                    .Font(FCoreStyle::GetDefaultFontStyle("Regular", 10))
+                    .ColorAndOpacity(FLinearColor::White)
                 ]
-            ]
-        ];
+                + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 6.0f, 0.0f, 0.0f)
+                [
+                    SNew(SHorizontalBox)
+                    + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 4.0f, 0.0f)
+                    [BuildButton(TEXT("Select"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleSelectRtsBuildingSlot, Index), 62.0f, 28.0f)]
+                    + SHorizontalBox::Slot().AutoWidth()
+                    [Building && Building->bConstructed ? BuildButton(TEXT("Upgrade"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleQueueRtsUpgrade, Building->BuildingId), 78.0f, 28.0f, bUpgradeAvailable) : BuildButton(TEXT("Build"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleQueueRtsBuildSlot, Index, SlotFocus), 66.0f, 28.0f, bBuildAvailable)]
+                ]
+            ];
+    };
+
+    auto MakeResourceNode = [this, &RtsWorld](const FString& ResourceName, const FString& NodeLabel) -> TSharedRef<SWidget>
+    {
+        int32 BuildingOutput = 0;
+        int32 ProvinceOutput = 0;
+        if (ResourceName.Equals(TEXT("Food"), ESearchCase::IgnoreCase)) { BuildingOutput = RtsWorld.ResourceCollection.FoodFromBuildings; ProvinceOutput = RtsWorld.ResourceCollection.FoodFromProvinces; }
+        else if (ResourceName.Equals(TEXT("Fuel"), ESearchCase::IgnoreCase)) { BuildingOutput = RtsWorld.ResourceCollection.FuelFromBuildings; ProvinceOutput = RtsWorld.ResourceCollection.FuelFromProvinces; }
+        else if (ResourceName.Equals(TEXT("Wood"), ESearchCase::IgnoreCase)) { BuildingOutput = RtsWorld.ResourceCollection.WoodFromBuildings; ProvinceOutput = RtsWorld.ResourceCollection.WoodFromProvinces; }
+        else { BuildingOutput = RtsWorld.ResourceCollection.MetalsFromBuildings; ProvinceOutput = RtsWorld.ResourceCollection.MetalsFromProvinces; }
+
+        int32 NodeCount = 0;
+        for (const FDemocracyProvinceOwnershipState& Province : RtsWorld.Ownership.Provinces)
+        {
+            if (Province.bPlayerControlled && Province.ResourceFocus.Equals(ResourceName, ESearchCase::IgnoreCase))
+            {
+                ++NodeCount;
+            }
+        }
+
+        return SNew(SBorder)
+            .BorderImage(RowBrush.Get())
+            .BorderBackgroundColor(FLinearColor(0.06f, 0.16f, 0.18f, 0.94f))
+            .Padding(8.0f)
+            [
+                SNew(STextBlock)
+                .Text(BodyText(FString::Printf(TEXT("%s\n%s zones %d\nBuildings %+d | Province %+d\nSupply: %s"), *ResourceName, *NodeLabel, NodeCount, BuildingOutput, ProvinceOutput, RtsWorld.SupplyRoutes.Num() > 0 ? TEXT("linked") : TEXT("base"))))
+                .AutoWrapText(true)
+                .Font(FCoreStyle::GetDefaultFontStyle("Bold", 10))
+                .ColorAndOpacity(FLinearColor(0.86f, 0.96f, 1.0f, 1.0f))
+            ];
+    };
+
+    TSharedRef<SConstraintCanvas> CityLayout = SNew(SConstraintCanvas);
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(0.0f, 0.0f, 1120.0f, 620.0f))
+    [
+        SNew(SBorder)
+        .BorderImage(RowBrush.Get())
+        .BorderBackgroundColor(FLinearColor(0.10f, 0.18f, 0.11f, 1.0f))
+        .Padding(0.0f)
+    ];
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(0.0f, 296.0f, 1120.0f, 28.0f))
+    [SNew(SBorder).BorderImage(RowBrush.Get()).BorderBackgroundColor(FLinearColor(0.19f, 0.20f, 0.18f, 0.92f)).Padding(0.0f)];
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(546.0f, 0.0f, 28.0f, 620.0f))
+    [SNew(SBorder).BorderImage(RowBrush.Get()).BorderBackgroundColor(FLinearColor(0.19f, 0.20f, 0.18f, 0.92f)).Padding(0.0f)];
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(488.0f, 248.0f, 144.0f, 124.0f))
+    [
+        SNew(SBorder)
+        .BorderImage(RowBrush.Get())
+        .BorderBackgroundColor(FLinearColor(0.17f, 0.16f, 0.13f, 0.96f))
+        .Padding(10.0f)
+        [
+            SNew(STextBlock)
+            .Text(BodyText(TEXT("Capital Core\nCommand roads\nSupply hub")))
+            .Justification(ETextJustify::Center)
+            .Font(FCoreStyle::GetDefaultFontStyle("Bold", 12))
+            .ColorAndOpacity(FLinearColor(0.96f, 0.92f, 0.78f, 1.0f))
+        ]
+    ];
+
+    const TArray<FVector2D> SlotPositions = {
+        FVector2D(96.0f, 80.0f), FVector2D(336.0f, 76.0f), FVector2D(684.0f, 76.0f), FVector2D(924.0f, 80.0f),
+        FVector2D(94.0f, 246.0f), FVector2D(318.0f, 226.0f), FVector2D(702.0f, 226.0f), FVector2D(924.0f, 246.0f),
+        FVector2D(96.0f, 430.0f), FVector2D(336.0f, 434.0f), FVector2D(684.0f, 434.0f), FVector2D(924.0f, 430.0f)
+    };
+    for (int32 Index = 0; Index < SlotPositions.Num(); ++Index)
+    {
+        CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(SlotPositions[Index].X, SlotPositions[Index].Y, 172.0f, 126.0f))
+        [MakeBuildingPad(Index)];
     }
+
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(26.0f, 20.0f, 142.0f, 86.0f))[MakeResourceNode(TEXT("Food"), TEXT("farmland"))];
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(952.0f, 20.0f, 142.0f, 86.0f))[MakeResourceNode(TEXT("Fuel"), TEXT("depot"))];
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(26.0f, 514.0f, 142.0f, 86.0f))[MakeResourceNode(TEXT("Wood"), TEXT("timber"))];
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(952.0f, 514.0f, 142.0f, 86.0f))[MakeResourceNode(TEXT("Metals"), TEXT("mine"))];
 
     TSharedRef<SVerticalBox> QueueList = SNew(SVerticalBox);
     int32 DisplayedQueueRows = 0;
@@ -8118,11 +8204,11 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsCityBasePlaceholderWidget()
         [
             SNew(SBorder)
             .BorderImage(RtsWaterBrush.Get())
-            .BorderBackgroundColor(FLinearColor(0.10f, 0.16f, 0.13f, 1.0f))
+            .BorderBackgroundColor(FLinearColor(0.08f, 0.12f, 0.11f, 1.0f))
             .Padding(18.0f)
             [
                 SNew(SVerticalBox)
-                + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 14.0f)
+                + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 12.0f)
                 [
                     SNew(STextBlock)
                     .Text(BodyText(FString::Printf(TEXT("%s - City/Base Control"), *Base.DisplayName)))
@@ -8138,15 +8224,13 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsCityBasePlaceholderWidget()
                     .ColorAndOpacity(FLinearColor(0.85f, 0.94f, 0.88f, 1.0f))
                 ]
                 + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 12.0f)
-                [BuildRtsResourceNodesWidget()]
-                + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 12.0f)
                 [
                     SNew(SHorizontalBox)
-                    + SHorizontalBox::Slot().FillWidth(1.0f).Padding(0.0f, 0.0f, 10.0f, 0.0f)
+                    + SHorizontalBox::Slot().FillWidth(0.58f).Padding(0.0f, 0.0f, 10.0f, 0.0f)
                     [
                         SNew(SBorder)
                         .BorderImage(RowBrush.Get())
-                        .BorderBackgroundColor(FLinearColor(0.07f, 0.09f, 0.11f, 0.84f))
+                        .BorderBackgroundColor(FLinearColor(0.07f, 0.09f, 0.11f, 0.86f))
                         .Padding(10.0f)
                         [
                             SNew(STextBlock)
@@ -8156,11 +8240,11 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsCityBasePlaceholderWidget()
                             .ColorAndOpacity(FLinearColor(0.92f, 0.97f, 1.0f, 1.0f))
                         ]
                     ]
-                    + SHorizontalBox::Slot().FillWidth(1.0f)
+                    + SHorizontalBox::Slot().FillWidth(0.42f)
                     [
                         SNew(SBorder)
                         .BorderImage(RowBrush.Get())
-                        .BorderBackgroundColor(FLinearColor(0.08f, 0.10f, 0.12f, 0.78f))
+                        .BorderBackgroundColor(FLinearColor(0.08f, 0.10f, 0.12f, 0.80f))
                         .Padding(10.0f)
                         [QueueList]
                     ]
@@ -8169,33 +8253,13 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsCityBasePlaceholderWidget()
                 [
                     SNew(SBorder)
                     .BorderImage(RowBrush.Get())
-                    .BorderBackgroundColor(FLinearColor(0.12f, 0.18f, 0.12f, 0.88f))
-                    .Padding(12.0f)
+                    .BorderBackgroundColor(FLinearColor(0.04f, 0.08f, 0.07f, 0.90f))
+                    .Padding(10.0f)
                     [
-                        SNew(SOverlay)
-                        + SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Center)
-                        [
-                            SNew(SBorder)
-                            .BorderImage(RowBrush.Get())
-                            .BorderBackgroundColor(FLinearColor(0.20f, 0.22f, 0.20f, 0.58f))
-                            .Padding(FMargin(520.0f, 10.0f))
-                        ]
-                        + SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Center)
-                        [
-                            SNew(SBorder)
-                            .BorderImage(RowBrush.Get())
-                            .BorderBackgroundColor(FLinearColor(0.20f, 0.22f, 0.20f, 0.58f))
-                            .Padding(FMargin(10.0f, 190.0f))
-                        ]
-                        + SOverlay::Slot().HAlign(HAlign_Left).VAlign(VAlign_Top).Padding(12.0f)
-                        [
-                            SNew(STextBlock)
-                            .Text(BodyText(TEXT("City terrain layout: roads connect building pads to resource nodes and supply exits.")))
-                            .Font(FCoreStyle::GetDefaultFontStyle("Bold", 11))
-                            .ColorAndOpacity(FLinearColor(0.80f, 0.94f, 0.80f, 1.0f))
-                        ]
-                        + SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Center)
-                        [SlotGrid]
+                        SNew(SBox)
+                        .WidthOverride(1120.0f)
+                        .HeightOverride(620.0f)
+                        [CityLayout]
                     ]
                 ]
             ]
@@ -8209,7 +8273,6 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsCityBasePlaceholderWidget()
             [BuildButton(TEXT("Return To Office"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleCloseOfficeOverlayClicked), 172.0f, 36.0f)]
         ];
 }
-
 TSharedRef<SWidget> ALoginHUD::BuildRtsProvinceStateOverlaysWidget(float MapWidth, float MapHeight) const
 {
     TSharedRef<SOverlay> Overlay = SNew(SOverlay);
