@@ -87,7 +87,9 @@ namespace
         FPointerEventHandler OnMapMouseButtonDown;
         FPointerEventHandler OnMapMouseButtonUp;
         FPointerEventHandler OnMapMouseMove;
-    };    struct FPlaceholderServer
+    };
+
+    struct FPlaceholderServer
     {
         FString Name;
         FString Region;
@@ -6414,9 +6416,15 @@ TSharedRef<SWidget> ALoginHUD::BuildOfficeDemographicsScreen()
 FReply ALoginHUD::HandleRtsMapMouseWheel(const FGeometry& Geometry, const FPointerEvent& MouseEvent)
 {
     const float OldZoom = RtsMapZoom;
-    RtsMapZoom = FMath::Clamp(RtsMapZoom + (MouseEvent.GetWheelDelta() > 0.0f ? 0.15f : -0.15f), 0.75f, 3.0f);
-    if (!FMath::IsNearlyEqual(OldZoom, RtsMapZoom))
+    const float ZoomStep = MouseEvent.GetWheelDelta() > 0.0f ? 0.25f : -0.25f;
+    const float NewZoom = FMath::Clamp(RtsMapZoom + ZoomStep, 0.85f, 8.0f);
+    if (!FMath::IsNearlyEqual(OldZoom, NewZoom))
     {
+        const FVector2D ViewCenter = Geometry.GetLocalSize() * 0.5f;
+        const FVector2D CursorLocal = Geometry.AbsoluteToLocal(MouseEvent.GetScreenSpacePosition());
+        const FVector2D MapPointUnderCursor = (CursorLocal - ViewCenter - RtsMapPan) / OldZoom;
+        RtsMapZoom = NewZoom;
+        RtsMapPan = CursorLocal - ViewCenter - (MapPointUnderCursor * RtsMapZoom);
         RefreshLoginWidget();
     }
 
@@ -6463,14 +6471,14 @@ FReply ALoginHUD::HandleRtsMapMouseMove(const FGeometry& Geometry, const FPointe
 
 FReply ALoginHUD::HandleZoomRtsMapInClicked()
 {
-    RtsMapZoom = FMath::Clamp(RtsMapZoom + 0.25f, 0.75f, 3.0f);
+    RtsMapZoom = FMath::Clamp(RtsMapZoom + 0.5f, 0.85f, 8.0f);
     RefreshLoginWidget();
     return FReply::Handled();
 }
 
 FReply ALoginHUD::HandleZoomRtsMapOutClicked()
 {
-    RtsMapZoom = FMath::Clamp(RtsMapZoom - 0.25f, 0.75f, 3.0f);
+    RtsMapZoom = FMath::Clamp(RtsMapZoom - 0.5f, 0.85f, 8.0f);
     RefreshLoginWidget();
     return FReply::Handled();
 }
@@ -6522,7 +6530,7 @@ TSharedRef<SWidget> ALoginHUD::BuildOfficeWorldRtsScreen()
                 .OnMapMouseMove(FPointerEventHandler::CreateUObject(this, &ALoginHUD::HandleRtsMapMouseMove))
                 [
                     SNew(SBorder)
-                    .BorderImage(OverlayBrush.Get())
+                    .BorderImage(RtsWaterBrush.Get())
                     .Clipping(EWidgetClipping::ClipToBounds)
                     [
                         SNew(SOverlay)
@@ -6533,7 +6541,7 @@ TSharedRef<SWidget> ALoginHUD::BuildOfficeWorldRtsScreen()
                             .HeightOverride(MapHeight)
                             [
                                 SNew(SImage)
-                                .Image(WorldMapBrush.Get())
+                                .Image(RtsLandMapBrush.Get())
                             ]
                         ]
                     ]

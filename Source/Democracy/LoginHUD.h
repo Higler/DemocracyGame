@@ -72,6 +72,8 @@ private:
     TSharedPtr<SWidget> LoginScreenWidget;
     TSharedPtr<FSlateImageBrush> BackgroundBrush;
     TSharedPtr<FSlateDynamicImageBrush> WorldMapBrush;
+    TSharedPtr<FSlateDynamicImageBrush> RtsLandMapBrush;
+    TSharedPtr<FSlateColorBrush> RtsWaterBrush;
     TSharedPtr<FSlateColorBrush> OverlayBrush;
     TSharedPtr<FSlateColorBrush> PanelBrush;
     TSharedPtr<FSlateColorBrush> RowBrush;
