@@ -34,6 +34,7 @@
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/Layout/SScrollBox.h"
+#include "Widgets/Layout/SUniformGridPanel.h"
 #include "Widgets/SOverlay.h"
 #include "Widgets/SBoxPanel.h"
 #include "Widgets/SCompoundWidget.h"
@@ -1067,6 +1068,30 @@ namespace
         Outcome.AttentionSummary = FString::Printf(TEXT("%s requires %s attention by turn %d. Affected province: %s. Affected resource: %s."), *Outcome.ImportEventType, *Outcome.AttentionCategory, Outcome.AttentionDeadlineTurn, Outcome.AffectedProvinceName.IsEmpty() ? TEXT("Unassigned") : *Outcome.AffectedProvinceName, Outcome.AffectedResource.IsEmpty() ? TEXT("None") : *Outcome.AffectedResource);
     }
 
+    FString BuildRtsOutcomeOfficeAlertLine(const FDemocracyRtsOutcomeState& Outcome)
+    {
+        const FString DeadlineText = Outcome.AttentionDeadlineTurn > 0 ? FString::Printf(TEXT("turn %d"), Outcome.AttentionDeadlineTurn) : TEXT("no deadline");
+        return FString::Printf(TEXT("RTS Alert [%s severity %d]: %s | %s | deadline %s"),
+            *Outcome.AttentionCategory,
+            Outcome.AttentionSeverity,
+            *Outcome.ImportEventType,
+            Outcome.AttentionSummary.IsEmpty() ? *Outcome.Summary : *Outcome.AttentionSummary,
+            *DeadlineText);
+    }
+
+    void AddRtsHudAlert(FDemocracyRtsWorldState& RtsWorld, const FString& AlertText)
+    {
+        if (AlertText.IsEmpty())
+        {
+            return;
+        }
+        RtsWorld.Hud.Alerts.Add(AlertText);
+        while (RtsWorld.Hud.Alerts.Num() > 10)
+        {
+            RtsWorld.Hud.Alerts.RemoveAt(0);
+        }
+        RtsWorld.Hud.AlertSummary = FString::Join(RtsWorld.Hud.Alerts, TEXT(" | "));
+    }
     void RefreshRtsBackflowCounters(FDemocracyRtsBackflowState& Backflow)
     {
         Backflow.PendingOutcomeCount = Backflow.PendingOutcomes.Num();
@@ -1225,7 +1250,10 @@ namespace
         Outcome.bRequiresSimulationAttention = true;
         Outcome.SimulationAttentionStatus = TEXT("Queued");
         State.RtsWorld.Backflow.PendingOutcomes.Add(Outcome);
+        const FString OfficeAlertLine = BuildRtsOutcomeOfficeAlertLine(Outcome);
+        AddRtsHudAlert(State.RtsWorld, OfficeAlertLine);
         RefreshRtsBackflowCounters(State.RtsWorld.Backflow);
+        State.RtsWorld.Backflow.LastImportQueueSummary = OfficeAlertLine;
     }
 
     void QueuePrototypeRtsOutcomeIfNeeded(FDemocracySimulationState& State)
@@ -1748,9 +1776,23 @@ namespace
         Hud.ArmyOrderSummary = State.RtsWorld.ArmyGroups.Num() > 0 ? FString::Printf(TEXT("Selected army %s | order %s | morale %d | supply %d."), *State.RtsWorld.ArmyGroups[0].DisplayName, *State.RtsWorld.ArmyGroups[0].ActiveOrderType, State.RtsWorld.ArmyGroups[0].Morale, State.RtsWorld.ArmyGroups[0].SupplyStatus) : TEXT("No army selected.");
         Hud.MinimapSummary = FString::Printf(TEXT("Minimap: %d provinces | known %d | scouted %d | hidden %d | contested %d."), State.RtsWorld.Ownership.TotalProvinces, State.RtsWorld.FogOfWar.KnownProvinceCount, State.RtsWorld.FogOfWar.ScoutedProvinceCount, State.RtsWorld.FogOfWar.HiddenProvinceCount, State.RtsWorld.FogOfWar.ContestedProvinceCount);
         Hud.Alerts.Reset();
-        if (State.RtsWorld.Backflow.PendingOutcomes.Num() > 0) { Hud.Alerts.Add(FString::Printf(TEXT("%d RTS result(s) need simulation attention."), State.RtsWorld.Backflow.PendingOutcomes.Num())); }
+        if (State.RtsWorld.Backflow.PendingOutcomes.Num() > 0)
+        {
+            Hud.Alerts.Add(FString::Printf(TEXT("%d RTS result(s) need simulation attention."), State.RtsWorld.Backflow.PendingOutcomes.Num()));
+            const int32 PendingDisplayCount = FMath::Min(State.RtsWorld.Backflow.PendingOutcomes.Num(), 3);
+            for (int32 Index = 0; Index < PendingDisplayCount; ++Index)
+            {
+                Hud.Alerts.Add(BuildRtsOutcomeOfficeAlertLine(State.RtsWorld.Backflow.PendingOutcomes[Index]));
+            }
+        }
+        const int32 HistoryStart = FMath::Max(0, State.RtsWorld.Backflow.OutcomeHistory.Num() - 2);
+        for (int32 Index = State.RtsWorld.Backflow.OutcomeHistory.Num() - 1; Index >= HistoryStart; --Index)
+        {
+            Hud.Alerts.Add(FString::Printf(TEXT("Recent RTS: %s"), *BuildRtsOutcomeOfficeAlertLine(State.RtsWorld.Backflow.OutcomeHistory[Index])));
+        }
         for (const FDemocracyRtsSupplyRouteState& Route : State.RtsWorld.SupplyRoutes) { if (Route.bBroken) { Hud.Alerts.Add(FString::Printf(TEXT("Supply broken: %s"), *Route.ArmyId)); } }
         if (State.RtsWorld.FogOfWar.ContestedProvinceCount > 0) { Hud.Alerts.Add(FString::Printf(TEXT("%d contested province(s) visible."), State.RtsWorld.FogOfWar.ContestedProvinceCount)); }
+        while (Hud.Alerts.Num() > 10) { Hud.Alerts.RemoveAt(0); }
         Hud.AlertSummary = Hud.Alerts.Num() > 0 ? FString::Join(Hud.Alerts, TEXT(" | ")) : TEXT("No RTS alerts.");
         Hud.bReturnToOfficeAvailable = true;
     }
@@ -6861,6 +6903,143 @@ FString ALoginHUD::BuildRtsActionText() const
     return FString::Join(Lines, TEXT("\n"));
 }
 
+FString ALoginHUD::BuildRtsCityBaseSummaryText() const
+{
+    if (!bHasLoadedRuntimeState)
+    {
+        return TEXT("No city/base data loaded.");
+    }
+
+    const FDemocracyRtsWorldState& RtsWorld = LoadedSaveState.RuntimeState.RtsWorld;
+    const FDemocracyRtsCityBaseState& Base = RtsWorld.CityBase;
+    TArray<FString> Lines;
+    Lines.Add(FString::Printf(TEXT("Base: %s | linked country %s | province %s | grid %dx%d"), *Base.DisplayName, Base.LinkedCountryName.IsEmpty() ? TEXT("unassigned") : *Base.LinkedCountryName, Base.LinkedProvinceId.IsEmpty() ? TEXT("unassigned") : *Base.LinkedProvinceId, Base.GridWidth, Base.GridHeight));
+    Lines.Add(Base.BaseSummary);
+    Lines.Add(FString::Printf(TEXT("Buildings %d | build queue %d | upgrade queue %d | resources %s"), Base.Buildings.Num(), Base.BuildQueueCount, Base.UpgradeQueueCount, *RtsWorld.Hud.ResourceSummary));
+    if (Base.RuntimeNotes.Num() > 0)
+    {
+        Lines.Add(FString::Printf(TEXT("Notes: %s"), *FString::Join(Base.RuntimeNotes, TEXT(" | "))));
+    }
+    if (Base.ConstructionQueue.Num() > 0)
+    {
+        TArray<FString> QueueLines;
+        for (const FDemocracyRtsConstructionQueueEntryState& QueueEntry : Base.ConstructionQueue)
+        {
+            QueueLines.Add(FString::Printf(TEXT("%s %s -> L%d, %d/%d turns remaining%s"), *QueueEntry.QueueType, *QueueEntry.DisplayName, QueueEntry.TargetLevel, QueueEntry.TurnsRemaining, QueueEntry.TotalTurns, QueueEntry.bComplete ? TEXT(" complete") : TEXT("")));
+        }
+        Lines.Add(FString::Printf(TEXT("Construction: %s"), *FString::Join(QueueLines, TEXT("; "))));
+    }
+    else if (Base.BuildQueue.Num() > 0)
+    {
+        Lines.Add(FString::Printf(TEXT("Queued placeholders: %s"), *FString::Join(Base.BuildQueue, TEXT("; "))));
+    }
+    else
+    {
+        Lines.Add(TEXT("Construction: no active queue items."));
+    }
+    return FString::Join(Lines, TEXT("\n"));
+}
+
+FString ALoginHUD::BuildRtsOfficeAlertText() const
+{
+    if (!bHasLoadedRuntimeState)
+    {
+        return TEXT("No RTS alert state loaded.");
+    }
+
+    const FDemocracyRtsBackflowState& Backflow = LoadedSaveState.RuntimeState.RtsWorld.Backflow;
+    TArray<FString> Lines;
+    Lines.Add(FString::Printf(TEXT("Pending RTS alerts %d | applied RTS results %d | casualties %d | territory %+d | disruption %d | fatigue %d | budget strain %d"), Backflow.PendingOutcomes.Num(), Backflow.OutcomeHistory.Num(), Backflow.TotalCasualties, Backflow.TotalTerritoryDelta, Backflow.ResourceDisruptionPressure, Backflow.WarFatigue, Backflow.BudgetStrainPressure));
+    const int32 PendingDisplayCount = FMath::Min(Backflow.PendingOutcomes.Num(), 5);
+    for (int32 Index = 0; Index < PendingDisplayCount; ++Index)
+    {
+        Lines.Add(BuildRtsOutcomeOfficeAlertLine(Backflow.PendingOutcomes[Index]));
+    }
+    const int32 HistoryStart = FMath::Max(0, Backflow.OutcomeHistory.Num() - 3);
+    for (int32 Index = Backflow.OutcomeHistory.Num() - 1; Index >= HistoryStart; --Index)
+    {
+        const FDemocracyRtsOutcomeState& Outcome = Backflow.OutcomeHistory[Index];
+        Lines.Add(FString::Printf(TEXT("Applied RTS result turn %d: %s"), Outcome.Turn, *BuildRtsOutcomeOfficeAlertLine(Outcome)));
+    }
+    if (Lines.Num() == 1)
+    {
+        Lines.Add(TEXT("No tactical results are waiting for office attention."));
+    }
+    return FString::Join(Lines, TEXT("\n"));
+}
+
+TSharedRef<SWidget> ALoginHUD::BuildRtsCityBasePlaceholderWidget()
+{
+    const FDemocracyRtsWorldState& RtsWorld = LoadedSaveState.RuntimeState.RtsWorld;
+    const FDemocracyRtsCityBaseState& Base = RtsWorld.CityBase;
+    TSharedRef<SUniformGridPanel> SlotGrid = SNew(SUniformGridPanel).SlotPadding(FMargin(6.0f));
+    const int32 DisplaySlots = 12;
+    for (int32 Index = 0; Index < DisplaySlots; ++Index)
+    {
+        const FDemocracyRtsBuildingState* Building = Base.Buildings.IsValidIndex(Index) ? &Base.Buildings[Index] : nullptr;
+        const FString SlotLabel = Building
+            ? FString::Printf(TEXT("%s\nL%d | %s\nOutput %+d | HP %d/%d"), *Building->DisplayName, Building->Level, *Building->Status, Building->ProductionPerTick, Building->CurrentHealth, Building->MaxHealth)
+            : FString::Printf(TEXT("Empty Slot %02d\nFuture building placement"), Index + 1);
+        const bool bDisabled = Building && (Building->bDisabled || Building->DamagePercent >= 75);
+        const FLinearColor SlotColor = !Building ? FLinearColor(0.08f, 0.10f, 0.11f, 0.78f) : (bDisabled ? FLinearColor(0.36f, 0.08f, 0.07f, 0.88f) : FLinearColor(0.08f, 0.18f, 0.14f, 0.88f));
+        SlotGrid->AddSlot(Index % 4, Index / 4)
+        [
+            SNew(SBorder)
+            .BorderImage(RowBrush.Get())
+            .BorderBackgroundColor(SlotColor)
+            .Padding(10.0f)
+            [
+                SNew(SBox)
+                .WidthOverride(185.0f)
+                .HeightOverride(92.0f)
+                [
+                    SNew(STextBlock)
+                    .Text(BodyText(SlotLabel))
+                    .AutoWrapText(true)
+                    .Font(FCoreStyle::GetDefaultFontStyle("Regular", 10))
+                    .ColorAndOpacity(FLinearColor::White)
+                ]
+            ]
+        ];
+    }
+
+    return SNew(SOverlay)
+        + SOverlay::Slot()
+        [
+            SNew(SBorder)
+            .BorderImage(RtsWaterBrush.Get())
+            .BorderBackgroundColor(FLinearColor(0.10f, 0.16f, 0.13f, 1.0f))
+            .Padding(18.0f)
+            [
+                SNew(SVerticalBox)
+                + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 14.0f)
+                [
+                    SNew(STextBlock)
+                    .Text(BodyText(FString::Printf(TEXT("%s - City/Base Placeholder"), *Base.DisplayName)))
+                    .Font(FCoreStyle::GetDefaultFontStyle("Bold", 22))
+                    .ColorAndOpacity(FLinearColor::White)
+                ]
+                + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 10.0f)
+                [
+                    SNew(STextBlock)
+                    .Text(BodyText(BuildRtsCityBaseSummaryText()))
+                    .AutoWrapText(true)
+                    .Font(FCoreStyle::GetDefaultFontStyle("Regular", 12))
+                    .ColorAndOpacity(FLinearColor(0.85f, 0.94f, 0.88f, 1.0f))
+                ]
+                + SVerticalBox::Slot().FillHeight(1.0f)
+                [SlotGrid]
+            ]
+        ]
+        + SOverlay::Slot().HAlign(HAlign_Right).VAlign(VAlign_Top).Padding(18.0f)
+        [
+            SNew(SHorizontalBox)
+            + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 8.0f, 0.0f)
+            [BuildButton(TEXT("World View"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleResetRtsMapViewClicked), 136.0f, 36.0f)]
+            + SHorizontalBox::Slot().AutoWidth()
+            [BuildButton(TEXT("Return To Office"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleCloseOfficeOverlayClicked), 172.0f, 36.0f)]
+        ];
+}
 TSharedRef<SWidget> ALoginHUD::BuildRtsArmyMarkersWidget(float MapWidth, float MapHeight)
 {
     TSharedRef<SOverlay> MarkerOverlay = SNew(SOverlay);
@@ -7165,6 +7344,12 @@ TSharedRef<SWidget> ALoginHUD::BuildOfficeWorldRtsScreen()
             *GetRtsZoomModeLabel(),
             bHasLoadedRuntimeState ? *LoadedSaveState.RuntimeState.RtsWorld.Hud.ResourceSummary : TEXT("No RTS resources loaded."),
             RtsMapZoom * 100.0f);
+
+        if (RtsMapZoom >= 4.5f && bHasLoadedRuntimeState)
+        {
+            LoadedSaveState.RuntimeState.RtsWorld.ActiveViewMode = TEXT("city_base");
+            return BuildRtsCityBasePlaceholderWidget();
+        }
 
         return SNew(SOverlay)
             + SOverlay::Slot()
@@ -8462,6 +8647,13 @@ FString ALoginHUD::BuildOngoingBriefingText() const
         AddSuggestedAction(TEXT("Reduce takeover risk: improve military readiness, diplomacy, or border event response."));
     }
 
+    AddSection(TEXT("RTS Tactical Alerts"));
+    Lines.Add(BuildRtsOfficeAlertText());
+    if (State.RtsWorld.Backflow.PendingOutcomes.Num() > 0)
+    {
+        AddSuggestedAction(TEXT("Open the RTS command map or phone alerts to review pending tactical results before advancing time."));
+    }
+
     AddSection(TEXT("Advisor Notes"));
     if (State.AdvisorSystem.Reports.Num() > 0)
     {
@@ -8759,6 +8951,9 @@ FString ALoginHUD::BuildAdvisorWarningText() const
             Lines.Append(State.InvasionRisk.RecoveryTips);
         }
     }
+
+    Lines.Add(TEXT("\nRTS tactical alerts:"));
+    Lines.Add(BuildRtsOfficeAlertText());
     return FString::Join(Lines, TEXT("\n"));
 }
 FString ALoginHUD::BuildTimeControlStatusText() const

@@ -182,6 +182,9 @@ private:
     FString BuildRtsSelectedTerritoryText() const;
     FString BuildRtsSelectedArmyText() const;
     FString BuildRtsActionText() const;
+    FString BuildRtsCityBaseSummaryText() const;
+    FString BuildRtsOfficeAlertText() const;
+    TSharedRef<SWidget> BuildRtsCityBasePlaceholderWidget();
     TSharedRef<SWidget> BuildRtsArmyMarkersWidget(float MapWidth, float MapHeight);
     TSharedRef<SWidget> BuildRtsOrderButtonsWidget();
     void SelectRtsMapAtViewportPosition(const FGeometry& Geometry, const FVector2D& ScreenPosition);
