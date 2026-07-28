@@ -319,7 +319,7 @@ namespace
             CountryIndex);
     }
 
-    FDemocracyWorldMapState BuildWorldMapState(const FDifficultyProfile& DifficultyProfile, const FString& PlayerCountryName, const FString& PlayerClimate)
+    FDemocracyWorldMapState BuildWorldMapState(const FDifficultyProfile& DifficultyProfile, const FString& PlayerCountryName, const FString& PlayerClimate, int32 PlayerMapCountryIndex)
     {
         static const TCHAR* ContinentNames[] = {
             TEXT("Aurelian Reach"),
@@ -372,7 +372,8 @@ namespace
                 Country.ContinentName = Continent.ContinentName;
                 Country.Climate = Continent.Climate;
 
-                if (GlobalCountryIndex == 0)
+                const bool bIsPlayerCountry = PlayerMapCountryIndex > 0 && Country.MapCountryIndex == PlayerMapCountryIndex;
+                if (bIsPlayerCountry)
                 {
                     Country.CountryName = PlayerCountryName;
                     Country.Climate = PlayerClimate;
@@ -3974,12 +3975,20 @@ FDemocracySimulationToRtsContractState FDemocracyGameStateFactory::BuildSimulati
     return Contract;
 }
 
+FDemocracyWorldMapState FDemocracyGameStateFactory::BuildStartingCountryPreviewMap(
+    const FString& Climate,
+    const FDifficultyProfile& DifficultyProfile)
+{
+    return BuildWorldMapState(DifficultyProfile, TEXT("Player Preview"), Climate, 0);
+}
+
 FDemocracySimulationState FDemocracyGameStateFactory::CreateInitialState(
     const FString& StateName,
     const FString& LeaderGender,
     const FString& AddressTitle,
     const FString& Climate,
-    const FDifficultyProfile& DifficultyProfile)
+    const FDifficultyProfile& DifficultyProfile,
+    int32 PlayerMapCountryIndex)
 {
     FDemocracySimulationState State;
     State.Turn = 1;
@@ -4143,7 +4152,7 @@ FDemocracySimulationState FDemocracyGameStateFactory::CreateInitialState(
     State.DecisionHistory.Records = {
         { State.Turn, TEXT("State Creation"), TEXT("Initial State Created"), FString::Printf(TEXT("Difficulty %s, climate %s, address %s."), *DifficultyProfile.Name, *Climate, *AddressTitle), TEXT("Initial simulation state, world map, resource chains, departments, and advisory systems created."), State.PlayerCountry.PublicApproval, State.PlayerCountry.Stability, State.PlayerCountry.Unrest, State.PlayerCountry.Treasury, State.PlayerCountry.EconomicHealth, State.PlayerCountry.MilitaryReadiness, 10, TEXT("Initial Save"), { TEXT("creation"), TEXT("briefing") } }
     };
-    State.WorldMap = BuildWorldMapState(DifficultyProfile, StateName, Climate);
+    State.WorldMap = BuildWorldMapState(DifficultyProfile, StateName, Climate, FMath::Clamp(PlayerMapCountryIndex, 1, 195));
     State.DiplomacyMatrix = BuildDiplomacyMatrixState(State.WorldMap, State.Turn);
 
     State.RtsWorld.SimulationSecond = 0;

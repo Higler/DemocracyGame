@@ -93,6 +93,9 @@ private:
     FString PendingClimate;
     FString PendingLeaderGender;
     FString PendingAddressTitle;
+    FString PendingStartingCountryName;
+    FString PendingStartingCountrySearchText;
+    int32 PendingStartingCountryMapIndex = 0;
     FString LoadedStateName;
     FString LoadedSavePath;
     FString LoadedSaveSummary;
@@ -157,6 +160,8 @@ private:
     TSharedRef<SWidget> BuildLocalSaveSelectionScreen();
     TSharedRef<SWidget> BuildDifficultySelectionScreen();
     TSharedRef<SWidget> BuildNewStateSetupScreen();
+    TSharedRef<SWidget> BuildStartingCountrySelectionWidget();
+    TArray<FDemocracyGeneratedCountryState> BuildStartingCountryOptions() const;
     TSharedRef<SWidget> BuildLoadedGameScreen();
     TSharedRef<SWidget> BuildMultiplayerStateSelectionScreen();
     TSharedRef<SWidget> BuildServerSelectionScreen();
@@ -278,6 +283,7 @@ private:
     FReply HandleSelectDifficulty(FString DifficultyName);
     FReply HandleSelectClimate(FString ClimateName);
     FReply HandleSelectLeaderGender(FString GenderName);
+    FReply HandleSelectStartingCountry(FString CountryName, int32 MapCountryIndex);
     FReply HandleCreateInitialSaveClicked();
     FReply HandleResumeSimulationClicked();
     FReply HandlePauseSimulationClicked();
@@ -341,6 +347,7 @@ private:
     void HandleRememberLoginDetailsChanged(ECheckBoxState NewState);
     void HandleLocalSaveSearchChanged(const FText& SearchText);
     void HandlePendingStateNameChanged(const FText& StateNameText);
+    void HandleStartingCountrySearchChanged(const FText& SearchText);
     void HandleRecentLocalSavesChanged(ECheckBoxState NewState);
     void HandleServerSearchChanged(const FText& SearchText);
     void HandleRecommendedServersChanged(ECheckBoxState NewState);

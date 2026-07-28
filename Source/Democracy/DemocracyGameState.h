@@ -1333,12 +1333,17 @@ public:
     static FDemocracyWarSystemState BuildWarConflictState(const FDemocracySimulationState& State);
     static FDemocracySimulationToRtsContractState BuildSimulationToRtsContractState(const FDemocracySimulationState& State);
 
+    static FDemocracyWorldMapState BuildStartingCountryPreviewMap(
+        const FString& Climate,
+        const FDifficultyProfile& DifficultyProfile);
+
     static FDemocracySimulationState CreateInitialState(
         const FString& StateName,
         const FString& LeaderGender,
         const FString& AddressTitle,
         const FString& Climate,
-        const FDifficultyProfile& DifficultyProfile);
+        const FDifficultyProfile& DifficultyProfile,
+        int32 PlayerMapCountryIndex = 1);
 };
 
 

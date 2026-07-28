@@ -6154,47 +6154,144 @@ TSharedRef<SWidget> ALoginHUD::BuildDifficultySelectionScreen()
         [Body], 780.0f);
 }
 
-TSharedRef<SWidget> ALoginHUD::BuildNewStateSetupScreen()
+TArray<FDemocracyGeneratedCountryState> ALoginHUD::BuildStartingCountryOptions() const
 {
-    const bool bHasRequiredSelections = !PendingDifficulty.IsEmpty() && !PendingClimate.IsEmpty() && !PendingLeaderGender.IsEmpty();
+    TArray<FDemocracyGeneratedCountryState> Options;
+    if (PendingDifficulty.IsEmpty())
+    {
+        return Options;
+    }
 
-    return BuildPanel(TEXT("New State Setup"), TEXT("Name the state and choose its starting climate."),
-        SNew(SVerticalBox)
-        + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 4.0f)
-        [BuildInfoRow(TEXT("Difficulty"), PendingDifficulty.IsEmpty() ? TEXT("None selected") : PendingDifficulty)]
-        + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 4.0f)
-        [BuildInfoRow(TEXT("Difficulty Profile"), PendingDifficulty.IsEmpty() ? TEXT("Select a difficulty first.") : FDifficultyProfileLibrary::GetProfile(PendingDifficulty).ToSummaryText())]
-        + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 4.0f)
-        [BuildInfoRow(TEXT("Tutorial Guidance"), PendingDifficulty.IsEmpty() ? TEXT("Select a difficulty first.") : DifficultyGuidancePreview(FDifficultyProfileLibrary::GetProfile(PendingDifficulty)))]
-        + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 8.0f)
-        [
-            SNew(SEditableTextBox)
-            .HintText(BodyText(TEXT("State name")))
-            .Text(BodyText(PendingStateName))
-            .OnTextChanged(FOnTextChanged::CreateUObject(this, &ALoginHUD::HandlePendingStateNameChanged))
-        ]
-        + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 10.0f, 0.0f, 4.0f)
-        [BuildInfoRow(TEXT("Climate"), PendingClimate.IsEmpty() ? TEXT("Choose one climate below.") : PendingClimate)]
-        + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 4.0f)
-        [BuildButton(PendingClimate == TEXT("Northern Cold") ? TEXT("Northern Cold - Selected") : TEXT("Northern Cold"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleSelectClimate, FString(TEXT("Northern Cold"))), 360.0f, 46.0f)]
-        + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 4.0f)
-        [BuildButton(PendingClimate == TEXT("Middle Moderate") ? TEXT("Middle Moderate - Selected") : TEXT("Middle Moderate"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleSelectClimate, FString(TEXT("Middle Moderate"))), 360.0f, 46.0f)]
-        + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 4.0f)
-        [BuildButton(PendingClimate == TEXT("Southern Tropical") ? TEXT("Southern Tropical - Selected") : TEXT("Southern Tropical"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleSelectClimate, FString(TEXT("Southern Tropical"))), 360.0f, 46.0f)]
-        + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 10.0f, 0.0f, 4.0f)
-        [BuildInfoRow(TEXT("President Address"), PendingAddressTitle.IsEmpty() ? TEXT("Choose male or female for dialogue address.") : PendingAddressTitle)]
-        + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 4.0f)
-        [BuildInfoRow(TEXT("Create Status"), LastSaveStatus.IsEmpty() ? TEXT("Ready") : LastSaveStatus)]
-        + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 4.0f)
-        [BuildButton(PendingLeaderGender == TEXT("Male") ? TEXT("Male - Mr. President") : TEXT("Male"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleSelectLeaderGender, FString(TEXT("Male"))), 360.0f, 46.0f)]
-        + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 4.0f)
-        [BuildButton(PendingLeaderGender == TEXT("Female") ? TEXT("Female - Miss President") : TEXT("Female"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleSelectLeaderGender, FString(TEXT("Female"))), 360.0f, 46.0f)]
-        + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 12.0f)
-        [BuildButton(TEXT("Create State and Load Game"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleCreateInitialSaveClicked), 360.0f, 52.0f, bHasRequiredSelections)]
-        + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 14.0f)
-        [BuildButton(TEXT("Back"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleBackToDifficultyClicked), 180.0f, 44.0f)]);
+    const FDifficultyProfile DifficultyProfile = FDifficultyProfileLibrary::GetProfile(PendingDifficulty);
+    const FString PreviewClimate = PendingClimate.IsEmpty() ? TEXT("Middle Moderate") : PendingClimate;
+    const FDemocracyWorldMapState PreviewMap = FDemocracyGameStateFactory::BuildStartingCountryPreviewMap(PreviewClimate, DifficultyProfile);
+    const FString SearchLower = PendingStartingCountrySearchText.TrimStartAndEnd().ToLower();
+
+    for (const FDemocracyContinentState& Continent : PreviewMap.Continents)
+    {
+        for (const FDemocracyGeneratedCountryState& Country : Continent.Countries)
+        {
+            const FString Searchable = FString::Printf(TEXT("%s %s %s %s %s"), *Country.CountryName, *Country.CountryId, *Country.ContinentName, *Country.Climate, *Country.PoliticalType).ToLower();
+            if (SearchLower.IsEmpty() || Searchable.Contains(SearchLower))
+            {
+                Options.Add(Country);
+            }
+        }
+    }
+
+    return Options;
 }
 
+TSharedRef<SWidget> ALoginHUD::BuildStartingCountrySelectionWidget()
+{
+    TSharedRef<SVerticalBox> Body = SNew(SVerticalBox);
+
+    Body->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
+    [BuildInfoRow(TEXT("Starting Country"), PendingStartingCountryMapIndex > 0
+        ? FString::Printf(TEXT("%s | Map slot %03d"), *PendingStartingCountryName, PendingStartingCountryMapIndex)
+        : TEXT("Choose where your state starts on Planet Dulia. This location becomes the player democracy."))];
+
+    Body->AddSlot().AutoHeight().Padding(0.0f, 6.0f)
+    [
+        SNew(SEditableTextBox)
+        .HintText(BodyText(TEXT("Search country, continent, climate, or government")))
+        .Text(BodyText(PendingStartingCountrySearchText))
+        .OnTextChanged(FOnTextChanged::CreateUObject(this, &ALoginHUD::HandleStartingCountrySearchChanged))
+    ];
+
+    TSharedRef<SScrollBox> CountryList = SNew(SScrollBox);
+    const TArray<FDemocracyGeneratedCountryState> Options = BuildStartingCountryOptions();
+    int32 VisibleRows = 0;
+    for (const FDemocracyGeneratedCountryState& Country : Options)
+    {
+        if (VisibleRows >= 60)
+        {
+            break;
+        }
+
+        ++VisibleRows;
+        const bool bSelected = Country.MapCountryIndex == PendingStartingCountryMapIndex;
+        const FString Label = FString::Printf(TEXT("%s%s"), *Country.CountryName, bSelected ? TEXT(" - Selected") : TEXT(""));
+        const FString Detail = FString::Printf(
+            TEXT("Slot %03d | %s | %s | currently %s | will become your player democracy on creation."),
+            Country.MapCountryIndex,
+            *Country.ContinentName,
+            *Country.Climate,
+            *Country.PoliticalType);
+
+        CountryList->AddSlot().Padding(0.0f, 4.0f)
+        [
+            SNew(SVerticalBox)
+            + SVerticalBox::Slot().AutoHeight()
+            [BuildButton(Label, FOnClicked::CreateUObject(this, &ALoginHUD::HandleSelectStartingCountry, Country.CountryName, Country.MapCountryIndex), 560.0f, 42.0f)]
+            + SVerticalBox::Slot().AutoHeight()
+            [BuildInfoRow(TEXT("Map Location"), Detail)]
+        ];
+    }
+
+    if (VisibleRows == 0)
+    {
+        CountryList->AddSlot().Padding(0.0f, 4.0f)
+        [BuildInfoRow(TEXT("No Countries Found"), TEXT("Adjust the starting-country search text."))];
+    }
+    else if (Options.Num() > VisibleRows)
+    {
+        CountryList->AddSlot().Padding(0.0f, 4.0f)
+        [BuildInfoRow(TEXT("Filtered"), FString::Printf(TEXT("Showing first %d of %d matches. Use search to narrow the list."), VisibleRows, Options.Num()))];
+    }
+
+    Body->AddSlot().MaxHeight(330.0f).Padding(0.0f, 8.0f)
+    [CountryList];
+
+    return Body;
+}
+
+TSharedRef<SWidget> ALoginHUD::BuildNewStateSetupScreen()
+{
+    const bool bHasRequiredSelections = !PendingDifficulty.IsEmpty() && !PendingClimate.IsEmpty() && !PendingLeaderGender.IsEmpty() && PendingStartingCountryMapIndex > 0;
+
+    TSharedRef<SVerticalBox> Body = SNew(SVerticalBox);
+    Body->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
+    [BuildInfoRow(TEXT("Difficulty"), PendingDifficulty.IsEmpty() ? TEXT("None selected") : PendingDifficulty)];
+    Body->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
+    [BuildInfoRow(TEXT("Difficulty Profile"), PendingDifficulty.IsEmpty() ? TEXT("Select a difficulty first.") : FDifficultyProfileLibrary::GetProfile(PendingDifficulty).ToSummaryText())];
+    Body->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
+    [BuildInfoRow(TEXT("Tutorial Guidance"), PendingDifficulty.IsEmpty() ? TEXT("Select a difficulty first.") : DifficultyGuidancePreview(FDifficultyProfileLibrary::GetProfile(PendingDifficulty)))];
+    Body->AddSlot().AutoHeight().Padding(0.0f, 8.0f)
+    [
+        SNew(SEditableTextBox)
+        .HintText(BodyText(TEXT("State name")))
+        .Text(BodyText(PendingStateName))
+        .OnTextChanged(FOnTextChanged::CreateUObject(this, &ALoginHUD::HandlePendingStateNameChanged))
+    ];
+    Body->AddSlot().AutoHeight().Padding(0.0f, 10.0f, 0.0f, 4.0f)
+    [BuildInfoRow(TEXT("Climate"), PendingClimate.IsEmpty() ? TEXT("Choose one climate below.") : PendingClimate)];
+    Body->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
+    [BuildButton(PendingClimate == TEXT("Northern Cold") ? TEXT("Northern Cold - Selected") : TEXT("Northern Cold"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleSelectClimate, FString(TEXT("Northern Cold"))), 360.0f, 46.0f)];
+    Body->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
+    [BuildButton(PendingClimate == TEXT("Middle Moderate") ? TEXT("Middle Moderate - Selected") : TEXT("Middle Moderate"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleSelectClimate, FString(TEXT("Middle Moderate"))), 360.0f, 46.0f)];
+    Body->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
+    [BuildButton(PendingClimate == TEXT("Southern Tropical") ? TEXT("Southern Tropical - Selected") : TEXT("Southern Tropical"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleSelectClimate, FString(TEXT("Southern Tropical"))), 360.0f, 46.0f)];
+    Body->AddSlot().AutoHeight().Padding(0.0f, 10.0f, 0.0f, 4.0f)
+    [BuildInfoRow(TEXT("President Address"), PendingAddressTitle.IsEmpty() ? TEXT("Choose male or female for dialogue address.") : PendingAddressTitle)];
+    Body->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
+    [BuildButton(PendingLeaderGender == TEXT("Male") ? TEXT("Male - Mr. President") : TEXT("Male"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleSelectLeaderGender, FString(TEXT("Male"))), 360.0f, 46.0f)];
+    Body->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
+    [BuildButton(PendingLeaderGender == TEXT("Female") ? TEXT("Female - Miss President") : TEXT("Female"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleSelectLeaderGender, FString(TEXT("Female"))), 360.0f, 46.0f)];
+    Body->AddSlot().AutoHeight().Padding(0.0f, 12.0f)
+    [BuildStartingCountrySelectionWidget()];
+    Body->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
+    [BuildInfoRow(TEXT("Create Status"), LastSaveStatus.IsEmpty() ? TEXT("Ready") : LastSaveStatus)];
+    Body->AddSlot().AutoHeight().Padding(0.0f, 12.0f)
+    [BuildButton(TEXT("Create State and Load Game"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleCreateInitialSaveClicked), 360.0f, 52.0f, bHasRequiredSelections)];
+    Body->AddSlot().AutoHeight().Padding(0.0f, 14.0f)
+    [BuildButton(TEXT("Back"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleBackToDifficultyClicked), 180.0f, 44.0f)];
+
+    return BuildPanel(TEXT("New State Setup"), TEXT("Name the state, choose its climate, and choose where it starts on Planet Dulia."),
+        SNew(SScrollBox)
+        + SScrollBox::Slot()
+        [Body], 820.0f);
+}
 TSharedRef<SWidget> ALoginHUD::BuildLoadedGameScreen()
 {
     return BuildPanel(TEXT("Loaded State"), TEXT("Runtime state is loaded. Enter the office to continue playing."),
@@ -9293,9 +9390,9 @@ FString ALoginHUD::BuildSafeSaveFileName(const FString& StateName) const
 bool ALoginHUD::CreateInitialSinglePlayerSave(FString& OutSavePath)
 {
     const FString CleanStateName = PendingStateName.TrimStartAndEnd();
-    if (CleanStateName.IsEmpty() || PendingDifficulty.IsEmpty() || PendingClimate.IsEmpty() || PendingLeaderGender.IsEmpty())
+    if (CleanStateName.IsEmpty() || PendingDifficulty.IsEmpty() || PendingClimate.IsEmpty() || PendingLeaderGender.IsEmpty() || PendingStartingCountryMapIndex <= 0)
     {
-        UE_LOG(LogTemp, Warning, TEXT("Single-player save creation failed: missing state name, difficulty, or climate."));
+        UE_LOG(LogTemp, Warning, TEXT("Single-player save creation failed: missing state name, difficulty, climate, address, or starting country."));
         return false;
     }
 
@@ -9321,7 +9418,8 @@ bool ALoginHUD::CreateInitialSinglePlayerSave(FString& OutSavePath)
         PendingLeaderGender,
         PendingAddressTitle,
         PendingClimate,
-        DifficultyProfile);
+        DifficultyProfile,
+        PendingStartingCountryMapIndex);
     InitializeEarlyGameBalanceTestData(InitialGameState);
     const FString SaveId = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower);
     const FString CreatedAt = SaveTimestamp();
@@ -9334,6 +9432,8 @@ bool ALoginHUD::CreateInitialSinglePlayerSave(FString& OutSavePath)
         TEXT("  \"difficulty\": \"%s\",\n")
         TEXT("  \"difficultyProfile\": %s,\n")
         TEXT("  \"climate\": \"%s\",\n")
+        TEXT("  \"startingCountryName\": \"%s\",\n")
+        TEXT("  \"startingCountryMapIndex\": %d,\n")
         TEXT("  \"leaderGender\": \"%s\",\n")
         TEXT("  \"addressTitle\": \"%s\",\n")
         TEXT("  \"createdAtUtc\": \"%s\",\n")
@@ -9349,6 +9449,8 @@ bool ALoginHUD::CreateInitialSinglePlayerSave(FString& OutSavePath)
         *JsonEscape(DifficultyProfile.Name),
         *DifficultyProfile.ToJson(2),
         *JsonEscape(PendingClimate),
+        *JsonEscape(PendingStartingCountryName),
+        PendingStartingCountryMapIndex,
         *JsonEscape(PendingLeaderGender),
         *JsonEscape(PendingAddressTitle),
         *JsonEscape(CreatedAt),
@@ -10861,6 +10963,9 @@ FReply ALoginHUD::HandleSelectDifficulty(FString DifficultyName)
     PendingClimate.Empty();
     PendingLeaderGender.Empty();
     PendingAddressTitle.Empty();
+    PendingStartingCountryName.Empty();
+    PendingStartingCountrySearchText.Empty();
+    PendingStartingCountryMapIndex = 0;
     ShowScreen(ELoginFlowScreen::NewStateSetup);
     return FReply::Handled();
 }
@@ -10880,6 +10985,15 @@ FReply ALoginHUD::HandleSelectLeaderGender(FString GenderName)
     return FReply::Handled();
 }
 
+FReply ALoginHUD::HandleSelectStartingCountry(FString CountryName, int32 MapCountryIndex)
+{
+    PendingStartingCountryName = CountryName;
+    PendingStartingCountryMapIndex = MapCountryIndex;
+    LastSaveStatus = FString::Printf(TEXT("Starting country selected: %s, map slot %03d."), *PendingStartingCountryName, PendingStartingCountryMapIndex);
+    RefreshLoginWidget();
+    return FReply::Handled();
+}
+
 FReply ALoginHUD::HandleCreateInitialSaveClicked()
 {
     if (PendingStateName.TrimStartAndEnd().IsEmpty())
@@ -10892,6 +11006,13 @@ FReply ALoginHUD::HandleCreateInitialSaveClicked()
     if (PendingDifficulty.IsEmpty() || PendingClimate.IsEmpty() || PendingLeaderGender.IsEmpty())
     {
         LastSaveStatus = TEXT("Choose difficulty, climate, and president address before creating the save.");
+        RefreshLoginWidget();
+        return FReply::Handled();
+    }
+
+    if (PendingStartingCountryMapIndex <= 0)
+    {
+        LastSaveStatus = TEXT("Choose a starting country on Planet Dulia before creating the save.");
         RefreshLoginWidget();
         return FReply::Handled();
     }
@@ -13192,6 +13313,12 @@ void ALoginHUD::HandleLocalSaveSearchChanged(const FText& SearchText)
 void ALoginHUD::HandlePendingStateNameChanged(const FText& StateNameText)
 {
     PendingStateName = StateNameText.ToString();
+}
+
+void ALoginHUD::HandleStartingCountrySearchChanged(const FText& SearchText)
+{
+    PendingStartingCountrySearchText = SearchText.ToString();
+    RefreshLoginWidget();
 }
 
 void ALoginHUD::HandleRecentLocalSavesChanged(ECheckBoxState NewState)
