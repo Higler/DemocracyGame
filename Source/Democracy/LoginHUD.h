@@ -178,6 +178,7 @@ private:
     FReply HandleZoomRtsMapInClicked();
     FReply HandleZoomRtsMapOutClicked();
     FReply HandleResetRtsMapViewClicked();
+    FReply HandleFocusRtsMapSelectionClicked();
     FString GetRtsZoomModeLabel() const;
     FString BuildRtsSelectedTerritoryText() const;
     FString BuildRtsSelectedArmyText() const;
@@ -190,6 +191,8 @@ private:
     TSharedRef<SWidget> BuildRtsOrderButtonsWidget();
     void SelectRtsMapAtViewportPosition(const FGeometry& Geometry, const FVector2D& ScreenPosition);
     bool TryIssueRtsOrderToProvince(const FString& TargetProvinceId);
+    void ClampRtsMapView();
+    void FocusRtsMapOnSelection();
     FReply HandleSelectRtsOrder(FString OrderType);
     FReply HandleSelectRtsBuildingSlot(int32 SlotIndex);
     FReply HandleQueueRtsBuildSlot(int32 SlotIndex, FString ResourceFocus);

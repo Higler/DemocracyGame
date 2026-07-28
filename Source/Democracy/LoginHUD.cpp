@@ -984,6 +984,22 @@ namespace
         {
             return TEXT("Supply Route Broken");
         }
+        if (OutcomeType.Equals(TEXT("Movement Complete"), ESearchCase::IgnoreCase))
+        {
+            return TEXT("Movement Complete");
+        }
+        if (OutcomeType.Equals(TEXT("Province Occupied"), ESearchCase::IgnoreCase))
+        {
+            return TEXT("Province Occupied");
+        }
+        if (OutcomeType.Equals(TEXT("Occupation Finalized"), ESearchCase::IgnoreCase))
+        {
+            return TEXT("Occupation Finalized");
+        }
+        if (OutcomeType.Equals(TEXT("Resource Disrupted"), ESearchCase::IgnoreCase))
+        {
+            return TEXT("Resource Disrupted");
+        }
         if (OutcomeType.Equals(TEXT("Territory Gained"), ESearchCase::IgnoreCase) || OutcomeType.Equals(TEXT("Province Captured"), ESearchCase::IgnoreCase))
         {
             return TEXT("Province Captured");
@@ -997,9 +1013,17 @@ namespace
 
     FString RtsAttentionCategoryForImportEvent(const FString& ImportEventType)
     {
-        if (ImportEventType.Contains(TEXT("Province")))
+        if (ImportEventType.Contains(TEXT("Province")) || ImportEventType.Equals(TEXT("Occupation Finalized"), ESearchCase::IgnoreCase))
         {
             return TEXT("Territory Control");
+        }
+        if (ImportEventType.Equals(TEXT("Movement Complete"), ESearchCase::IgnoreCase))
+        {
+            return TEXT("Operations");
+        }
+        if (ImportEventType.Equals(TEXT("Resource Disrupted"), ESearchCase::IgnoreCase))
+        {
+            return TEXT("Resources");
         }
         if (ImportEventType.Equals(TEXT("Battle Lost"), ESearchCase::IgnoreCase))
         {
@@ -1365,6 +1389,55 @@ namespace
         AddRtsHudAlert(State.RtsWorld, OfficeAlertLine);
         RefreshRtsBackflowCounters(State.RtsWorld.Backflow);
         State.RtsWorld.Backflow.LastImportQueueSummary = OfficeAlertLine;
+        if (Outcome.ResourceDisruption > 0)
+        {
+            State.RtsWorld.Backflow.LastImportQueueSummary += FString::Printf(TEXT(" Resource disruption %+d is queued for simulation."), Outcome.ResourceDisruption);
+        }
+    }
+
+    void RecordRtsOfficeAlert(FDemocracySimulationState& State, const FString& EventType, const FString& Summary, const FString& ProvinceId = TEXT(""), int32 Severity = 25)
+    {
+        if (Summary.IsEmpty())
+        {
+            return;
+        }
+
+        FDemocracyRtsOutcomeState Alert;
+        Alert.OutcomeId = FString::Printf(TEXT("RTS-ALERT-%d-%d"), State.Turn, State.RtsWorld.Backflow.OutcomeHistory.Num() + State.RtsWorld.Hud.Alerts.Num() + 1);
+        Alert.OutcomeType = EventType;
+        Alert.ImportEventType = NormalizeRtsImportEventType(EventType);
+        Alert.AttentionCategory = RtsAttentionCategoryForImportEvent(Alert.ImportEventType);
+        Alert.AffectedCountryName = State.PlayerCountry.CountryName;
+        Alert.AffectedProvinceId = ProvinceId;
+        Alert.AffectedProvinceName = ProvinceId;
+        Alert.Summary = Summary;
+        Alert.AttentionSummary = Summary;
+        Alert.AttentionSeverity = FMath::Clamp(Severity, 1, 100);
+        Alert.AttentionDeadlineTurn = State.Turn + FMath::Clamp(6 - Alert.AttentionSeverity / 20, 2, 6);
+        Alert.Turn = State.Turn;
+        Alert.bRequiresSimulationAttention = true;
+        Alert.bAcknowledgedBySimulation = true;
+        Alert.bAppliedToSimulation = true;
+        Alert.SimulationAttentionStatus = TEXT("Recorded");
+        Alert.ConsequenceTags = { TEXT("rts"), TEXT("office-alert"), EventType };
+
+        for (const FDemocracyProvinceOwnershipState& Province : State.RtsWorld.Ownership.Provinces)
+        {
+            if (!ProvinceId.IsEmpty() && Province.ProvinceId.Equals(ProvinceId, ESearchCase::IgnoreCase))
+            {
+                Alert.AffectedCountryName = Province.CurrentControllerCountryName.IsEmpty() ? Province.CurrentOwnerCountryName : Province.CurrentControllerCountryName;
+                Alert.AffectedProvinceName = Province.ProvinceName;
+                Alert.AffectedResource = Province.ResourceFocus;
+                break;
+            }
+        }
+
+        const FString OfficeAlertLine = BuildRtsOutcomeOfficeAlertLine(Alert);
+        State.RtsWorld.Backflow.LastImportQueueSummary = OfficeAlertLine;
+        State.RtsWorld.Backflow.OutcomeHistory.Add(Alert);
+        TrimRtsBackflowHistory(State.RtsWorld.Backflow);
+        RefreshRtsBackflowCounters(State.RtsWorld.Backflow);
+        AddRtsHudAlert(State.RtsWorld, OfficeAlertLine);
     }
 
     void QueuePrototypeRtsOutcomeIfNeeded(FDemocracySimulationState& State)
@@ -1596,6 +1669,7 @@ namespace
                     Province.bBorderProvince = true;
                     Province.LastChangedTurn = State.Turn;
                     Captured.Add(Province.ProvinceName);
+                    RecordRtsOfficeAlert(State, TEXT("Province Occupied"), FString::Printf(TEXT("%s entered occupied/contested control under %s. Ownership transfers after 3 held turn(s) or a peace condition."), *Province.ProvinceName, *PlayerName), Province.ProvinceId, 50);
                     --TransfersRemaining;
                 }
             }
@@ -1619,6 +1693,7 @@ namespace
                     Province.bBorderProvince = true;
                     Province.LastChangedTurn = State.Turn;
                     Lost.Add(Province.ProvinceName);
+                    RecordRtsOfficeAlert(State, TEXT("Province Occupied"), FString::Printf(TEXT("%s entered occupied/contested control under %s. Ownership transfer is pending unless control is restored."), *Province.ProvinceName, *Province.CurrentControllerCountryName), Province.ProvinceId, 70);
                     --TransfersRemaining;
                 }
             }
@@ -1637,6 +1712,7 @@ namespace
         FDemocracyMapOwnershipState& Ownership = State.RtsWorld.Ownership;
         constexpr int32 RequiredOccupationTurns = 3;
         TArray<FString> Transfers;
+        TArray<FString> ActiveOccupations;
 
         for (FDemocracyProvinceOwnershipState& Province : Ownership.Provinces)
         {
@@ -1653,9 +1729,14 @@ namespace
                 continue;
             }
 
-            const int32 OccupationTurns = State.Turn - Province.LastChangedTurn;
+            const int32 OccupationTurns = FMath::Max(0, State.Turn - Province.LastChangedTurn);
+            const int32 TurnsRemaining = FMath::Max(0, RequiredOccupationTurns - OccupationTurns);
+            Province.Unrest = FMath::Clamp(Province.Unrest + (TurnsRemaining > 0 ? 1 : 0), 0, 100);
+            Province.Stability = FMath::Clamp(Province.Stability - (TurnsRemaining > 0 ? 1 : 0), 0, 100);
+
             if (OccupationTurns < RequiredOccupationTurns)
             {
+                ActiveOccupations.Add(FString::Printf(TEXT("%s controlled by %s, ownership in %d turn(s) unless peace changes control"), *Province.ProvinceName, *Province.CurrentControllerCountryName, TurnsRemaining));
                 continue;
             }
 
@@ -1666,18 +1747,21 @@ namespace
             Transfers.Add(FString::Printf(TEXT("%s -> %s"), *Province.ProvinceName, *Province.CurrentOwnerCountryName));
         }
 
+        if (ActiveOccupations.Num() > 0)
+        {
+            const FString OccupationSummary = FString::Printf(TEXT("Occupation timer active: %s."), *FString::Join(ActiveOccupations, TEXT("; ")));
+            State.RtsWorld.Backflow.LastImportQueueSummary = OccupationSummary;
+            AddRtsHudAlert(State.RtsWorld, OccupationSummary);
+        }
+
         if (Transfers.Num() > 0)
         {
             Ownership.LastUpdatedTurn = State.Turn;
             RefreshRuntimeMapOwnership(Ownership);
             State.RtsWorld.ControlledTerritories = Ownership.PlayerControlledProvinces;
             State.RtsWorld.BorderTerritories = Ownership.BorderProvinceCount;
-            State.RtsWorld.Backflow.LastImportQueueSummary = FString::Printf(TEXT("Occupation ownership finalized: %s."), *FString::Join(Transfers, TEXT(", ")));
-            State.RtsWorld.Hud.Alerts.Add(State.RtsWorld.Backflow.LastImportQueueSummary);
-            if (State.RtsWorld.Hud.Alerts.Num() > 8)
-            {
-                State.RtsWorld.Hud.Alerts.RemoveAt(0, State.RtsWorld.Hud.Alerts.Num() - 8);
-            }
+            const FString FinalizedSummary = FString::Printf(TEXT("Occupation ownership finalized: %s."), *FString::Join(Transfers, TEXT(", ")));
+            RecordRtsOfficeAlert(State, TEXT("Occupation Finalized"), FinalizedSummary, TEXT(""), 55);
         }
     }
     void ApplyRtsBackflowOutcome(FDemocracySimulationState& State, FDemocracyRtsOutcomeState& Outcome)
@@ -2013,6 +2097,7 @@ namespace
 
         for (FDemocracyRtsSupplyRouteState& Route : State.RtsWorld.SupplyRoutes)
         {
+            const bool bWasBroken = Route.bBroken;
             const int32 FuelShortage = GetResourceChainShortage(State.ResourceChains, TEXT("Fuel"));
             Route.DistancePenalty = Route.SourceProvinceId.Equals(Route.DestinationProvinceId, ESearchCase::IgnoreCase) ? 0 : 8;
             Route.Disruption = FMath::Clamp(State.RtsWorld.Backflow.ResourceDisruptionPressure / 8 + FuelShortage / 10 + Route.DistancePenalty, 0, 100);
@@ -2022,6 +2107,11 @@ namespace
             if (Route.bBroken)
             {
                 Route.Risks.AddUnique(TEXT("broken supply route"));
+                if (!bWasBroken)
+                {
+                    RecordRtsOfficeAlert(State, TEXT("Supply Route Broken"), FString::Printf(TEXT("Supply broken for %s from %s to %s. Fuel/logistics disruption now affects movement and combat strength."), *Route.ArmyId, *Route.SourceProvinceId, *Route.DestinationProvinceId), Route.DestinationProvinceId, 62);
+                    RecordRtsOfficeAlert(State, TEXT("Resource Disrupted"), FString::Printf(TEXT("Resource disruption increased because %s lost supply status; fuel and logistics output need attention."), *Route.ArmyId), Route.DestinationProvinceId, 48);
+                }
             }
         }
 
@@ -2154,6 +2244,7 @@ namespace
                 Army->OrderTurnsRemaining = 0;
                 Army->MovementTurnsRemaining = 0;
                 Order.StatusSummary = FString::Printf(TEXT("%s scouted %s without hostile contact."), *Army->DisplayName, *TargetProvince->ProvinceName);
+                RecordRtsOfficeAlert(State, TEXT("Movement Complete"), Order.StatusSummary, Order.TargetProvinceId, 20);
                 continue;
             }
 
@@ -2164,6 +2255,7 @@ namespace
                 Army->MovementState = Order.OrderType.Equals(TEXT("Reinforce"), ESearchCase::IgnoreCase) ? TEXT("Reinforcing") : TEXT("Arrived");
                 Army->Morale = FMath::Clamp(Army->Morale + (Order.OrderType.Equals(TEXT("Reinforce"), ESearchCase::IgnoreCase) ? 3 : 1), 0, 100);
                 Order.StatusSummary = FString::Printf(TEXT("%s completed. %s is now at %s."), *Order.OrderType, *Army->DisplayName, *Order.TargetProvinceId);
+                RecordRtsOfficeAlert(State, TEXT("Movement Complete"), Order.StatusSummary, Order.TargetProvinceId, 22);
             }
             else if (Order.OrderType.Equals(TEXT("Defend"), ESearchCase::IgnoreCase))
             {
@@ -2171,6 +2263,7 @@ namespace
                 Army->MovementState = TEXT("Defending");
                 Army->Morale = FMath::Clamp(Army->Morale + 2, 0, 100);
                 Order.StatusSummary = FString::Printf(TEXT("%s is defending %s."), *Army->DisplayName, *Order.TargetProvinceId);
+                RecordRtsOfficeAlert(State, TEXT("Movement Complete"), Order.StatusSummary, Order.TargetProvinceId, 24);
             }
             else if (Order.OrderType.Equals(TEXT("Patrol/Scout"), ESearchCase::IgnoreCase))
             {
@@ -6813,7 +6906,7 @@ FReply ALoginHUD::HandleRtsMapMouseWheel(const FGeometry& Geometry, const FPoint
 {
     const float OldZoom = RtsMapZoom;
     const float ZoomStep = MouseEvent.GetWheelDelta() > 0.0f ? 0.25f : -0.25f;
-    const float NewZoom = FMath::Clamp(RtsMapZoom + ZoomStep, 0.85f, 8.0f);
+    const float NewZoom = FMath::Clamp(RtsMapZoom + ZoomStep, 0.75f, 8.0f);
     if (!FMath::IsNearlyEqual(OldZoom, NewZoom))
     {
         const FVector2D ViewCenter = Geometry.GetLocalSize() * 0.5f;
@@ -6821,6 +6914,7 @@ FReply ALoginHUD::HandleRtsMapMouseWheel(const FGeometry& Geometry, const FPoint
         const FVector2D MapPointUnderCursor = (CursorLocal - ViewCenter - RtsMapPan) / OldZoom;
         RtsMapZoom = NewZoom;
         RtsMapPan = CursorLocal - ViewCenter - (MapPointUnderCursor * RtsMapZoom);
+        ClampRtsMapView();
         RefreshLoginWidget();
     }
 
@@ -6866,6 +6960,7 @@ FReply ALoginHUD::HandleRtsMapMouseMove(const FGeometry& Geometry, const FPointe
         if (!Delta.IsNearlyZero())
         {
             RtsMapPan += Delta;
+            ClampRtsMapView();
             LastRtsMapDragScreenPosition = CurrentPosition;
             bRtsMapDragMoved = bRtsMapDragMoved || FVector2D::Distance(RtsMapMouseDownScreenPosition, CurrentPosition) >= 5.0f;
             RefreshLoginWidget();
@@ -6880,14 +6975,16 @@ FReply ALoginHUD::HandleRtsMapMouseMove(const FGeometry& Geometry, const FPointe
 
 FReply ALoginHUD::HandleZoomRtsMapInClicked()
 {
-    RtsMapZoom = FMath::Clamp(RtsMapZoom + 0.5f, 0.85f, 8.0f);
+    RtsMapZoom = FMath::Clamp(RtsMapZoom + 0.5f, 0.75f, 8.0f);
+    ClampRtsMapView();
     RefreshLoginWidget();
     return FReply::Handled();
 }
 
 FReply ALoginHUD::HandleZoomRtsMapOutClicked()
 {
-    RtsMapZoom = FMath::Clamp(RtsMapZoom - 0.5f, 0.85f, 8.0f);
+    RtsMapZoom = FMath::Clamp(RtsMapZoom - 0.5f, 0.75f, 8.0f);
+    ClampRtsMapView();
     RefreshLoginWidget();
     return FReply::Handled();
 }
@@ -6898,6 +6995,78 @@ FReply ALoginHUD::HandleResetRtsMapViewClicked()
     RtsMapPan = FVector2D::ZeroVector;
     bIsDraggingRtsMap = false;
     bRtsMapDragMoved = false;
+    RefreshLoginWidget();
+    return FReply::Handled();
+}
+
+
+void ALoginHUD::ClampRtsMapView()
+{
+    RtsMapZoom = FMath::Clamp(RtsMapZoom, 0.75f, 8.0f);
+    const float MaxPanX = FMath::Max(220.0f, 1121.0f * RtsMapZoom);
+    const float MaxPanY = FMath::Max(160.0f, 552.0f * RtsMapZoom);
+    RtsMapPan.X = FMath::Clamp(RtsMapPan.X, -MaxPanX, MaxPanX);
+    RtsMapPan.Y = FMath::Clamp(RtsMapPan.Y, -MaxPanY, MaxPanY);
+}
+
+void ALoginHUD::FocusRtsMapOnSelection()
+{
+    if (!bHasLoadedRuntimeState)
+    {
+        return;
+    }
+
+    const FDemocracySimulationState& State = LoadedSaveState.RuntimeState;
+    FString CountryName = RtsSelectedCountryName;
+    if (!RtsSelectedProvinceId.IsEmpty())
+    {
+        for (const FDemocracyProvinceOwnershipState& Province : State.RtsWorld.Ownership.Provinces)
+        {
+            if (Province.ProvinceId.Equals(RtsSelectedProvinceId, ESearchCase::IgnoreCase))
+            {
+                CountryName = Province.OriginalCountryName;
+                break;
+            }
+        }
+    }
+    if (CountryName.IsEmpty())
+    {
+        CountryName = State.PlayerCountry.CountryName;
+    }
+
+    const FDemocracyCountryOwnershipState* FocusCountry = nullptr;
+    for (const FDemocracyCountryOwnershipState& Country : State.RtsWorld.Ownership.Countries)
+    {
+        if (Country.CountryName.Equals(CountryName, ESearchCase::IgnoreCase))
+        {
+            FocusCountry = &Country;
+            break;
+        }
+        if (!FocusCountry && Country.bPlayerCountry)
+        {
+            FocusCountry = &Country;
+        }
+    }
+    if (!FocusCountry)
+    {
+        return;
+    }
+
+    for (const FDuliaCountryMapPoint& Point : GetDuliaCountryMapPoints())
+    {
+        if (Point.CountryIndex == FocusCountry->MapCountryIndex)
+        {
+            RtsMapZoom = FMath::Max(RtsMapZoom, 2.25f);
+            RtsMapPan = (FVector2D(1121.0f, 552.0f) - Point.Centroid) * RtsMapZoom;
+            ClampRtsMapView();
+            return;
+        }
+    }
+}
+
+FReply ALoginHUD::HandleFocusRtsMapSelectionClicked()
+{
+    FocusRtsMapOnSelection();
     RefreshLoginWidget();
     return FReply::Handled();
 }
@@ -7053,6 +7222,18 @@ FString ALoginHUD::BuildRtsActionText() const
     Lines.Add(Hud.BuildMenuSummary);
     Lines.Add(FString::Printf(TEXT("Build: %s"), Hud.BuildMenuOptions.Num() > 0 ? *FString::Join(Hud.BuildMenuOptions, TEXT(" | ")) : TEXT("none")));
     Lines.Add(Hud.MinimapSummary);
+    Lines.Add(FString::Printf(TEXT("Save/Load verification: armies %d | active orders %d/%d | supply %d | provinces %d controlled %d contested %d | fog %d | queues %d | battles %d | backflow history %d."),
+        LoadedSaveState.RuntimeState.RtsWorld.ArmyGroups.Num(),
+        LoadedSaveState.RuntimeState.RtsWorld.MovementOrders.FilterByPredicate([](const FDemocracyRtsMovementOrderState& Order) { return Order.bActive && !Order.bComplete && !Order.bCancelled; }).Num(),
+        LoadedSaveState.RuntimeState.RtsWorld.MovementOrders.Num(),
+        LoadedSaveState.RuntimeState.RtsWorld.SupplyRoutes.Num(),
+        LoadedSaveState.RuntimeState.RtsWorld.Ownership.TotalProvinces,
+        LoadedSaveState.RuntimeState.RtsWorld.Ownership.PlayerControlledProvinces,
+        LoadedSaveState.RuntimeState.RtsWorld.Ownership.ContestedProvinces,
+        LoadedSaveState.RuntimeState.RtsWorld.FogOfWar.Provinces.Num(),
+        LoadedSaveState.RuntimeState.RtsWorld.CityBase.ConstructionQueue.Num(),
+        LoadedSaveState.RuntimeState.RtsWorld.BattleHistory.Num(),
+        LoadedSaveState.RuntimeState.RtsWorld.Backflow.OutcomeHistory.Num()));
     Lines.Add(FString::Printf(TEXT("Alerts: %s"), *Hud.AlertSummary));
     return FString::Join(Lines, TEXT("\n"));
 }
@@ -7898,6 +8079,8 @@ TSharedRef<SWidget> ALoginHUD::BuildOfficeWorldRtsScreen()
                     [BuildButton(TEXT("-"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleZoomRtsMapOutClicked), 42.0f, 34.0f)]
                     + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 6.0f, 0.0f)
                     [BuildButton(TEXT("Reset"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleResetRtsMapViewClicked), 88.0f, 34.0f)]
+                    + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 6.0f, 0.0f)
+                    [BuildButton(TEXT("Focus"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleFocusRtsMapSelectionClicked), 78.0f, 34.0f)]
                     + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 10.0f, 0.0f)
                     [BuildButton(TEXT("+"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleZoomRtsMapInClicked), 42.0f, 34.0f)]
                     + SHorizontalBox::Slot().AutoWidth()
@@ -7960,29 +8143,21 @@ TSharedRef<SWidget> ALoginHUD::BuildOfficeWorldRtsScreen()
                             [
                                 BuildRtsOrderButtonsWidget()
                             ]
-                        ]
-                    ]
-                ]
-            ]
-            + SOverlay::Slot().HAlign(HAlign_Left).VAlign(VAlign_Bottom).Padding(18.0f)
-            [
-                SNew(SBorder)
-                .BorderImage(RowBrush.Get())
-                .BorderBackgroundColor(FLinearColor(0.02f, 0.04f, 0.03f, 0.80f))
-                .Padding(10.0f)
-                [
-                    SNew(SBox)
-                    .WidthOverride(760.0f)
-                    .MaxDesiredHeight(210.0f)
-                    [
-                        SNew(SScrollBox)
-                        + SScrollBox::Slot()
-                        [
-                            SNew(STextBlock)
-                            .Text(BodyText(BuildRtsActionText()))
-                            .AutoWrapText(true)
-                            .Font(FCoreStyle::GetDefaultFontStyle("Regular", 11))
-                            .ColorAndOpacity(FLinearColor(0.82f, 0.94f, 0.86f, 1.0f))
+                            + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 14.0f, 0.0f, 8.0f)
+                            [
+                                SNew(STextBlock)
+                                .Text(BodyText(TEXT("RTS Status")))
+                                .Font(FCoreStyle::GetDefaultFontStyle("Bold", 13))
+                                .ColorAndOpacity(FLinearColor(0.86f, 0.95f, 1.0f, 1.0f))
+                            ]
+                            + SVerticalBox::Slot().AutoHeight()
+                            [
+                                SNew(STextBlock)
+                                .Text(BodyText(BuildRtsActionText()))
+                                .AutoWrapText(true)
+                                .Font(FCoreStyle::GetDefaultFontStyle("Regular", 11))
+                                .ColorAndOpacity(FLinearColor(0.82f, 0.94f, 0.86f, 1.0f))
+                            ]
                         ]
                     ]
                 ]
