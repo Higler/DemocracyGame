@@ -138,7 +138,61 @@ namespace
     {
         int32 CountryIndex = 0;
         FVector2D Centroid = FVector2D::ZeroVector;
+        FVector2D BoundsMin = FVector2D::ZeroVector;
+        FVector2D BoundsMax = FVector2D::ZeroVector;
+        TArray<FVector2D> Footprint;
     };
+
+    bool DuliaPointInPolygon(const FVector2D& Point, const TArray<FVector2D>& Polygon)
+    {
+        if (Polygon.Num() < 3)
+        {
+            return false;
+        }
+
+        bool bInside = false;
+        for (int32 Index = 0, PreviousIndex = Polygon.Num() - 1; Index < Polygon.Num(); PreviousIndex = Index++)
+        {
+            const FVector2D& A = Polygon[Index];
+            const FVector2D& B = Polygon[PreviousIndex];
+            const bool bCrossesY = (A.Y > Point.Y) != (B.Y > Point.Y);
+            if (bCrossesY)
+            {
+                const float Denom = B.Y - A.Y;
+                if (FMath::IsNearlyZero(Denom))
+                {
+                    continue;
+                }
+
+                const float CrossX = (B.X - A.X) * (Point.Y - A.Y) / Denom + A.X;
+                if (Point.X < CrossX)
+                {
+                    bInside = !bInside;
+                }
+            }
+        }
+        return bInside;
+    }
+
+    TArray<FVector2D> BuildDuliaFootprintFromBounds(const FVector2D& BoundsMin, const FVector2D& BoundsMax, const FVector2D& Centroid, int32 CountryIndex)
+    {
+        const float Width = FMath::Max(12.0f, BoundsMax.X - BoundsMin.X);
+        const float Height = FMath::Max(12.0f, BoundsMax.Y - BoundsMin.Y);
+        const float Expand = FMath::Clamp(FMath::Min(Width, Height) * 0.22f, 4.0f, 22.0f);
+        const FVector2D Min(BoundsMin.X - Expand, BoundsMin.Y - Expand);
+        const FVector2D Max(BoundsMax.X + Expand, BoundsMax.Y + Expand);
+        const float Skew = (CountryIndex % 5 - 2) * FMath::Min(Expand * 0.45f, 6.0f);
+        TArray<FVector2D> Points;
+        Points.Add(FVector2D((Min.X + Max.X) * 0.5f + Skew, Min.Y));
+        Points.Add(FVector2D(Max.X, Min.Y + Height * 0.25f));
+        Points.Add(FVector2D(Max.X - Expand * 0.15f, (Min.Y + Max.Y) * 0.5f));
+        Points.Add(FVector2D(Max.X, Max.Y - Height * 0.25f));
+        Points.Add(FVector2D((Min.X + Max.X) * 0.5f - Skew, Max.Y));
+        Points.Add(FVector2D(Min.X, Max.Y - Height * 0.25f));
+        Points.Add(FVector2D(Min.X + Expand * 0.15f, (Min.Y + Max.Y) * 0.5f));
+        Points.Add(FVector2D(Min.X, Min.Y + Height * 0.25f));
+        return Points;
+    }
 
     const TArray<FDuliaCountryMapPoint>& GetDuliaCountryMapPoints()
     {
@@ -190,6 +244,21 @@ namespace
             Point.CountryIndex = FMath::RoundToInt(CountryObject->GetNumberField(TEXT("id")));
             Point.Centroid.X = (*CentroidObject)->GetNumberField(TEXT("x"));
             Point.Centroid.Y = (*CentroidObject)->GetNumberField(TEXT("y"));
+
+            const TSharedPtr<FJsonObject>* BoundsObject = nullptr;
+            if (CountryObject->TryGetObjectField(TEXT("bounds"), BoundsObject) && BoundsObject != nullptr && BoundsObject->IsValid())
+            {
+                Point.BoundsMin.X = (*BoundsObject)->GetNumberField(TEXT("minX"));
+                Point.BoundsMin.Y = (*BoundsObject)->GetNumberField(TEXT("minY"));
+                Point.BoundsMax.X = (*BoundsObject)->GetNumberField(TEXT("maxX"));
+                Point.BoundsMax.Y = (*BoundsObject)->GetNumberField(TEXT("maxY"));
+            }
+            else
+            {
+                Point.BoundsMin = Point.Centroid - FVector2D(18.0f, 18.0f);
+                Point.BoundsMax = Point.Centroid + FVector2D(18.0f, 18.0f);
+            }
+            Point.Footprint = BuildDuliaFootprintFromBounds(Point.BoundsMin, Point.BoundsMax, Point.Centroid, Point.CountryIndex);
             if (Point.CountryIndex > 0)
             {
                 Points.Add(Point);
@@ -7238,6 +7307,77 @@ FString ALoginHUD::BuildRtsActionText() const
     return FString::Join(Lines, TEXT("\n"));
 }
 
+FString ALoginHUD::BuildRtsBattlePresentationText() const
+{
+    if (!bHasLoadedRuntimeState)
+    {
+        return TEXT("No battle data loaded.");
+    }
+
+    const FDemocracyRtsWorldState& RtsWorld = LoadedSaveState.RuntimeState.RtsWorld;
+    if (RtsWorld.BattleHistory.Num() == 0)
+    {
+        return TEXT("No battles resolved yet. Move an army into a hostile or contested province to generate a battle report.");
+    }
+
+    const FDemocracyRtsBattleResolutionState& Battle = RtsWorld.BattleHistory.Last();
+    const FDemocracyRtsArmyGroupState* Army = nullptr;
+    const FDemocracyProvinceOwnershipState* Province = nullptr;
+
+    for (const FDemocracyRtsArmyGroupState& CandidateArmy : RtsWorld.ArmyGroups)
+    {
+        if (CandidateArmy.ArmyId.Equals(Battle.ArmyId, ESearchCase::IgnoreCase))
+        {
+            Army = &CandidateArmy;
+            break;
+        }
+    }
+
+    for (const FDemocracyProvinceOwnershipState& CandidateProvince : RtsWorld.Ownership.Provinces)
+    {
+        if (CandidateProvince.ProvinceId.Equals(Battle.ProvinceId, ESearchCase::IgnoreCase))
+        {
+            Province = &CandidateProvince;
+            break;
+        }
+    }
+
+    FString FollowUp;
+    if (Battle.Result.Equals(TEXT("Province Captured"), ESearchCase::IgnoreCase))
+    {
+        FollowUp = TEXT("Hold the occupation timer, reinforce supply, prepare diplomacy pressure, or return to the office for stability management.");
+    }
+    else if (Battle.Result.Equals(TEXT("Battle Lost"), ESearchCase::IgnoreCase))
+    {
+        FollowUp = TEXT("Reinforce, defend the border, request alliance aid, negotiate ceasefire, or accept the province risk.");
+    }
+    else
+    {
+        FollowUp = TEXT("Scout, reinforce, reroute supply, attack again, or pause the front while simulation policy catches up.");
+    }
+
+    const FString ProvinceLabel = Province ? FString::Printf(TEXT("%s (%s)"), *Province->ProvinceName, *Province->ProvinceId) : Battle.ProvinceId;
+    const bool bProvinceContested = Province && !Province->CurrentOwnerCountryName.Equals(Province->CurrentControllerCountryName, ESearchCase::IgnoreCase);
+    const FString ProvinceStatus = Province ? FString::Printf(TEXT("%s, controller %s"), bProvinceContested ? TEXT("occupied/contested") : TEXT("stable"), *Province->CurrentControllerCountryName) : FString(TEXT("unknown"));
+
+    TArray<FString> Lines;
+    Lines.Add(FString::Printf(TEXT("Latest Battle: %s"), *Battle.Result));
+    Lines.Add(FString::Printf(TEXT("Province: %s"), *ProvinceLabel));
+    Lines.Add(FString::Printf(TEXT("Attacker: %s | Defender: %s"), Army ? *Army->DisplayName : *Battle.ArmyId, Battle.OpponentCountry.IsEmpty() ? TEXT("unknown") : *Battle.OpponentCountry));
+    Lines.Add(FString::Printf(TEXT("Scores: attacker %d | defender %d"), Battle.PlayerScore, Battle.OpponentScore));
+    Lines.Add(FString::Printf(TEXT("Modifiers: readiness %+d | terrain %+d | supply %+d | tech %+d | morale %+d"),
+        Battle.ReadinessModifier,
+        Battle.TerrainModifier,
+        Battle.SupplyModifier,
+        Battle.TechModifier,
+        Battle.MoraleModifier));
+    Lines.Add(FString::Printf(TEXT("Terrain: %s | Province status: %s"),
+        Battle.TerrainType.IsEmpty() ? TEXT("unknown") : *Battle.TerrainType,
+        *ProvinceStatus));
+    Lines.Add(FString::Printf(TEXT("Summary: %s"), Battle.Summary.IsEmpty() ? TEXT("No battle summary generated.") : *Battle.Summary));
+    Lines.Add(FString::Printf(TEXT("Follow-up: %s"), *FollowUp));
+    return FString::Join(Lines, TEXT("\n"));
+}
 FString ALoginHUD::BuildRtsCityBaseSummaryText() const
 {
     if (!bHasLoadedRuntimeState)
@@ -7575,7 +7715,31 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsCityBasePlaceholderWidget()
     FDemocracyRtsCityBaseState& Base = RtsWorld.CityBase;
     RecountRtsCityBaseQueues(Base);
 
-    TSharedRef<SUniformGridPanel> SlotGrid = SNew(SUniformGridPanel).SlotPadding(FMargin(6.0f));
+    FString SelectedBuildingText = RtsWorld.WorldInteraction.LastInteractionSummary.IsEmpty() ? TEXT("Select a building slot to inspect cost, output, construction state, and upgrade options.") : RtsWorld.WorldInteraction.LastInteractionSummary;
+    for (const FDemocracyRtsBuildingState& Building : Base.Buildings)
+    {
+        if (Building.BuildingId.Equals(RtsWorld.WorldInteraction.ActiveSelectionId, ESearchCase::IgnoreCase))
+        {
+            SelectedBuildingText = FString::Printf(TEXT("Selected building: %s\nType %s | focus %s | level %d | %s\nOutput %+d/tick | defense %d | health %d/%d | damage %d%%\nBuild cost %d | upgrade cost %d | build time %d turn(s)\nPrerequisites: %s"),
+                *Building.DisplayName,
+                *Building.BuildingType,
+                *Building.ResourceFocus,
+                Building.Level,
+                *Building.Status,
+                Building.ProductionPerTick,
+                Building.DefenseValue,
+                Building.CurrentHealth,
+                Building.MaxHealth,
+                Building.DamagePercent,
+                Building.BuildCost,
+                Building.UpgradeCost,
+                Building.BuildTimeTurns,
+                Building.Prerequisites.Num() > 0 ? *FString::Join(Building.Prerequisites, TEXT(", ")) : TEXT("none"));
+            break;
+        }
+    }
+
+    TSharedRef<SUniformGridPanel> SlotGrid = SNew(SUniformGridPanel).SlotPadding(FMargin(8.0f));
     const int32 DisplaySlots = 12;
     for (int32 Index = 0; Index < DisplaySlots; ++Index)
     {
@@ -7683,14 +7847,63 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsCityBasePlaceholderWidget()
                 [BuildRtsResourceNodesWidget()]
                 + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 12.0f)
                 [
-                    SNew(SBorder)
-                    .BorderImage(RowBrush.Get())
-                    .BorderBackgroundColor(FLinearColor(0.08f, 0.10f, 0.12f, 0.78f))
-                    .Padding(10.0f)
-                    [QueueList]
+                    SNew(SHorizontalBox)
+                    + SHorizontalBox::Slot().FillWidth(1.0f).Padding(0.0f, 0.0f, 10.0f, 0.0f)
+                    [
+                        SNew(SBorder)
+                        .BorderImage(RowBrush.Get())
+                        .BorderBackgroundColor(FLinearColor(0.07f, 0.09f, 0.11f, 0.84f))
+                        .Padding(10.0f)
+                        [
+                            SNew(STextBlock)
+                            .Text(BodyText(SelectedBuildingText))
+                            .AutoWrapText(true)
+                            .Font(FCoreStyle::GetDefaultFontStyle("Regular", 11))
+                            .ColorAndOpacity(FLinearColor(0.92f, 0.97f, 1.0f, 1.0f))
+                        ]
+                    ]
+                    + SHorizontalBox::Slot().FillWidth(1.0f)
+                    [
+                        SNew(SBorder)
+                        .BorderImage(RowBrush.Get())
+                        .BorderBackgroundColor(FLinearColor(0.08f, 0.10f, 0.12f, 0.78f))
+                        .Padding(10.0f)
+                        [QueueList]
+                    ]
                 ]
                 + SVerticalBox::Slot().FillHeight(1.0f)
-                [SlotGrid]
+                [
+                    SNew(SBorder)
+                    .BorderImage(RowBrush.Get())
+                    .BorderBackgroundColor(FLinearColor(0.12f, 0.18f, 0.12f, 0.88f))
+                    .Padding(12.0f)
+                    [
+                        SNew(SOverlay)
+                        + SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Center)
+                        [
+                            SNew(SBorder)
+                            .BorderImage(RowBrush.Get())
+                            .BorderBackgroundColor(FLinearColor(0.20f, 0.22f, 0.20f, 0.58f))
+                            .Padding(FMargin(520.0f, 10.0f))
+                        ]
+                        + SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Center)
+                        [
+                            SNew(SBorder)
+                            .BorderImage(RowBrush.Get())
+                            .BorderBackgroundColor(FLinearColor(0.20f, 0.22f, 0.20f, 0.58f))
+                            .Padding(FMargin(10.0f, 190.0f))
+                        ]
+                        + SOverlay::Slot().HAlign(HAlign_Left).VAlign(VAlign_Top).Padding(12.0f)
+                        [
+                            SNew(STextBlock)
+                            .Text(BodyText(TEXT("City terrain layout: roads connect building pads to resource nodes and supply exits.")))
+                            .Font(FCoreStyle::GetDefaultFontStyle("Bold", 11))
+                            .ColorAndOpacity(FLinearColor(0.80f, 0.94f, 0.80f, 1.0f))
+                        ]
+                        + SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Center)
+                        [SlotGrid]
+                    ]
+                ]
             ]
         ]
         + SOverlay::Slot().HAlign(HAlign_Right).VAlign(VAlign_Top).Padding(18.0f)
@@ -7753,21 +7966,86 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsArmyMarkersWidget(float MapWidth, float M
 
         const bool bSelected = Army.ArmyId.Equals(RtsSelectedArmyId, ESearchCase::IgnoreCase) || Army.bSelected;
         const FLinearColor OwnerColor = bSelected ? FLinearColor(1.0f, 0.86f, 0.16f, 0.94f) : (Province->bPlayerControlled ? FLinearColor(0.05f, 0.85f, 0.26f, 0.88f) : (Province->GovernmentType.Equals(TEXT("Dictatorship"), ESearchCase::IgnoreCase) ? FLinearColor(0.9f, 0.08f, 0.08f, 0.88f) : FLinearColor(0.1f, 0.38f, 0.95f, 0.88f)));
-        const float MarkerX = FMath::Clamp(Point->Centroid.X * ScaleX - 20.0f, 0.0f, FMath::Max(0.0f, MapWidth - 70.0f));
-        const float MarkerY = FMath::Clamp(Point->Centroid.Y * ScaleY - 20.0f, 0.0f, FMath::Max(0.0f, MapHeight - 38.0f));
+        const float MarkerX = FMath::Clamp(Point->Centroid.X * ScaleX - 38.0f, 0.0f, FMath::Max(0.0f, MapWidth - 118.0f));
+        const float MarkerY = FMath::Clamp(Point->Centroid.Y * ScaleY - 28.0f, 0.0f, FMath::Max(0.0f, MapHeight - 70.0f));
+        const FString UnitText = FString::Printf(TEXT("%s\nS%d T%d C%d | Str %d\nReady %d%% | %s%s"),
+            *Army.DisplayName,
+            Army.InfantryCount,
+            Army.VehicleCount,
+            Army.LogisticsCount,
+            Army.TotalStrength,
+            Army.SupplyStatus,
+            *Army.MovementState,
+            Army.MovementTurnsRemaining > 0 ? *FString::Printf(TEXT(" | ETA %d"), Army.MovementTurnsRemaining) : TEXT(""));
         MarkerOverlay->AddSlot().HAlign(HAlign_Left).VAlign(VAlign_Top).Padding(FMargin(MarkerX, MarkerY, 0.0f, 0.0f))
         [
             SNew(SBorder)
             .BorderImage(RowBrush.Get())
             .BorderBackgroundColor(OwnerColor)
-            .Padding(FMargin(5.0f, 3.0f))
+            .Padding(FMargin(6.0f, 4.0f))
             [
                 SNew(STextBlock)
-                .Text(BodyText(FString::Printf(TEXT("A%d"), Army.TotalStrength)))
-                .Font(FCoreStyle::GetDefaultFontStyle("Bold", 10))
+                .Text(BodyText(UnitText))
+                .AutoWrapText(true)
+                .Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
                 .ColorAndOpacity(FLinearColor::White)
             ]
         ];
+
+        if (!Army.DestinationProvinceId.IsEmpty() && !Army.DestinationProvinceId.Equals(Army.CurrentProvinceId, ESearchCase::IgnoreCase))
+        {
+            const FDemocracyProvinceOwnershipState* DestinationProvince = nullptr;
+            for (const FDemocracyProvinceOwnershipState& CandidateProvince : State.RtsWorld.Ownership.Provinces)
+            {
+                if (CandidateProvince.ProvinceId.Equals(Army.DestinationProvinceId, ESearchCase::IgnoreCase))
+                {
+                    DestinationProvince = &CandidateProvince;
+                    break;
+                }
+            }
+            const FDemocracyCountryOwnershipState* DestinationCountry = nullptr;
+            if (DestinationProvince)
+            {
+                for (const FDemocracyCountryOwnershipState& CandidateCountry : State.RtsWorld.Ownership.Countries)
+                {
+                    if (CandidateCountry.CountryName.Equals(DestinationProvince->OriginalCountryName, ESearchCase::IgnoreCase) || CandidateCountry.CountryName.Equals(DestinationProvince->CurrentControllerCountryName, ESearchCase::IgnoreCase))
+                    {
+                        DestinationCountry = &CandidateCountry;
+                        break;
+                    }
+                }
+            }
+            const FDuliaCountryMapPoint* DestinationPoint = nullptr;
+            if (DestinationCountry)
+            {
+                for (const FDuliaCountryMapPoint& CandidatePoint : Points)
+                {
+                    if (CandidatePoint.CountryIndex == DestinationCountry->MapCountryIndex)
+                    {
+                        DestinationPoint = &CandidatePoint;
+                        break;
+                    }
+                }
+            }
+            if (DestinationPoint)
+            {
+                const float DestX = FMath::Clamp(DestinationPoint->Centroid.X * ScaleX - 28.0f, 0.0f, FMath::Max(0.0f, MapWidth - 90.0f));
+                const float DestY = FMath::Clamp(DestinationPoint->Centroid.Y * ScaleY + 16.0f, 0.0f, FMath::Max(0.0f, MapHeight - 36.0f));
+                MarkerOverlay->AddSlot().HAlign(HAlign_Left).VAlign(VAlign_Top).Padding(FMargin(DestX, DestY, 0.0f, 0.0f))
+                [
+                    SNew(SBorder)
+                    .BorderImage(RowBrush.Get())
+                    .BorderBackgroundColor(FLinearColor(0.95f, 0.95f, 0.10f, 0.78f))
+                    .Padding(FMargin(5.0f, 2.0f))
+                    [
+                        SNew(STextBlock)
+                        .Text(BodyText(FString::Printf(TEXT("Route -> %s"), *Army.DestinationProvinceId)))
+                        .Font(FCoreStyle::GetDefaultFontStyle("Bold", 8))
+                        .ColorAndOpacity(FLinearColor::Black)
+                    ]
+                ];
+            }
+        }
     }
 
     return MarkerOverlay;
@@ -7920,23 +8198,48 @@ void ALoginHUD::SelectRtsMapAtViewportPosition(const FGeometry& Geometry, const 
     const TArray<FDuliaCountryMapPoint>& Points = GetDuliaCountryMapPoints();
     const FDemocracyCountryOwnershipState* BestCountry = nullptr;
     float BestDistanceSquared = TNumericLimits<float>::Max();
+    bool bMatchedFootprint = false;
+
     for (const FDemocracyCountryOwnershipState& Country : State.RtsWorld.Ownership.Countries)
     {
-        for (const FDuliaCountryMapPoint& Point : Points)
+        const FDuliaCountryMapPoint* Point = nullptr;
+        for (const FDuliaCountryMapPoint& CandidatePoint : Points)
         {
-            if (Point.CountryIndex != Country.MapCountryIndex) { continue; }
-            const float DistanceSquared = FVector2D::DistSquared(MapPoint, Point.Centroid);
-            if (DistanceSquared < BestDistanceSquared)
+            if (CandidatePoint.CountryIndex == Country.MapCountryIndex)
             {
-                BestDistanceSquared = DistanceSquared;
-                BestCountry = &Country;
+                Point = &CandidatePoint;
+                break;
             }
-            break;
+        }
+        if (!Point)
+        {
+            continue;
+        }
+
+        const float DistanceSquared = FVector2D::DistSquared(MapPoint, Point->Centroid);
+        if (DuliaPointInPolygon(MapPoint, Point->Footprint))
+        {
+            if (!bMatchedFootprint || DistanceSquared < BestDistanceSquared)
+            {
+                BestCountry = &Country;
+                BestDistanceSquared = DistanceSquared;
+                bMatchedFootprint = true;
+            }
+            continue;
+        }
+
+        if (!bMatchedFootprint && DistanceSquared < BestDistanceSquared)
+        {
+            BestCountry = &Country;
+            BestDistanceSquared = DistanceSquared;
         }
     }
 
-    if (!BestCountry || BestDistanceSquared > FMath::Square(180.0f))
+    if (!BestCountry || (!bMatchedFootprint && BestDistanceSquared > FMath::Square(90.0f)))
     {
+        State.RtsWorld.WorldInteraction.LastInteractionSummary = TEXT("Clicked ocean or empty map space. No country/province footprint selected.");
+        RefreshRtsHudState(State);
+        RefreshLoginWidget();
         return;
     }
 
@@ -8142,6 +8445,21 @@ TSharedRef<SWidget> ALoginHUD::BuildOfficeWorldRtsScreen()
                             + SVerticalBox::Slot().AutoHeight()
                             [
                                 BuildRtsOrderButtonsWidget()
+                            ]
+                            + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 14.0f, 0.0f, 8.0f)
+                            [
+                                SNew(STextBlock)
+                                .Text(BodyText(TEXT("Battle Report")))
+                                .Font(FCoreStyle::GetDefaultFontStyle("Bold", 13))
+                                .ColorAndOpacity(FLinearColor(1.0f, 0.82f, 0.36f, 1.0f))
+                            ]
+                            + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 12.0f)
+                            [
+                                SNew(STextBlock)
+                                .Text(BodyText(BuildRtsBattlePresentationText()))
+                                .AutoWrapText(true)
+                                .Font(FCoreStyle::GetDefaultFontStyle("Regular", 11))
+                                .ColorAndOpacity(FLinearColor(1.0f, 0.92f, 0.76f, 1.0f))
                             ]
                             + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 14.0f, 0.0f, 8.0f)
                             [
@@ -12448,26 +12766,3 @@ void ALoginHUD::HandleUiScaleChanged(float NewValue)
 {
     UiScale = FMath::Clamp(NewValue, 0.50f, 1.50f);
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

@@ -183,6 +183,7 @@ private:
     FString BuildRtsSelectedTerritoryText() const;
     FString BuildRtsSelectedArmyText() const;
     FString BuildRtsActionText() const;
+    FString BuildRtsBattlePresentationText() const;
     FString BuildRtsCityBaseSummaryText() const;
     FString BuildRtsOfficeAlertText() const;
     TSharedRef<SWidget> BuildRtsCityBasePlaceholderWidget();
@@ -344,9 +345,3 @@ private:
     void HandleBrightnessChanged(float NewValue);
     void HandleUiScaleChanged(float NewValue);
 };
-
-
-
-
-
-
