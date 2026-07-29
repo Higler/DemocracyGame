@@ -7158,23 +7158,23 @@ TSharedRef<SWidget> ALoginHUD::BuildOfficeDemographicsScreen()
 }
 FReply ALoginHUD::HandleRtsMapMouseWheel(const FGeometry& Geometry, const FPointerEvent& MouseEvent)
 {
-    const float OldZoom = RtsMapZoom;
+    const float OldZoom = FMath::Max(RtsMapZoom, 0.01f);
     const float ZoomStep = MouseEvent.GetWheelDelta() > 0.0f ? 0.25f : -0.25f;
     const float NewZoom = FMath::Clamp(RtsMapZoom + ZoomStep, 0.75f, 8.0f);
     if (!FMath::IsNearlyEqual(OldZoom, NewZoom))
     {
         const FVector2D ViewCenter = Geometry.GetLocalSize() * 0.5f;
         const FVector2D CursorLocal = Geometry.AbsoluteToLocal(MouseEvent.GetScreenSpacePosition());
-        const FVector2D MapPointUnderCursor = (CursorLocal - ViewCenter - RtsMapPan) / OldZoom;
+        const FVector2D NativeMapCenter(1121.0f, 552.0f);
+        const FVector2D MapPointUnderCursor = (CursorLocal - ViewCenter - RtsMapPan) / OldZoom + NativeMapCenter;
         RtsMapZoom = NewZoom;
-        RtsMapPan = CursorLocal - ViewCenter - (MapPointUnderCursor * RtsMapZoom);
+        RtsMapPan = CursorLocal - ViewCenter - ((MapPointUnderCursor - NativeMapCenter) * RtsMapZoom);
         ClampRtsMapView();
         RefreshLoginWidget();
     }
 
     return FReply::Handled();
 }
-
 FReply ALoginHUD::HandleRtsMapMouseButtonDown(const FGeometry& Geometry, const FPointerEvent& MouseEvent)
 {
     if (MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
@@ -7229,20 +7229,31 @@ FReply ALoginHUD::HandleRtsMapMouseMove(const FGeometry& Geometry, const FPointe
 
 FReply ALoginHUD::HandleZoomRtsMapInClicked()
 {
-    RtsMapZoom = FMath::Clamp(RtsMapZoom + 0.5f, 0.75f, 8.0f);
-    ClampRtsMapView();
-    RefreshLoginWidget();
+    const float OldZoom = FMath::Max(RtsMapZoom, 0.01f);
+    const float NewZoom = FMath::Clamp(RtsMapZoom + 0.5f, 0.75f, 8.0f);
+    if (!FMath::IsNearlyEqual(OldZoom, NewZoom))
+    {
+        RtsMapPan *= NewZoom / OldZoom;
+        RtsMapZoom = NewZoom;
+        ClampRtsMapView();
+        RefreshLoginWidget();
+    }
     return FReply::Handled();
 }
 
 FReply ALoginHUD::HandleZoomRtsMapOutClicked()
 {
-    RtsMapZoom = FMath::Clamp(RtsMapZoom - 0.5f, 0.75f, 8.0f);
-    ClampRtsMapView();
-    RefreshLoginWidget();
+    const float OldZoom = FMath::Max(RtsMapZoom, 0.01f);
+    const float NewZoom = FMath::Clamp(RtsMapZoom - 0.5f, 0.75f, 8.0f);
+    if (!FMath::IsNearlyEqual(OldZoom, NewZoom))
+    {
+        RtsMapPan *= NewZoom / OldZoom;
+        RtsMapZoom = NewZoom;
+        ClampRtsMapView();
+        RefreshLoginWidget();
+    }
     return FReply::Handled();
 }
-
 FReply ALoginHUD::HandleResetRtsMapViewClicked()
 {
     RtsMapZoom = 1.0f;
