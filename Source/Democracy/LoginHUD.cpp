@@ -2050,6 +2050,112 @@ namespace
         return nullptr;
     }
 
+    const FDemocracyDiplomacyRelationshipState* FindDiplomacyRelationshipForCountry(const FDemocracySimulationState& State, const FString& CountryName)
+    {
+        for (const FDemocracyDiplomacyRelationshipState& Relationship : State.DiplomacyMatrix.Relationships)
+        {
+            if (Relationship.CountryName.Equals(CountryName, ESearchCase::IgnoreCase))
+            {
+                return &Relationship;
+            }
+        }
+        return nullptr;
+    }
+
+    bool HasActiveWarAuthority(const FDemocracySimulationState& State)
+    {
+        for (const FDemocracyWarConflictState& Conflict : State.WarSystem.ActiveConflicts)
+        {
+            const bool bCeasefire = Conflict.Status.Contains(TEXT("Ceasefire"), ESearchCase::IgnoreCase);
+            const bool bResolved = Conflict.Status.Contains(TEXT("Resolved"), ESearchCase::IgnoreCase) || Conflict.Status.Contains(TEXT("Ended"), ESearchCase::IgnoreCase);
+            if (!bCeasefire && !bResolved)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool HasCeasefireLock(const FDemocracySimulationState& State)
+    {
+        for (const FDemocracyWarConflictState& Conflict : State.WarSystem.ActiveConflicts)
+        {
+            if (Conflict.Status.Contains(TEXT("Ceasefire"), ESearchCase::IgnoreCase))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool IsRtsProvinceAlliedOrTreatyControlled(const FDemocracySimulationState& State, const FDemocracyProvinceOwnershipState& Province)
+    {
+        if (Province.CurrentControllerCountryName.Equals(State.PlayerCountry.CountryName, ESearchCase::IgnoreCase))
+        {
+            return true;
+        }
+        const FDemocracyDiplomacyRelationshipState* Relationship = FindDiplomacyRelationshipForCountry(State, Province.CurrentControllerCountryName);
+        return Relationship
+            && (Relationship->RelationshipStatus.Equals(TEXT("Ally"), ESearchCase::IgnoreCase)
+                || Relationship->TreatyStatus.Contains(TEXT("Defense"), ESearchCase::IgnoreCase)
+                || Relationship->TreatyStatus.Contains(TEXT("Treaty"), ESearchCase::IgnoreCase));
+    }
+
+    int32 GetRtsDiplomacySupplyModifier(const FDemocracySimulationState& State, const FDemocracyProvinceOwnershipState& Province)
+    {
+        const FDemocracyDiplomacyRelationshipState* Relationship = FindDiplomacyRelationshipForCountry(State, Province.CurrentControllerCountryName);
+        if (!Relationship)
+        {
+            return 0;
+        }
+        int32 Modifier = 0;
+        if (Relationship->bSanctionsActive)
+        {
+            Modifier += 18;
+        }
+        if (Relationship->RelationshipStatus.Equals(TEXT("Ally"), ESearchCase::IgnoreCase))
+        {
+            Modifier -= 14;
+        }
+        if (Relationship->TreatyStatus.Contains(TEXT("Treaty"), ESearchCase::IgnoreCase) || Relationship->TreatyStatus.Contains(TEXT("Trade"), ESearchCase::IgnoreCase))
+        {
+            Modifier -= 8;
+        }
+        if (Relationship->BorderTension >= 70)
+        {
+            Modifier += 8;
+        }
+        return FMath::Clamp(Modifier, -22, 30);
+    }
+
+    FString GetRtsOrderAuthorityBlockReason(const FDemocracySimulationState& State, const FDemocracyRtsArmyGroupState& Army, const FDemocracyProvinceOwnershipState& TargetProvince, const FString& OrderType)
+    {
+        const bool bHostileTarget = !TargetProvince.CurrentControllerCountryName.Equals(State.PlayerCountry.CountryName, ESearchCase::IgnoreCase)
+            && !IsRtsProvinceAlliedOrTreatyControlled(State, TargetProvince);
+        const bool bAttackLikeOrder = bHostileTarget && (OrderType.Equals(TEXT("Move"), ESearchCase::IgnoreCase)
+            || OrderType.Equals(TEXT("Rally"), ESearchCase::IgnoreCase)
+            || OrderType.Equals(TEXT("Defend"), ESearchCase::IgnoreCase)
+            || OrderType.Equals(TEXT("Reinforce"), ESearchCase::IgnoreCase));
+        if (bAttackLikeOrder && HasCeasefireLock(State))
+        {
+            return TEXT("Ceasefire is active. Attack and hostile movement orders are locked until the office breaks or resolves the ceasefire.");
+        }
+        if (bAttackLikeOrder && !HasActiveWarAuthority(State))
+        {
+            return TEXT("No active war exists. Declare war from the office before ordering an attack into hostile territory.");
+        }
+        if (OrderType.Equals(TEXT("Reinforce"), ESearchCase::IgnoreCase)
+            && !TargetProvince.CurrentControllerCountryName.Equals(State.PlayerCountry.CountryName, ESearchCase::IgnoreCase)
+            && !IsRtsProvinceAlliedOrTreatyControlled(State, TargetProvince))
+        {
+            return TEXT("Reinforcement is only available to player-controlled, allied, or treaty-controlled provinces.");
+        }
+        if (Army.SupplyStatus < 15 && !OrderType.Equals(TEXT("Defend"), ESearchCase::IgnoreCase))
+        {
+            return TEXT("Army supply is critically low. Defend or restore supply before issuing movement orders.");
+        }
+        return TEXT("");
+    }
     FDemocracyRtsFogProvinceState* FindMutableFogProvince(FDemocracyRtsFogOfWarState& Fog, const FString& ProvinceId)
     {
         for (FDemocracyRtsFogProvinceState& FogProvince : Fog.Provinces)
@@ -2359,8 +2465,15 @@ namespace
             const bool bWasBroken = Route.bBroken;
             const int32 FuelShortage = GetResourceChainShortage(State.ResourceChains, TEXT("Fuel"));
             Route.DistancePenalty = Route.SourceProvinceId.Equals(Route.DestinationProvinceId, ESearchCase::IgnoreCase) ? 0 : 8;
-            Route.Disruption = FMath::Clamp(State.RtsWorld.Backflow.ResourceDisruptionPressure / 8 + FuelShortage / 10 + Route.DistancePenalty, 0, 100);
+            int32 RouteDiplomacySupplyModifier = 0;
+            if (const FDemocracyProvinceOwnershipState* RouteDestination = FindRtsProvinceById(State, Route.DestinationProvinceId))
+            {
+                RouteDiplomacySupplyModifier = GetRtsDiplomacySupplyModifier(State, *RouteDestination);
+            }
+            Route.Disruption = FMath::Clamp(State.RtsWorld.Backflow.ResourceDisruptionPressure / 8 + FuelShortage / 10 + Route.DistancePenalty + RouteDiplomacySupplyModifier, 0, 100);
             Route.SupplyStatus = FMath::Clamp(100 - Route.Disruption, 0, 100);
+            if (RouteDiplomacySupplyModifier > 0) { Route.Risks.AddUnique(TEXT("sanctions or border tension supply penalty")); }
+            if (RouteDiplomacySupplyModifier < 0) { Route.Risks.AddUnique(TEXT("alliance/treaty supply support")); }
             Route.bBroken = Route.SupplyStatus < 35;
             Route.StatusSummary = Route.bBroken ? TEXT("Supply route broken. Army movement, readiness, and combat strength are reduced.") : FString::Printf(TEXT("Supply route open at %d%%."), Route.SupplyStatus);
             if (Route.bBroken)
@@ -2438,7 +2551,7 @@ namespace
             Order.bActive = false;
 
             const FDemocracyProvinceOwnershipState* TargetProvince = FindRtsProvinceById(State, Order.TargetProvinceId);
-            const bool bHostileTarget = TargetProvince && !TargetProvince->CurrentControllerCountryName.Equals(State.PlayerCountry.CountryName, ESearchCase::IgnoreCase);
+            const bool bHostileTarget = TargetProvince && !TargetProvince->CurrentControllerCountryName.Equals(State.PlayerCountry.CountryName, ESearchCase::IgnoreCase) && !IsRtsProvinceAlliedOrTreatyControlled(State, *TargetProvince);
             const bool bCombatCapableOrder = Order.OrderType.Equals(TEXT("Move"), ESearchCase::IgnoreCase)
                 || Order.OrderType.Equals(TEXT("Rally"), ESearchCase::IgnoreCase)
                 || Order.OrderType.Equals(TEXT("Reinforce"), ESearchCase::IgnoreCase)
@@ -2446,6 +2559,21 @@ namespace
                 || Order.OrderType.Equals(TEXT("Patrol/Scout"), ESearchCase::IgnoreCase);
             if (TargetProvince && bHostileTarget && bCombatCapableOrder)
             {
+                const FString AuthorityBlockReason = GetRtsOrderAuthorityBlockReason(State, *Army, *TargetProvince, Order.OrderType);
+                if (!AuthorityBlockReason.IsEmpty())
+                {
+                    Order.bComplete = true;
+                    Order.bActive = false;
+                    Army->CurrentProvinceId = Order.SourceProvinceId;
+                    Army->DestinationProvinceId = Order.SourceProvinceId;
+                    Army->MovementState = TEXT("Order Blocked By Authority");
+                    Army->OrderTurnsRemaining = 0;
+                    Army->MovementTurnsRemaining = 0;
+                    Order.StatusSummary = FString::Printf(TEXT("Order stopped before hostile contact: %s"), *AuthorityBlockReason);
+                    AddRtsHudAlert(State.RtsWorld, Order.StatusSummary);
+                    RecordRtsOfficeAlert(State, TEXT("RTS Order Blocked"), Order.StatusSummary, Order.TargetProvinceId, 35);
+                    continue;
+                }
                 FDemocracyRtsBattleResolutionState Battle = ResolveDeterministicRtsBattle(State, *Army, *TargetProvince, Order.OrderType);
                 ApplyRtsBattleLossesToArmy(*Army, Battle);
                 State.RtsWorld.LastBattleTick = State.RtsWorld.RtsTickCount;
@@ -8024,16 +8152,19 @@ FString ALoginHUD::BuildRtsCommandConsequenceText(const FString& OrderType, cons
         return TEXT("Command target or selected army is no longer valid.");
     }
 
-    const bool bHostileTarget = !TargetProvince->CurrentControllerCountryName.Equals(State.PlayerCountry.CountryName, ESearchCase::IgnoreCase);
+    const bool bHostileTarget = !TargetProvince->CurrentControllerCountryName.Equals(State.PlayerCountry.CountryName, ESearchCase::IgnoreCase) && !IsRtsProvinceAlliedOrTreatyControlled(State, *TargetProvince);
     const bool bOccupiedTarget = !TargetProvince->CurrentOwnerCountryName.Equals(TargetProvince->CurrentControllerCountryName, ESearchCase::IgnoreCase);
     const bool bSameProvince = Army->CurrentProvinceId.Equals(TargetProvinceId, ESearchCase::IgnoreCase);
-    const int32 EstimatedTurns = FMath::Clamp((bSameProvince ? 1 : 2) + (Army->bSupplyRouteBroken ? 1 : 0) + (bHostileTarget ? 1 : 0), 1, 5);
-    const int32 ReadinessRisk = FMath::Clamp((100 - Army->SupplyStatus) / 4 + (Army->bSupplyRouteBroken ? 18 : 0) + (bHostileTarget ? 15 : 0), 0, 100);
+    const int32 DiplomacySupplyModifier = GetRtsDiplomacySupplyModifier(State, *TargetProvince);
+    const int32 EstimatedTurns = FMath::Clamp((bSameProvince ? 1 : 2) + (Army->bSupplyRouteBroken ? 1 : 0) + (bHostileTarget ? 1 : 0) + FMath::Max(0, DiplomacySupplyModifier) / 12, 1, 6);
+    const int32 ReadinessRisk = FMath::Clamp((100 - Army->SupplyStatus) / 4 + (Army->bSupplyRouteBroken ? 18 : 0) + (bHostileTarget ? 15 : 0) + FMath::Max(0, DiplomacySupplyModifier), 0, 100);
+    const FString AuthorityBlockReason = GetRtsOrderAuthorityBlockReason(State, *Army, *TargetProvince, OrderType);
 
     TArray<FString> Lines;
     Lines.Add(FString::Printf(TEXT("Confirm %s order for %s."), *OrderType, *Army->DisplayName));
     Lines.Add(FString::Printf(TEXT("Target: %s | controller %s | owner %s | %s"), *TargetProvince->ProvinceName, *TargetProvince->CurrentControllerCountryName, *TargetProvince->CurrentOwnerCountryName, bHostileTarget ? TEXT("HOSTILE CONTACT LIKELY") : TEXT("friendly/controlled")));
-    Lines.Add(FString::Printf(TEXT("ETA %d turn(s) | readiness risk %d | supply %d%% | morale %d"), EstimatedTurns, ReadinessRisk, Army->SupplyStatus, Army->Morale));
+    Lines.Add(FString::Printf(TEXT("ETA %d turn(s) | readiness risk %d | supply %d%% | morale %d | diplomacy supply modifier %+d"), EstimatedTurns, ReadinessRisk, Army->SupplyStatus, Army->Morale, DiplomacySupplyModifier));
+    Lines.Add(AuthorityBlockReason.IsEmpty() ? TEXT("Authority: command can be confirmed under current war/diplomacy rules.") : FString::Printf(TEXT("Authority blocked: %s"), *AuthorityBlockReason));
     if (bHostileTarget)
     {
         Lines.Add(TEXT("Possible consequences: battle, casualties, occupation timer, war fatigue, diplomatic damage, and office alerts."));
@@ -9226,6 +9357,16 @@ bool ALoginHUD::TryIssueRtsOrderToProvince(const FString& TargetProvinceId)
         return false;
     }
 
+    const FString AuthorityBlockReason = GetRtsOrderAuthorityBlockReason(State, *Army, *TargetProvince, PendingRtsOrderType);
+    if (!AuthorityBlockReason.IsEmpty())
+    {
+        State.RtsWorld.WorldInteraction.LastInteractionSummary = FString::Printf(TEXT("RTS order blocked: %s"), *AuthorityBlockReason);
+        AddRtsHudAlert(State.RtsWorld, State.RtsWorld.WorldInteraction.LastInteractionSummary);
+        PendingRtsOrderConfirmationText = State.RtsWorld.WorldInteraction.LastInteractionSummary;
+        RefreshRtsHudState(State);
+        return false;
+    }
+
     for (FDemocracyRtsMovementOrderState& ExistingOrder : State.RtsWorld.MovementOrders)
     {
         if (ExistingOrder.ArmyId.Equals(Army->ArmyId, ESearchCase::IgnoreCase) && ExistingOrder.bActive && !ExistingOrder.bComplete)
@@ -9237,7 +9378,8 @@ bool ALoginHUD::TryIssueRtsOrderToProvince(const FString& TargetProvinceId)
     }
 
     const bool bSameProvince = Army->CurrentProvinceId.Equals(TargetProvinceId, ESearchCase::IgnoreCase);
-    const bool bHostileTarget = !TargetProvince->CurrentControllerCountryName.Equals(State.PlayerCountry.CountryName, ESearchCase::IgnoreCase);
+    const bool bHostileTarget = !TargetProvince->CurrentControllerCountryName.Equals(State.PlayerCountry.CountryName, ESearchCase::IgnoreCase) && !IsRtsProvinceAlliedOrTreatyControlled(State, *TargetProvince);
+    const int32 DiplomacySupplyModifier = GetRtsDiplomacySupplyModifier(State, *TargetProvince);
     FDemocracyRtsMovementOrderState Order;
     Order.OrderId = FString::Printf(TEXT("RTS-ORDER-%d-%d"), State.Turn, State.RtsWorld.MovementOrders.Num() + 1);
     Order.ArmyId = Army->ArmyId;
@@ -9246,7 +9388,7 @@ bool ALoginHUD::TryIssueRtsOrderToProvince(const FString& TargetProvinceId)
     Order.TargetProvinceId = TargetProvinceId;
     Order.RallyPointId = PendingRtsOrderType.Equals(TEXT("Rally"), ESearchCase::IgnoreCase) ? TargetProvinceId : TEXT("");
     Order.IssuedTurn = State.Turn;
-    Order.TotalTurns = FMath::Clamp((bSameProvince ? 1 : 2) + (Army->bSupplyRouteBroken ? 1 : 0) + (bHostileTarget ? 1 : 0), 1, 5);
+    Order.TotalTurns = FMath::Clamp((bSameProvince ? 1 : 2) + (Army->bSupplyRouteBroken ? 1 : 0) + (bHostileTarget ? 1 : 0) + FMath::Max(0, DiplomacySupplyModifier) / 12, 1, 6);
     Order.TurnsRemaining = Order.TotalTurns;
     Order.StatusSummary = FString::Printf(TEXT("%s ordered to %s. ETA %d turn(s)%s."), *Army->DisplayName, *TargetProvince->ProvinceName, Order.TurnsRemaining, bHostileTarget ? TEXT("; hostile contact possible") : TEXT(""));
     Order.AllowedFollowUps = { TEXT("Cancel"), TEXT("Change Order"), TEXT("Inspect Target") };
@@ -9272,7 +9414,12 @@ bool ALoginHUD::TryIssueRtsOrderToProvince(const FString& TargetProvinceId)
         {
             Route.SourceProvinceId = Order.SourceProvinceId;
             Route.DestinationProvinceId = TargetProvinceId;
-            Route.StatusSummary = FString::Printf(TEXT("Supply route recalculated for %s order."), *PendingRtsOrderType);
+            Route.Disruption = FMath::Clamp(Route.Disruption + DiplomacySupplyModifier, 0, 100);
+            Route.SupplyStatus = FMath::Clamp(100 - Route.Disruption, 0, 100);
+            Route.bBroken = Route.SupplyStatus < 35;
+            if (DiplomacySupplyModifier > 0) { Route.Risks.AddUnique(TEXT("sanctions or border tension supply penalty")); }
+            if (DiplomacySupplyModifier < 0) { Route.Risks.AddUnique(TEXT("alliance/treaty supply support")); }
+            Route.StatusSummary = FString::Printf(TEXT("Supply route recalculated for %s order. Diplomacy supply modifier %+d, supply %d%%."), *PendingRtsOrderType, DiplomacySupplyModifier, Route.SupplyStatus);
             bUpdatedRoute = true;
             break;
         }
@@ -9284,7 +9431,12 @@ bool ALoginHUD::TryIssueRtsOrderToProvince(const FString& TargetProvinceId)
         Route.ArmyId = Army->ArmyId;
         Route.SourceProvinceId = Order.SourceProvinceId;
         Route.DestinationProvinceId = TargetProvinceId;
-        Route.StatusSummary = TEXT("Supply route created for new movement order.");
+        Route.Disruption = FMath::Clamp(DiplomacySupplyModifier, 0, 100);
+        Route.SupplyStatus = FMath::Clamp(100 - Route.Disruption, 0, 100);
+        Route.bBroken = Route.SupplyStatus < 35;
+        if (DiplomacySupplyModifier > 0) { Route.Risks.AddUnique(TEXT("sanctions or border tension supply penalty")); }
+        if (DiplomacySupplyModifier < 0) { Route.Risks.AddUnique(TEXT("alliance/treaty supply support")); }
+        Route.StatusSummary = FString::Printf(TEXT("Supply route created for new movement order. Diplomacy supply modifier %+d, supply %d%%."), DiplomacySupplyModifier, Route.SupplyStatus);
         State.RtsWorld.SupplyRoutes.Add(Route);
     }
 
@@ -14154,4 +14306,8 @@ void ALoginHUD::HandleUiScaleChanged(float NewValue)
 {
     UiScale = FMath::Clamp(NewValue, 0.50f, 1.50f);
 }
+
+
+
+
 
