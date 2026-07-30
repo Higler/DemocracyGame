@@ -8779,10 +8779,14 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsCityBasePlaceholderWidget()
         const bool bBuildAvailable = !Building && CanPayRtsCost(LoadedSaveState.RuntimeState.PlayerCountry, BuildPreview.BuildCost, SlotFocus.Equals(TEXT("Food"), ESearchCase::IgnoreCase) ? 8 : 0, (SlotFocus.Equals(TEXT("Fuel"), ESearchCase::IgnoreCase) || SlotFocus.Equals(TEXT("Logistics"), ESearchCase::IgnoreCase)) ? 8 : 4, SlotFocus.Equals(TEXT("Wood"), ESearchCase::IgnoreCase) ? 8 : 14, (SlotFocus.Equals(TEXT("Metals"), ESearchCase::IgnoreCase) || SlotFocus.Equals(TEXT("Security"), ESearchCase::IgnoreCase)) ? 12 : 8);
         const FString PadTitle = Building ? Building->DisplayName : FString::Printf(TEXT("Empty Pad %02d"), Index + 1);
         const FString QueueLine = QueueEntry ? FString::Printf(TEXT("%s %d/%d turns"), *QueueEntry->QueueType, QueueEntry->TurnsRemaining, QueueEntry->TotalTurns) : TEXT("No active queue");
+        const FString AvailabilityLine = Building && Building->bConstructed
+            ? BuildRtsConstructionAvailabilityText(Building, Index, SlotFocus, true)
+            : BuildRtsConstructionAvailabilityText(Building, Index, SlotFocus, false);
+        const FString DisabledLine = bDisabled ? FString::Printf(TEXT("\nDISABLED: %s"), Building && !Building->DisabledReason.IsEmpty() ? *Building->DisabledReason : TEXT("damage or shutdown")) : TEXT("");
+        const FString ProductionLink = FString::Printf(TEXT("\nLink: %s node -> %s output -> supply"), *SlotFocus, Building && Building->bConstructed && !Building->bDisabled ? TEXT("active") : TEXT("inactive"));
         const FString PadText = Building
-            ? FString::Printf(TEXT("%s\nL%d %s | %+d/tick\n%s\nHP %d/%d"), *PadTitle, Building->Level, *Building->ResourceFocus, Building->ProductionPerTick, *QueueLine, Building->CurrentHealth, Building->MaxHealth)
-            : FString::Printf(TEXT("%s\nFocus %s\nBuild %s\nCost %s"), *PadTitle, *SlotFocus, *GetRtsResourceBuildingName(SlotFocus), *BuildRtsCostText(BuildPreview.BuildCost, SlotFocus.Equals(TEXT("Food"), ESearchCase::IgnoreCase) ? 8 : 0, (SlotFocus.Equals(TEXT("Fuel"), ESearchCase::IgnoreCase) || SlotFocus.Equals(TEXT("Logistics"), ESearchCase::IgnoreCase)) ? 8 : 4, SlotFocus.Equals(TEXT("Wood"), ESearchCase::IgnoreCase) ? 8 : 14, (SlotFocus.Equals(TEXT("Metals"), ESearchCase::IgnoreCase) || SlotFocus.Equals(TEXT("Security"), ESearchCase::IgnoreCase)) ? 12 : 8));
-        const FLinearColor PadColor = bSelected
+            ? FString::Printf(TEXT("%s\nL%d %s | %+d/tick\n%s\nHP %d/%d%s%s\n%s"), *PadTitle, Building->Level, *Building->ResourceFocus, Building->ProductionPerTick, *QueueLine, Building->CurrentHealth, Building->MaxHealth, *DisabledLine, *ProductionLink, *AvailabilityLine)
+            : FString::Printf(TEXT("%s\nFocus %s\nBuild %s\n%s\n%s"), *PadTitle, *SlotFocus, *GetRtsResourceBuildingName(SlotFocus), *AvailabilityLine, *ProductionLink);        const FLinearColor PadColor = bSelected
             ? FLinearColor(0.18f, 0.32f, 0.42f, 0.96f)
             : (bQueued ? FLinearColor(0.42f, 0.28f, 0.08f, 0.94f) : (bDisabled ? FLinearColor(0.34f, 0.06f, 0.06f, 0.92f) : (Building ? FLinearColor(0.08f, 0.20f, 0.14f, 0.92f) : FLinearColor(0.08f, 0.10f, 0.11f, 0.86f))));
 
@@ -8829,18 +8833,21 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsCityBasePlaceholderWidget()
             }
         }
 
+        const int32 ActiveBuildingsForNode = RtsWorld.CityBase.Buildings.FilterByPredicate([&ResourceName](const FDemocracyRtsBuildingState& Building)
+        {
+            return Building.bConstructed && !Building.bDisabled && Building.ResourceFocus.Equals(ResourceName, ESearchCase::IgnoreCase);
+        }).Num();
         return SNew(SBorder)
             .BorderImage(RowBrush.Get())
             .BorderBackgroundColor(FLinearColor(0.06f, 0.16f, 0.18f, 0.94f))
             .Padding(8.0f)
             [
                 SNew(STextBlock)
-                .Text(BodyText(FString::Printf(TEXT("%s\n%s zones %d\nBuildings %+d | Province %+d\nSupply: %s"), *ResourceName, *NodeLabel, NodeCount, BuildingOutput, ProvinceOutput, RtsWorld.SupplyRoutes.Num() > 0 ? TEXT("linked") : TEXT("base"))))
+                .Text(BodyText(FString::Printf(TEXT("%s\n%s zones %d | buildings %d\nBuildings %+d | Province %+d\nTotal before disruption %+d\nSupply: %s"), *ResourceName, *NodeLabel, NodeCount, ActiveBuildingsForNode, BuildingOutput, ProvinceOutput, BuildingOutput + ProvinceOutput, RtsWorld.SupplyRoutes.Num() > 0 ? TEXT("linked") : TEXT("base"))))
                 .AutoWrapText(true)
                 .Font(FCoreStyle::GetDefaultFontStyle("Bold", 10))
                 .ColorAndOpacity(FLinearColor(0.86f, 0.96f, 1.0f, 1.0f))
-            ];
-    };
+            ];    };
 
     TSharedRef<SConstraintCanvas> CityLayout = SNew(SConstraintCanvas);
     CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(0.0f, 0.0f, 1120.0f, 620.0f))
