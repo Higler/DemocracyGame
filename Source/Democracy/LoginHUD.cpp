@@ -1504,6 +1504,79 @@ namespace
         Country.Resources.Wood += QueueEntry.WoodCost / 2;
         Country.Resources.Metals += QueueEntry.MetalsCost / 2;
     }
+    void GetRtsActionCost(const FString& ActionName, int32& TreasuryCost, int32& FoodCost, int32& FuelCost, int32& WoodCost, int32& MetalsCost)
+    {
+        TreasuryCost = 0;
+        FoodCost = 0;
+        FuelCost = 0;
+        WoodCost = 0;
+        MetalsCost = 0;
+        if (ActionName.Equals(TEXT("Move"), ESearchCase::IgnoreCase) || ActionName.Equals(TEXT("Rally"), ESearchCase::IgnoreCase))
+        {
+            TreasuryCost = 6;
+            FoodCost = 2;
+            FuelCost = 3;
+        }
+        else if (ActionName.Equals(TEXT("Defend"), ESearchCase::IgnoreCase))
+        {
+            TreasuryCost = 5;
+            FoodCost = 2;
+            MetalsCost = 1;
+        }
+        else if (ActionName.Equals(TEXT("Patrol/Scout"), ESearchCase::IgnoreCase))
+        {
+            TreasuryCost = 4;
+            FuelCost = 2;
+        }
+        else if (ActionName.Equals(TEXT("Reinforce"), ESearchCase::IgnoreCase))
+        {
+            TreasuryCost = 12;
+            FoodCost = 4;
+            FuelCost = 5;
+            MetalsCost = 4;
+        }
+        else if (ActionName.Equals(TEXT("Battle"), ESearchCase::IgnoreCase))
+        {
+            TreasuryCost = 18;
+            FoodCost = 6;
+            FuelCost = 8;
+            MetalsCost = 7;
+        }
+        else if (ActionName.Equals(TEXT("Occupation"), ESearchCase::IgnoreCase))
+        {
+            TreasuryCost = 10;
+            FoodCost = 4;
+            WoodCost = 2;
+        }
+        else if (ActionName.Equals(TEXT("Diplomacy"), ESearchCase::IgnoreCase))
+        {
+            TreasuryCost = 16;
+        }
+    }
+
+    bool TryApplyRtsActionCost(FDemocracySimulationState& State, const FString& ActionName, FString& OutCostSummary, int32 Multiplier = 1)
+    {
+        int32 TreasuryCost = 0;
+        int32 FoodCost = 0;
+        int32 FuelCost = 0;
+        int32 WoodCost = 0;
+        int32 MetalsCost = 0;
+        GetRtsActionCost(ActionName, TreasuryCost, FoodCost, FuelCost, WoodCost, MetalsCost);
+        const int32 CostMultiplier = FMath::Max(1, Multiplier);
+        TreasuryCost *= CostMultiplier;
+        FoodCost *= CostMultiplier;
+        FuelCost *= CostMultiplier;
+        WoodCost *= CostMultiplier;
+        MetalsCost *= CostMultiplier;
+        OutCostSummary = BuildRtsCostText(TreasuryCost, FoodCost, FuelCost, WoodCost, MetalsCost);
+        if (!CanPayRtsCost(State.PlayerCountry, TreasuryCost, FoodCost, FuelCost, WoodCost, MetalsCost))
+        {
+            return false;
+        }
+        ApplyRtsCost(State.PlayerCountry, TreasuryCost, FoodCost, FuelCost, WoodCost, MetalsCost);
+        State.RtsWorld.Backflow.BudgetStrainPressure = FMath::Clamp(State.RtsWorld.Backflow.BudgetStrainPressure + FMath::Max(1, TreasuryCost / 12), 0, 100);
+        return true;
+    }
     void RefreshRtsBackflowCounters(FDemocracyRtsBackflowState& Backflow)
     {
         Backflow.PendingOutcomeCount = Backflow.PendingOutcomes.Num();
@@ -2676,6 +2749,54 @@ Outcome.bAppliedToSimulation = true;
         return Outcome;
     }
 
+    void TickRtsEnemyAiPlaceholder(FDemocracySimulationState& State)
+    {
+        if (State.Turn <= 0 || State.Turn % 2 != 0)
+        {
+            return;
+        }
+
+        int32 BorderDefenses = 0;
+        int32 CounterPressures = 0;
+        int32 CapitalReinforcements = 0;
+        int32 WeakRetreats = 0;
+        for (FDemocracyProvinceOwnershipState& Province : State.RtsWorld.Ownership.Provinces)
+        {
+            const bool bPlayerOwns = Province.CurrentOwnerCountryName.Equals(State.PlayerCountry.CountryName, ESearchCase::IgnoreCase);
+            const bool bPlayerControls = Province.CurrentControllerCountryName.Equals(State.PlayerCountry.CountryName, ESearchCase::IgnoreCase) || Province.bPlayerControlled;
+            if (!bPlayerControls && Province.bBorderProvince && BorderDefenses < 3)
+            {
+                Province.StrategicValue = FMath::Clamp(Province.StrategicValue + 1, 1, 100);
+                Province.Stability = FMath::Clamp(Province.Stability + 1, 0, 100);
+                ++BorderDefenses;
+            }
+            if (!bPlayerOwns && bPlayerControls && CounterPressures < 2)
+            {
+                Province.Unrest = FMath::Clamp(Province.Unrest + 4, 0, 100);
+                Province.Stability = FMath::Clamp(Province.Stability - 2, 0, 100);
+                ++CounterPressures;
+                RecordRtsOfficeAlert(State, TEXT("Enemy Counterattack"), FString::Printf(TEXT("Enemy AI placeholder is counter-pressuring occupied %s. Unrest +4, stability -2; hold, pacify, fortify, or negotiate transfer."), *Province.ProvinceName), Province.ProvinceId, 58);
+            }
+            if (!bPlayerControls && Province.ProvinceIndex == 0 && CapitalReinforcements < 2)
+            {
+                Province.StrategicValue = FMath::Clamp(Province.StrategicValue + 3, 1, 100);
+                Province.Stability = FMath::Clamp(Province.Stability + 2, 0, 100);
+                ++CapitalReinforcements;
+            }
+            if (!bPlayerControls && Province.Stability < 25 && Province.Unrest > 70 && WeakRetreats < 2)
+            {
+                Province.StrategicValue = FMath::Max(1, Province.StrategicValue - 2);
+                Province.Unrest = FMath::Max(0, Province.Unrest - 5);
+                ++WeakRetreats;
+            }
+        }
+
+        if (BorderDefenses + CounterPressures + CapitalReinforcements + WeakRetreats > 0)
+        {
+            State.RtsWorld.WorldInteraction.LastInteractionSummary = FString::Printf(TEXT("Enemy AI placeholder: defended borders %d, counterattacks %d, reinforced capitals %d, weak retreats %d."), BorderDefenses, CounterPressures, CapitalReinforcements, WeakRetreats);
+            AddRtsHudAlert(State.RtsWorld, State.RtsWorld.WorldInteraction.LastInteractionSummary);
+        }
+    }
     void TickRtsMovementOrdersAndSupply(FDemocracySimulationState& State, bool bAdvancedTurn)
     {
         if (State.RtsWorld.ArmyGroups.Num() == 0)
@@ -2798,6 +2919,18 @@ Outcome.bAppliedToSimulation = true;
                     continue;
                 }
                 FDemocracyRtsBattleResolutionState Battle = ResolveDeterministicRtsBattle(State, *Army, *TargetProvince, Order.OrderType);
+                FString BattleCostSummary;
+                if (TryApplyRtsActionCost(State, TEXT("Battle"), BattleCostSummary))
+                {
+                    Battle.Summary += FString::Printf(TEXT(" Battle operating cost paid: %s."), *BattleCostSummary);
+                }
+                else
+                {
+                    State.PlayerCountry.MilitaryReadiness = FMath::Clamp(State.PlayerCountry.MilitaryReadiness - 2, 0, 100);
+                    Army->Morale = FMath::Clamp(Army->Morale - 3, 0, 100);
+                    Battle.Summary += FString::Printf(TEXT(" Battle underfunded: %s unavailable, readiness -2, morale -3."), *BattleCostSummary);
+                    RecordRtsOfficeAlert(State, TEXT("Battle Underfunded"), Battle.Summary, Order.TargetProvinceId, 56);
+                }
                 ApplyRtsBattleLossesToArmy(*Army, Battle);
                 State.RtsWorld.LastBattleTick = State.RtsWorld.RtsTickCount;
                 State.RtsWorld.BattleHistory.Add(Battle);
@@ -2882,7 +3015,19 @@ Outcome.bAppliedToSimulation = true;
                 if (const FDemocracyProvinceOwnershipState* Province = FindRtsProvinceById(State, Order.TargetProvinceId))
                 {
                     FDemocracyRtsBattleResolutionState Battle = ResolveDeterministicRtsBattle(State, *Army, *Province, Order.OrderType);
-                    ApplyRtsBattleLossesToArmy(*Army, Battle);
+                    FString BattleCostSummary;
+                if (TryApplyRtsActionCost(State, TEXT("Battle"), BattleCostSummary))
+                {
+                    Battle.Summary += FString::Printf(TEXT(" Battle operating cost paid: %s."), *BattleCostSummary);
+                }
+                else
+                {
+                    State.PlayerCountry.MilitaryReadiness = FMath::Clamp(State.PlayerCountry.MilitaryReadiness - 2, 0, 100);
+                    Army->Morale = FMath::Clamp(Army->Morale - 3, 0, 100);
+                    Battle.Summary += FString::Printf(TEXT(" Battle underfunded: %s unavailable, readiness -2, morale -3."), *BattleCostSummary);
+                    RecordRtsOfficeAlert(State, TEXT("Battle Underfunded"), Battle.Summary, Order.TargetProvinceId, 56);
+                }
+                ApplyRtsBattleLossesToArmy(*Army, Battle);
                     State.RtsWorld.LastBattleTick = State.RtsWorld.RtsTickCount;
                     State.RtsWorld.BattleHistory.Add(Battle);
                     if (State.RtsWorld.BattleHistory.Num() > 20)
@@ -2934,6 +3079,18 @@ Outcome.bAppliedToSimulation = true;
             }
 
             FDemocracyRtsBattleResolutionState Battle = ResolveDeterministicRtsBattle(State, Army, *CurrentProvince, Army.ActiveOrderType.IsEmpty() ? TEXT("Move") : Army.ActiveOrderType);
+            FString BattleCostSummary;
+            if (TryApplyRtsActionCost(State, TEXT("Battle"), BattleCostSummary))
+            {
+                Battle.Summary += FString::Printf(TEXT(" Battle operating cost paid: %s."), *BattleCostSummary);
+            }
+            else
+            {
+                State.PlayerCountry.MilitaryReadiness = FMath::Clamp(State.PlayerCountry.MilitaryReadiness - 2, 0, 100);
+                Army.Morale = FMath::Clamp(Army.Morale - 3, 0, 100);
+                Battle.Summary += FString::Printf(TEXT(" Battle underfunded: %s unavailable, readiness -2, morale -3."), *BattleCostSummary);
+                RecordRtsOfficeAlert(State, TEXT("Battle Underfunded"), Battle.Summary, CurrentProvince->ProvinceId, 56);
+            }
             ApplyRtsBattleLossesToArmy(Army, Battle);
             State.RtsWorld.LastBattleTick = State.RtsWorld.RtsTickCount;
             Battle.BattleId = FString::Printf(TEXT("BATTLE-CONTACT-%d-%s"), State.Turn, *Army.ArmyId);
@@ -2948,6 +3105,7 @@ Outcome.bAppliedToSimulation = true;
             Army.Morale = FMath::Clamp(Army.Morale + (Battle.Result.Equals(TEXT("Province Captured"), ESearchCase::IgnoreCase) ? 3 : -4), 0, 100);
             AddRtsHudAlert(State.RtsWorld, FString::Printf(TEXT("Battle triggered in %s: %s"), *CurrentProvince->ProvinceName, *Battle.Result));
         }
+        TickRtsEnemyAiPlaceholder(State);
     }
 
     bool ApplyPendingRtsBackflow(FDemocracySimulationState& State)
@@ -9092,6 +9250,133 @@ FReply ALoginHUD::HandleRtsSupplyActionClicked(FString RouteId, FString ActionNa
     return FReply::Handled();
 }
 
+TSharedRef<SWidget> ALoginHUD::BuildRtsDiplomacyActionsWidget()
+{
+    const bool bEnabled = bHasLoadedRuntimeState && !RtsSelectedCountryName.IsEmpty();
+    FString Status = bEnabled
+        ? FString::Printf(TEXT("Selected country: %s. RTS diplomacy actions use office command authority rules and immediately change RTS availability."), *RtsSelectedCountryName)
+        : TEXT("Select a country or province to use RTS diplomacy actions: ceasefire, sanctions, alliance aid, alliances, or treaties.");
+
+    return SNew(SBorder).BorderImage(RowBrush.Get()).BorderBackgroundColor(FLinearColor(0.07f, 0.10f, 0.12f, 0.84f)).Padding(8.0f)
+    [
+        SNew(SVerticalBox)
+        + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 6.0f)
+        [SNew(STextBlock).Text(BodyText(Status)).AutoWrapText(true).Font(FCoreStyle::GetDefaultFontStyle("Regular", 10)).ColorAndOpacity(FLinearColor(0.90f, 0.96f, 1.0f, 1.0f))]
+        + SVerticalBox::Slot().AutoHeight()
+        [
+            SNew(SHorizontalBox)
+            + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 5.0f, 5.0f)[BuildButton(TEXT("Ceasefire"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleRtsMapDiplomacyActionClicked, FString(TEXT("office_negotiate_ceasefire"))), 96.0f, 28.0f, bEnabled)]
+            + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 5.0f, 5.0f)[BuildButton(TEXT("Sanction"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleRtsMapDiplomacyActionClicked, FString(TEXT("office_impose_sanctions"))), 92.0f, 28.0f, bEnabled)]
+            + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 5.0f, 5.0f)[BuildButton(TEXT("Aid"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleRtsMapDiplomacyActionClicked, FString(TEXT("office_request_alliance_aid"))), 68.0f, 28.0f, bEnabled)]
+            + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 5.0f, 5.0f)[BuildButton(TEXT("Alliance"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleRtsMapDiplomacyActionClicked, FString(TEXT("office_propose_alliance"))), 92.0f, 28.0f, bEnabled)]
+            + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 5.0f, 5.0f)[BuildButton(TEXT("Treaty"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleRtsMapDiplomacyActionClicked, FString(TEXT("office_propose_treaty"))), 82.0f, 28.0f, bEnabled)]
+        ]
+    ];
+}
+
+TSharedRef<SWidget> ALoginHUD::BuildRtsNotificationsWidget()
+{
+    TSharedRef<SVerticalBox> NotificationList = SNew(SVerticalBox);
+    if (!bHasLoadedRuntimeState)
+    {
+        NotificationList->AddSlot().AutoHeight()[SNew(STextBlock).Text(BodyText(TEXT("No RTS state loaded."))).AutoWrapText(true).Font(FCoreStyle::GetDefaultFontStyle("Regular", 10)).ColorAndOpacity(FLinearColor(0.82f, 0.92f, 0.96f, 1.0f))];
+    }
+    else
+    {
+        TArray<FDemocracyRtsOutcomeState> DisplayAlerts;
+        for (const FDemocracyRtsOutcomeState& Outcome : LoadedSaveState.RuntimeState.RtsWorld.Backflow.PendingOutcomes)
+        {
+            DisplayAlerts.Add(Outcome);
+        }
+        for (int32 Index = LoadedSaveState.RuntimeState.RtsWorld.Backflow.OutcomeHistory.Num() - 1; Index >= 0 && DisplayAlerts.Num() < 5; --Index)
+        {
+            DisplayAlerts.Add(LoadedSaveState.RuntimeState.RtsWorld.Backflow.OutcomeHistory[Index]);
+        }
+
+        if (DisplayAlerts.Num() == 0)
+        {
+            NotificationList->AddSlot().AutoHeight()[SNew(STextBlock).Text(BodyText(TEXT("No actionable RTS notifications yet."))).AutoWrapText(true).Font(FCoreStyle::GetDefaultFontStyle("Regular", 10)).ColorAndOpacity(FLinearColor(0.82f, 0.92f, 0.96f, 1.0f))];
+        }
+        else
+        {
+            const int32 AlertCount = FMath::Min(DisplayAlerts.Num(), 5);
+            for (int32 Index = 0; Index < AlertCount; ++Index)
+            {
+                const FDemocracyRtsOutcomeState& Alert = DisplayAlerts[Index];
+                const FString ProvinceId = Alert.AffectedProvinceId;
+                const FString Label = FString::Printf(TEXT("%s | %s | %s"), *Alert.OutcomeType, ProvinceId.IsEmpty() ? TEXT("no province") : *ProvinceId, *Alert.AttentionSummary.Left(90));
+                NotificationList->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 6.0f)
+                [
+                    BuildButton(Label, FOnClicked::CreateUObject(this, &ALoginHUD::HandleFocusRtsAlertClicked, ProvinceId, FString(), FString()), 520.0f, 30.0f, !ProvinceId.IsEmpty())
+                ];
+            }
+        }
+    }
+
+    return SNew(SBorder).BorderImage(RowBrush.Get()).BorderBackgroundColor(FLinearColor(0.06f, 0.09f, 0.11f, 0.84f)).Padding(8.0f)[NotificationList];
+}
+
+FReply ALoginHUD::HandleRtsMapDiplomacyActionClicked(FString CommandId)
+{
+    if (!bHasLoadedRuntimeState)
+    {
+        return FReply::Handled();
+    }
+
+    FString CostSummary;
+    if (!TryApplyRtsActionCost(LoadedSaveState.RuntimeState, TEXT("Diplomacy"), CostSummary))
+    {
+        LoadedSaveState.RuntimeState.RtsWorld.WorldInteraction.LastInteractionSummary = FString::Printf(TEXT("RTS diplomacy action blocked: %s unavailable."), *CostSummary);
+        AddRtsHudAlert(LoadedSaveState.RuntimeState.RtsWorld, LoadedSaveState.RuntimeState.RtsWorld.WorldInteraction.LastInteractionSummary);
+        RefreshRtsHudState(LoadedSaveState.RuntimeState);
+        RefreshLoginWidget();
+        return FReply::Handled();
+    }
+
+    FReply Result = HandleExecuteAuthorityCommand(CommandId, TEXT("RTS Map"));
+    LoadedSaveState.RuntimeState.RtsWorld.WorldInteraction.LastInteractionSummary += FString::Printf(TEXT(" RTS map diplomacy cost paid: %s."), *CostSummary);
+    RecordRtsOfficeAlert(LoadedSaveState.RuntimeState, TEXT("RTS Diplomacy"), LoadedSaveState.RuntimeState.RtsWorld.WorldInteraction.LastInteractionSummary, RtsSelectedProvinceId, 36);
+    RefreshRtsHudState(LoadedSaveState.RuntimeState);
+    RefreshLoginWidget();
+    return Result;
+}
+
+FReply ALoginHUD::HandleFocusRtsAlertClicked(FString ProvinceId, FString ArmyId, FString CityBaseId)
+{
+    if (!bHasLoadedRuntimeState)
+    {
+        return FReply::Handled();
+    }
+
+    FDemocracySimulationState& State = LoadedSaveState.RuntimeState;
+    if (!ProvinceId.IsEmpty())
+    {
+        RtsSelectedProvinceId = ProvinceId;
+        if (const FDemocracyProvinceOwnershipState* Province = FindRtsProvinceById(State, ProvinceId))
+        {
+            RtsSelectedCountryName = Province->CurrentOwnerCountryName.IsEmpty() ? Province->CurrentControllerCountryName : Province->CurrentOwnerCountryName;
+            State.RtsWorld.WorldInteraction.ActiveSelectionId = ProvinceId;
+            State.RtsWorld.WorldInteraction.ActiveSelectionType = TEXT("Province Alert");
+            State.RtsWorld.WorldInteraction.LastInteractionSummary = FString::Printf(TEXT("Focused RTS notification on %s: %s."), *Province->ProvinceName, *ProvinceId);
+        }
+        FocusRtsMapOnSelection();
+    }
+    if (!ArmyId.IsEmpty())
+    {
+        RtsSelectedArmyId = ArmyId;
+        for (FDemocracyRtsArmyGroupState& Army : State.RtsWorld.ArmyGroups)
+        {
+            Army.bSelected = Army.ArmyId.Equals(ArmyId, ESearchCase::IgnoreCase);
+        }
+    }
+    if (!CityBaseId.IsEmpty())
+    {
+        State.RtsWorld.ActiveViewMode = TEXT("City/Base View");
+    }
+    RefreshRtsHudState(State);
+    RefreshLoginWidget();
+    return FReply::Handled();
+}
 FReply ALoginHUD::HandleRecruitRtsUnitsClicked(FString UnitType)
 {
     if (!bHasLoadedRuntimeState) { return FReply::Handled(); }
@@ -10098,6 +10383,20 @@ bool ALoginHUD::TryIssueRtsOrderToProvince(const FString& TargetProvinceId)
         return false;
     }
 
+    FString MovementCostSummary;
+    if (!TryApplyRtsActionCost(State, PendingRtsOrderType, MovementCostSummary))
+    {
+        State.RtsWorld.WorldInteraction.LastInteractionSummary = FString::Printf(TEXT("RTS order blocked: %s cannot start because %s is unavailable."), *PendingRtsOrderType, *MovementCostSummary);
+        Army->MovementState = TEXT("Insufficient Resources");
+        Army->DestinationProvinceId = Army->CurrentProvinceId;
+        Army->OrderTurnsRemaining = 0;
+        Army->MovementTurnsRemaining = 0;
+        AddRtsHudAlert(State.RtsWorld, State.RtsWorld.WorldInteraction.LastInteractionSummary);
+        RecordRtsOfficeAlert(State, TEXT("RTS Order Blocked"), State.RtsWorld.WorldInteraction.LastInteractionSummary, TargetProvinceId, 34);
+        PendingRtsOrderConfirmationText = State.RtsWorld.WorldInteraction.LastInteractionSummary;
+        RefreshRtsHudState(State);
+        return false;
+    }
     for (FDemocracyRtsMovementOrderState& ExistingOrder : State.RtsWorld.MovementOrders)
     {
         if (ExistingOrder.ArmyId.Equals(Army->ArmyId, ESearchCase::IgnoreCase) && ExistingOrder.bActive && !ExistingOrder.bComplete)
@@ -10121,7 +10420,7 @@ bool ALoginHUD::TryIssueRtsOrderToProvince(const FString& TargetProvinceId)
     Order.IssuedTurn = State.Turn;
     Order.TotalTurns = FMath::Clamp((bSameProvince ? 1 : 2) + (Army->bSupplyRouteBroken ? 1 : 0) + (bHostileTarget ? 1 : 0) + FMath::Max(0, DiplomacySupplyModifier) / 12, 1, 6);
     Order.TurnsRemaining = Order.TotalTurns;
-    Order.StatusSummary = FString::Printf(TEXT("%s ordered to %s. ETA %d turn(s)%s."), *Army->DisplayName, *TargetProvince->ProvinceName, Order.TurnsRemaining, bHostileTarget ? TEXT("; hostile contact possible") : TEXT(""));
+    Order.StatusSummary = FString::Printf(TEXT("%s ordered to %s. ETA %d turn(s)%s. %s paid."), *Army->DisplayName, *TargetProvince->ProvinceName, Order.TurnsRemaining, bHostileTarget ? TEXT("; hostile contact possible") : TEXT(""), *MovementCostSummary);
     Order.AllowedFollowUps = { TEXT("Cancel"), TEXT("Change Order"), TEXT("Inspect Target") };
     State.RtsWorld.MovementOrders.Add(Order);
 
@@ -10471,6 +10770,28 @@ TSharedRef<SWidget> ALoginHUD::BuildOfficeWorldRtsScreen()
                             + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 12.0f)
                             [
                                 BuildRtsSupplyActionsWidget()
+                            ]
+                            + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 14.0f, 0.0f, 8.0f)
+                            [
+                                SNew(STextBlock)
+                                .Text(BodyText(TEXT("RTS Diplomacy")))
+                                .Font(FCoreStyle::GetDefaultFontStyle("Bold", 13))
+                                .ColorAndOpacity(FLinearColor(0.86f, 0.95f, 1.0f, 1.0f))
+                            ]
+                            + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 12.0f)
+                            [
+                                BuildRtsDiplomacyActionsWidget()
+                            ]
+                            + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 14.0f, 0.0f, 8.0f)
+                            [
+                                SNew(STextBlock)
+                                .Text(BodyText(TEXT("RTS Notifications")))
+                                .Font(FCoreStyle::GetDefaultFontStyle("Bold", 13))
+                                .ColorAndOpacity(FLinearColor(1.0f, 0.82f, 0.36f, 1.0f))
+                            ]
+                            + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 12.0f)
+                            [
+                                BuildRtsNotificationsWidget()
                             ]
                             + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 14.0f, 0.0f, 8.0f)
                             [
