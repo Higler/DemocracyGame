@@ -2613,12 +2613,22 @@ FString FDemocracyRtsBattleResolutionState::ToJson(int32 IndentSpaces) const
         TEXT("%s\"supplyModifier\": %d,\n")
         TEXT("%s\"techModifier\": %d,\n")
         TEXT("%s\"moraleModifier\": %d,\n")
+        TEXT("%s\"reinforcementModifier\": %d,\n")
+        TEXT("%s\"defensiveStructureModifier\": %d,\n")
+        TEXT("%s\"infantryLosses\": %d,\n")
+        TEXT("%s\"vehicleLosses\": %d,\n")
+        TEXT("%s\"aircraftLosses\": %d,\n")
+        TEXT("%s\"logisticsLosses\": %d,\n")
+        TEXT("%s\"scoutLosses\": %d,\n")
+        TEXT("%s\"defensiveLosses\": %d,\n")
+        TEXT("%s\"retreatRecommended\": %s,\n")
+        TEXT("%s\"retreated\": %s,\n")
         TEXT("%s\"result\": \"%s\",\n")
-        TEXT("%s\"summary\": \"%s\"\n")
+        TEXT("%s\"summary\": \"%s\",\n")
+        TEXT("%s\"followUpActions\": %s\n")
         TEXT("%s}"),
-        *Pad, *JsonEscape(BattleId), *Pad, *JsonEscape(ArmyId), *Pad, *JsonEscape(ProvinceId), *Pad, *JsonEscape(OpponentCountry), *Pad, *JsonEscape(TerrainType), *Pad, PlayerScore, *Pad, OpponentScore, *Pad, ReadinessModifier, *Pad, TerrainModifier, *Pad, SupplyModifier, *Pad, TechModifier, *Pad, MoraleModifier, *Pad, *JsonEscape(Result), *Pad, *JsonEscape(Summary), *Indent(IndentSpaces - 2));
+        *Pad, *JsonEscape(BattleId), *Pad, *JsonEscape(ArmyId), *Pad, *JsonEscape(ProvinceId), *Pad, *JsonEscape(OpponentCountry), *Pad, *JsonEscape(TerrainType), *Pad, PlayerScore, *Pad, OpponentScore, *Pad, ReadinessModifier, *Pad, TerrainModifier, *Pad, SupplyModifier, *Pad, TechModifier, *Pad, MoraleModifier, *Pad, ReinforcementModifier, *Pad, DefensiveStructureModifier, *Pad, InfantryLosses, *Pad, VehicleLosses, *Pad, AircraftLosses, *Pad, LogisticsLosses, *Pad, ScoutLosses, *Pad, DefensiveLosses, *Pad, bRetreatRecommended ? TEXT("true") : TEXT("false"), *Pad, bRetreated ? TEXT("true") : TEXT("false"), *Pad, *JsonEscape(Result), *Pad, *JsonEscape(Summary), *Pad, *StringArrayToJson(FollowUpActions), *Indent(IndentSpaces - 2));
 }
-
 FString FDemocracyRtsFogProvinceState::ToJson(int32 IndentSpaces) const
 {
     const FString Pad = Indent(IndentSpaces);
@@ -2985,6 +2995,11 @@ FString FDemocracyRtsWorldState::ToJson(int32 IndentSpaces) const
     return FString::Printf(
         TEXT("{\n")
         TEXT("%s\"simulationSecond\": %d,\n")
+        TEXT("%s\"rtsTickCount\": %d,\n")
+        TEXT("%s\"rtsTicksPerSimulationTurn\": %d,\n")
+        TEXT("%s\"rtsTicksPerConstructionTurn\": %d,\n")
+        TEXT("%s\"lastBattleTick\": %d,\n")
+        TEXT("%s\"tickSummary\": \"%s\",\n")
         TEXT("%s\"controlledTerritories\": %d,\n")
         TEXT("%s\"borderTerritories\": %d,\n")
         TEXT("%s\"knownRivalCountries\": %d,\n")
@@ -3007,6 +3022,11 @@ FString FDemocracyRtsWorldState::ToJson(int32 IndentSpaces) const
         TEXT("%s\"ownership\": %s\n")
         TEXT("%s}"),
         *Pad, SimulationSecond,
+        *Pad, RtsTickCount,
+        *Pad, RtsTicksPerSimulationTurn,
+        *Pad, RtsTicksPerConstructionTurn,
+        *Pad, LastBattleTick,
+        *Pad, *JsonEscape(TickSummary),
         *Pad, ControlledTerritories,
         *Pad, BorderTerritories,
         *Pad, KnownRivalCountries,

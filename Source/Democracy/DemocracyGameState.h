@@ -906,8 +906,19 @@ struct FDemocracyRtsBattleResolutionState
     int32 SupplyModifier = 0;
     int32 TechModifier = 0;
     int32 MoraleModifier = 0;
+    int32 ReinforcementModifier = 0;
+    int32 DefensiveStructureModifier = 0;
+    int32 InfantryLosses = 0;
+    int32 VehicleLosses = 0;
+    int32 AircraftLosses = 0;
+    int32 LogisticsLosses = 0;
+    int32 ScoutLosses = 0;
+    int32 DefensiveLosses = 0;
+    bool bRetreatRecommended = false;
+    bool bRetreated = false;
     FString Result = TEXT("Unresolved");
     FString Summary;
+    TArray<FString> FollowUpActions;
 
     FString ToJson(int32 IndentSpaces = 2) const;
 };
@@ -1051,6 +1062,11 @@ struct FDemocracyRtsCityBaseState
 struct FDemocracyRtsWorldState
 {
     int32 SimulationSecond = 0;
+    int32 RtsTickCount = 0;
+    int32 RtsTicksPerSimulationTurn = 3;
+    int32 RtsTicksPerConstructionTurn = 3;
+    int32 LastBattleTick = 0;
+    FString TickSummary = TEXT("RTS tick has not advanced yet.");
     int32 ControlledTerritories = 1;
     int32 BorderTerritories = 2;
     int32 KnownRivalCountries = 3;

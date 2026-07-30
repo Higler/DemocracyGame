@@ -353,6 +353,50 @@ namespace
 
         return Points;
     }
+    FString SelectDuliaProvinceIdAtMapPoint(const FDemocracyCountryOwnershipState& Country, const FVector2D& MapPoint)
+    {
+        if (Country.ProvinceIds.Num() == 0)
+        {
+            return TEXT("");
+        }
+        if (Country.ProvinceIds.Num() == 1)
+        {
+            return Country.ProvinceIds[0];
+        }
+
+        const FDuliaCountryMapPoint* CountryPoint = nullptr;
+        for (const FDuliaCountryMapPoint& Point : GetDuliaCountryMapPoints())
+        {
+            if (Point.CountryIndex == Country.MapCountryIndex)
+            {
+                CountryPoint = &Point;
+                break;
+            }
+        }
+
+        if (!CountryPoint)
+        {
+            return Country.ProvinceIds[0];
+        }
+
+        const FVector2D Delta = MapPoint - CountryPoint->Centroid;
+        const float Width = FMath::Max(1.0f, CountryPoint->BoundsMax.X - CountryPoint->BoundsMin.X);
+        const float Height = FMath::Max(1.0f, CountryPoint->BoundsMax.Y - CountryPoint->BoundsMin.Y);
+        const float NormalizedRadius = FMath::Clamp(Delta.Size() / FMath::Max(Width, Height), 0.0f, 1.0f);
+        if (NormalizedRadius < 0.18f)
+        {
+            return Country.ProvinceIds[0];
+        }
+
+        const float Angle = FMath::Atan2(Delta.Y, Delta.X);
+        const float NormalizedAngle = (Angle + PI) / (2.0f * PI);
+        int32 ProvinceIndex = FMath::Clamp(FMath::FloorToInt(NormalizedAngle * Country.ProvinceIds.Num()), 0, Country.ProvinceIds.Num() - 1);
+        if (Country.ProvinceIds.Num() > 4 && NormalizedRadius > 0.72f)
+        {
+            ProvinceIndex = (ProvinceIndex + Country.ProvinceIds.Num() / 2) % Country.ProvinceIds.Num();
+        }
+        return Country.ProvinceIds[ProvinceIndex];
+    }
     FString SaveTimestamp()
     {
         return FDateTime::UtcNow().ToIso8601();
@@ -2114,7 +2158,7 @@ namespace
         FDemocracyRtsHudState& Hud = State.RtsWorld.Hud;
         Hud.SelectedUnitOrBuilding = State.RtsWorld.WorldInteraction.ActiveSelectionId.IsEmpty() ? TEXT("None") : State.RtsWorld.WorldInteraction.ActiveSelectionId;
         Hud.SelectedType = State.RtsWorld.WorldInteraction.ActiveSelectionType.IsEmpty() ? TEXT("None") : State.RtsWorld.WorldInteraction.ActiveSelectionType;
-        Hud.ResourceSummary = FString::Printf(TEXT("Food %+d | fuel %+d | wood %+d | metals %+d | disruption %d"), State.RtsWorld.ResourceCollection.FoodSentToSimulation, State.RtsWorld.ResourceCollection.FuelSentToSimulation, State.RtsWorld.ResourceCollection.WoodSentToSimulation, State.RtsWorld.ResourceCollection.MetalsSentToSimulation, State.RtsWorld.ResourceCollection.DisruptionPenalty);
+        Hud.ResourceSummary = FString::Printf(TEXT("Tick %d | Food %+d | fuel %+d | wood %+d | metals %+d | disruption %d"), State.RtsWorld.RtsTickCount, State.RtsWorld.ResourceCollection.FoodSentToSimulation, State.RtsWorld.ResourceCollection.FuelSentToSimulation, State.RtsWorld.ResourceCollection.WoodSentToSimulation, State.RtsWorld.ResourceCollection.MetalsSentToSimulation, State.RtsWorld.ResourceCollection.DisruptionPenalty);
         Hud.BuildMenuOptions.Reset();
         for (const FDemocracyRtsBuildingState& Building : State.RtsWorld.CityBase.Buildings)
         {
@@ -2122,7 +2166,7 @@ namespace
             Hud.BuildMenuOptions.Add(FString::Printf(TEXT("%s L%d cost %d upgrade %d"), *Building.DisplayName, Building.Level, Building.BuildCost, Building.UpgradeCost));
         }
         Hud.ArmyOrderButtons = { TEXT("Move"), TEXT("Defend"), TEXT("Rally"), TEXT("Patrol/Scout"), TEXT("Reinforce") };
-        Hud.BuildMenuSummary = FString::Printf(TEXT("Build menu: %d building types | queue %d | upgrades %d."), State.RtsWorld.CityBase.Buildings.Num(), State.RtsWorld.CityBase.BuildQueueCount, State.RtsWorld.CityBase.UpgradeQueueCount);
+        Hud.BuildMenuSummary = FString::Printf(TEXT("Build menu: %d building types | queue %d | upgrades %d | construction ticks every %d RTS tick(s)."), State.RtsWorld.CityBase.Buildings.Num(), State.RtsWorld.CityBase.BuildQueueCount, State.RtsWorld.CityBase.UpgradeQueueCount, State.RtsWorld.RtsTicksPerConstructionTurn);
         Hud.ArmyOrderSummary = State.RtsWorld.ArmyGroups.Num() > 0 ? FString::Printf(TEXT("Selected army %s | order %s | morale %d | supply %d."), *State.RtsWorld.ArmyGroups[0].DisplayName, *State.RtsWorld.ArmyGroups[0].ActiveOrderType, State.RtsWorld.ArmyGroups[0].Morale, State.RtsWorld.ArmyGroups[0].SupplyStatus) : TEXT("No army selected.");
         Hud.MinimapSummary = FString::Printf(TEXT("Minimap: %d provinces | known %d | scouted %d | hidden %d | contested %d."), State.RtsWorld.Ownership.TotalProvinces, State.RtsWorld.FogOfWar.KnownProvinceCount, State.RtsWorld.FogOfWar.ScoutedProvinceCount, State.RtsWorld.FogOfWar.HiddenProvinceCount, State.RtsWorld.FogOfWar.ContestedProvinceCount);
         Hud.Alerts.Reset();
@@ -2171,7 +2215,7 @@ namespace
     FDemocracyRtsBattleResolutionState ResolveDeterministicRtsBattle(const FDemocracySimulationState& State, const FDemocracyRtsArmyGroupState& Army, const FDemocracyProvinceOwnershipState& Province, const FString& OrderType)
     {
         FDemocracyRtsBattleResolutionState Battle;
-        Battle.BattleId = FString::Printf(TEXT("BATTLE-%d-%s"), State.Turn, *Army.ArmyId);
+        Battle.BattleId = FString::Printf(TEXT("BATTLE-%d-%d-%s"), State.Turn, State.RtsWorld.RtsTickCount, *Army.ArmyId);
         Battle.ArmyId = Army.ArmyId;
         Battle.ProvinceId = Province.ProvinceId;
         Battle.OpponentCountry = Province.CurrentControllerCountryName.Equals(State.PlayerCountry.CountryName, ESearchCase::IgnoreCase) ? (State.RtsWorld.Rivals.Num() > 0 ? State.RtsWorld.Rivals[0].CountryName : TEXT("Unknown Rival")) : Province.CurrentControllerCountryName;
@@ -2181,24 +2225,83 @@ namespace
         Battle.SupplyModifier = FMath::Clamp((Army.SupplyStatus - 50) / 3, -20, 20);
         Battle.TechModifier = FMath::Clamp(State.PlayerCountry.Technology / 8, 0, 15);
         Battle.MoraleModifier = FMath::Clamp((Army.Morale - 50) / 3, -15, 15);
-        Battle.PlayerScore = Army.TotalStrength + Battle.ReadinessModifier + Battle.TerrainModifier + Battle.SupplyModifier + Battle.TechModifier + Battle.MoraleModifier;
-        Battle.OpponentScore = FMath::Clamp(Province.StrategicValue * 12 + Province.Unrest / 4 + (Province.bBorderProvince ? 8 : 0) + FMath::Max(0, 55 - Province.Stability) / 3, 20, 140);
+
+        int32 FriendlyReinforcements = 0;
+        for (const FDemocracyRtsArmyGroupState& OtherArmy : State.RtsWorld.ArmyGroups)
+        {
+            if (!OtherArmy.ArmyId.Equals(Army.ArmyId, ESearchCase::IgnoreCase)
+                && OtherArmy.CurrentProvinceId.Equals(Army.CurrentProvinceId, ESearchCase::IgnoreCase)
+                && OtherArmy.CurrentCountryName.Equals(Army.CurrentCountryName, ESearchCase::IgnoreCase))
+            {
+                FriendlyReinforcements += FMath::Clamp(OtherArmy.TotalStrength / 18, 2, 8);
+            }
+        }
+        Battle.ReinforcementModifier = FMath::Clamp(FriendlyReinforcements, 0, 18);
+
+        int32 BuildingDefense = 0;
+        if (Province.CurrentControllerCountryName.Equals(State.PlayerCountry.CountryName, ESearchCase::IgnoreCase))
+        {
+            for (const FDemocracyRtsBuildingState& Building : State.RtsWorld.CityBase.Buildings)
+            {
+                if (Building.bConstructed && !Building.bDisabled)
+                {
+                    BuildingDefense += FMath::Max(0, Building.DefenseValue / 3);
+                }
+            }
+        }
+        Battle.DefensiveStructureModifier = FMath::Clamp(BuildingDefense + Province.StrategicValue / 3 + (Province.bBorderProvince ? 6 : 0), 0, 28);
+
+        Battle.PlayerScore = Army.TotalStrength + Battle.ReadinessModifier + Battle.TerrainModifier + Battle.SupplyModifier + Battle.TechModifier + Battle.MoraleModifier + Battle.ReinforcementModifier;
+        Battle.OpponentScore = FMath::Clamp(Province.StrategicValue * 12 + Province.Unrest / 4 + (Province.bBorderProvince ? 8 : 0) + FMath::Max(0, 55 - Province.Stability) / 3 + Battle.DefensiveStructureModifier, 20, 170);
         if (Battle.PlayerScore >= Battle.OpponentScore + 15)
         {
             Battle.Result = TEXT("Province Captured");
+            Battle.FollowUpActions = { TEXT("Hold Occupation"), TEXT("Fortify"), TEXT("Negotiate Peace"), TEXT("Reinforce Supply") };
         }
         else if (Battle.PlayerScore + 15 < Battle.OpponentScore)
         {
             Battle.Result = TEXT("Battle Lost");
+            Battle.bRetreatRecommended = true;
+            Battle.bRetreated = true;
+            Battle.FollowUpActions = { TEXT("Retreat"), TEXT("Request Reinforcements"), TEXT("Defend Border"), TEXT("Negotiate Ceasefire") };
         }
         else
         {
             Battle.Result = TEXT("Stalemate");
+            Battle.bRetreatRecommended = Army.SupplyStatus < 45 || Army.Morale < 45;
+            Battle.FollowUpActions = { TEXT("Reinforce"), TEXT("Scout"), TEXT("Withdraw"), TEXT("Attack Again") };
         }
-        Battle.Summary = FString::Printf(TEXT("%s resolved in %s. Player score %d vs opponent score %d. Modifiers readiness %+d, terrain %+d, supply %+d, tech %+d, morale %+d."), *OrderType, *Province.ProvinceName, Battle.PlayerScore, Battle.OpponentScore, Battle.ReadinessModifier, Battle.TerrainModifier, Battle.SupplyModifier, Battle.TechModifier, Battle.MoraleModifier);
+
+        const int32 LossPressure = Battle.Result.Equals(TEXT("Province Captured"), ESearchCase::IgnoreCase)
+            ? FMath::Clamp(Battle.OpponentScore / 18, 1, 9)
+            : Battle.Result.Equals(TEXT("Battle Lost"), ESearchCase::IgnoreCase)
+                ? FMath::Clamp(Battle.OpponentScore / 10, 4, 22)
+                : FMath::Clamp((Battle.PlayerScore + Battle.OpponentScore) / 22, 2, 14);
+        Battle.InfantryLosses = FMath::Min(Army.InfantryCount, FMath::Max(0, LossPressure / 2));
+        Battle.VehicleLosses = FMath::Min(Army.VehicleCount, FMath::Max(0, LossPressure / 5));
+        Battle.AircraftLosses = FMath::Min(Army.AircraftCount, FMath::Max(0, LossPressure / 7));
+        Battle.LogisticsLosses = FMath::Min(Army.LogisticsCount, Battle.bRetreated ? 1 : FMath::Max(0, LossPressure / 8));
+        Battle.ScoutLosses = FMath::Min(Army.ScoutCount, FMath::Max(0, LossPressure / 9));
+        Battle.DefensiveLosses = FMath::Min(Army.DefensiveUnitCount, FMath::Max(0, LossPressure / 6));
+
+        Battle.Summary = FString::Printf(TEXT("%s resolved in %s. Player score %d vs opponent score %d. Modifiers readiness %+d, terrain %+d, supply %+d, tech %+d, morale %+d, reinforcements %+d, defenses %+d. Losses I%d V%d A%d L%d S%d D%d. Follow-ups: %s."), *OrderType, *Province.ProvinceName, Battle.PlayerScore, Battle.OpponentScore, Battle.ReadinessModifier, Battle.TerrainModifier, Battle.SupplyModifier, Battle.TechModifier, Battle.MoraleModifier, Battle.ReinforcementModifier, Battle.DefensiveStructureModifier, Battle.InfantryLosses, Battle.VehicleLosses, Battle.AircraftLosses, Battle.LogisticsLosses, Battle.ScoutLosses, Battle.DefensiveLosses, *FString::Join(Battle.FollowUpActions, TEXT(", ")));
         return Battle;
     }
 
+    void ApplyRtsBattleLossesToArmy(FDemocracyRtsArmyGroupState& Army, const FDemocracyRtsBattleResolutionState& Battle)
+    {
+        Army.InfantryCount = FMath::Max(0, Army.InfantryCount - Battle.InfantryLosses);
+        Army.VehicleCount = FMath::Max(0, Army.VehicleCount - Battle.VehicleLosses);
+        Army.AircraftCount = FMath::Max(0, Army.AircraftCount - Battle.AircraftLosses);
+        Army.LogisticsCount = FMath::Max(0, Army.LogisticsCount - Battle.LogisticsLosses);
+        Army.ScoutCount = FMath::Max(0, Army.ScoutCount - Battle.ScoutLosses);
+        Army.DefensiveUnitCount = FMath::Max(0, Army.DefensiveUnitCount - Battle.DefensiveLosses);
+        Army.TotalStrength = FMath::Clamp(Army.InfantryCount * 8 + Army.VehicleCount * 22 + Army.AircraftCount * 28 + Army.LogisticsCount * 6 + Army.ScoutCount * 5 + Army.DefensiveUnitCount * 18, 0, 999);
+        if (Battle.bRetreated)
+        {
+            Army.MovementState = TEXT("Retreated");
+        }
+    }
     FDemocracyRtsOutcomeState MakeRtsOutcomeFromBattle(const FDemocracySimulationState& State, const FDemocracyRtsBattleResolutionState& Battle)
     {
         FDemocracyRtsOutcomeState Outcome = MakePrototypeRtsOutcome(State, Battle.Result);
@@ -2212,24 +2315,25 @@ namespace
             Outcome.AffectedResource = Province->ResourceFocus;
         }
         Outcome.Summary = Battle.Summary;
+        const int32 PlayerUnitLosses = Battle.InfantryLosses + Battle.VehicleLosses + Battle.AircraftLosses + Battle.LogisticsLosses + Battle.ScoutLosses + Battle.DefensiveLosses;
         if (Battle.Result.Equals(TEXT("Province Captured"), ESearchCase::IgnoreCase))
         {
             Outcome.TerritoryDelta = 1;
-            Outcome.Casualties = FMath::Clamp(Battle.OpponentScore / 2, 20, 90);
+            Outcome.Casualties = FMath::Clamp(PlayerUnitLosses * 12 + Battle.OpponentScore / 3, 12, 110);
             Outcome.InvasionRiskDelta = -8;
             Outcome.StabilityDelta = 1;
         }
         else if (Battle.Result.Equals(TEXT("Battle Lost"), ESearchCase::IgnoreCase))
         {
             Outcome.TerritoryDelta = 0;
-            Outcome.Casualties = FMath::Clamp(Battle.OpponentScore, 55, 160);
+            Outcome.Casualties = FMath::Clamp(PlayerUnitLosses * 18 + Battle.OpponentScore / 2, 55, 220);
             Outcome.InvasionRiskDelta = 12;
             Outcome.StabilityDelta = -4;
         }
         else
         {
             Outcome.TerritoryDelta = 0;
-            Outcome.Casualties = FMath::Clamp((Battle.PlayerScore + Battle.OpponentScore) / 4, 25, 95);
+            Outcome.Casualties = FMath::Clamp(PlayerUnitLosses * 15 + (Battle.PlayerScore + Battle.OpponentScore) / 6, 25, 150);
             Outcome.InvasionRiskDelta = 3;
             Outcome.StabilityDelta = -1;
         }
@@ -2343,6 +2447,8 @@ namespace
             if (TargetProvince && bHostileTarget && bCombatCapableOrder)
             {
                 FDemocracyRtsBattleResolutionState Battle = ResolveDeterministicRtsBattle(State, *Army, *TargetProvince, Order.OrderType);
+                ApplyRtsBattleLossesToArmy(*Army, Battle);
+                State.RtsWorld.LastBattleTick = State.RtsWorld.RtsTickCount;
                 State.RtsWorld.BattleHistory.Add(Battle);
                 if (State.RtsWorld.BattleHistory.Num() > 20)
                 {
@@ -2425,6 +2531,8 @@ namespace
                 if (const FDemocracyProvinceOwnershipState* Province = FindRtsProvinceById(State, Order.TargetProvinceId))
                 {
                     FDemocracyRtsBattleResolutionState Battle = ResolveDeterministicRtsBattle(State, *Army, *Province, Order.OrderType);
+                    ApplyRtsBattleLossesToArmy(*Army, Battle);
+                    State.RtsWorld.LastBattleTick = State.RtsWorld.RtsTickCount;
                     State.RtsWorld.BattleHistory.Add(Battle);
                     if (State.RtsWorld.BattleHistory.Num() > 20)
                     {
@@ -2475,6 +2583,8 @@ namespace
             }
 
             FDemocracyRtsBattleResolutionState Battle = ResolveDeterministicRtsBattle(State, Army, *CurrentProvince, Army.ActiveOrderType.IsEmpty() ? TEXT("Move") : Army.ActiveOrderType);
+            ApplyRtsBattleLossesToArmy(Army, Battle);
+            State.RtsWorld.LastBattleTick = State.RtsWorld.RtsTickCount;
             Battle.BattleId = FString::Printf(TEXT("BATTLE-CONTACT-%d-%s"), State.Turn, *Army.ArmyId);
             Battle.Summary = FString::Printf(TEXT("Automatic hostile contact: %s. %s"), *Army.ArmyId, *Battle.Summary);
             State.RtsWorld.BattleHistory.Add(Battle);
@@ -2522,6 +2632,7 @@ namespace
         Lines.Add(FString::Printf(TEXT("Import queue: attention %d | battle losses %d | province changes %d | capital threats %d | supply breaks %d"), Backflow.PendingAttentionCount, Backflow.BattleLossCount, Backflow.ProvinceCaptureCount, Backflow.CapitalThreatCount, Backflow.SupplyRouteBreakCount));
         Lines.Add(FString::Printf(TEXT("Ownership: %d countries | %d provinces | player controlled %d | contested %d | border provinces %d"), RtsWorld.Ownership.TotalCountries, RtsWorld.Ownership.TotalProvinces, RtsWorld.Ownership.PlayerControlledProvinces, RtsWorld.Ownership.ContestedProvinces, RtsWorld.Ownership.BorderProvinceCount));
         Lines.Add(FString::Printf(TEXT("RTS foundation: active view %s | modes %d | base %s | buildings %d | units %d | armies %d | queue %d"), *RtsWorld.ActiveViewMode, RtsWorld.ViewModes.Num(), *RtsWorld.CityBase.DisplayName, RtsWorld.CityBase.Buildings.Num(), RtsWorld.UnitCatalog.Num(), RtsWorld.ArmyGroups.Num(), RtsWorld.CityBase.BuildQueueCount));
+        Lines.Add(FString::Printf(TEXT("RTS cadence: tick %d | office turn every %d | construction every %d | last battle tick %d | %s"), RtsWorld.RtsTickCount, RtsWorld.RtsTicksPerSimulationTurn, RtsWorld.RtsTicksPerConstructionTurn, RtsWorld.LastBattleTick, *RtsWorld.TickSummary));
         Lines.Add(FString::Printf(TEXT("RTS collection: food %+d | fuel %+d | wood %+d | metals %+d | penalty %d"), RtsWorld.ResourceCollection.FoodSentToSimulation, RtsWorld.ResourceCollection.FuelSentToSimulation, RtsWorld.ResourceCollection.WoodSentToSimulation, RtsWorld.ResourceCollection.MetalsSentToSimulation, RtsWorld.ResourceCollection.DisruptionPenalty));
         Lines.Add(FString::Printf(TEXT("Backflow impacts: casualties %d | territory %+d | war fatigue %d | resource disruption %d | budget strain %d | diplomatic damage %d"), Backflow.TotalCasualties, Backflow.TotalTerritoryDelta, Backflow.WarFatigue, Backflow.ResourceDisruptionPressure, Backflow.BudgetStrainPressure, Backflow.DiplomaticDamagePressure));
         Lines.Add(FString::Printf(TEXT("Fog: known %d | scouted %d | contested %d | hidden %d | %s"), RtsWorld.FogOfWar.KnownProvinceCount, RtsWorld.FogOfWar.ScoutedProvinceCount, RtsWorld.FogOfWar.ContestedProvinceCount, RtsWorld.FogOfWar.HiddenProvinceCount, *RtsWorld.FogOfWar.Summary));
@@ -7262,7 +7373,7 @@ FReply ALoginHUD::HandleRtsMapMouseMove(const FGeometry& Geometry, const FPointe
                 {
                     if (Country.MapCountryIndex == HoverCountryIndex)
                     {
-                        NewHoveredTarget = Country.CountryName;
+                        NewHoveredTarget = SelectDuliaProvinceIdAtMapPoint(Country, MapPoint);
                         break;
                     }
                 }
@@ -7671,17 +7782,13 @@ FString ALoginHUD::BuildRtsBattlePresentationText() const
     Lines.Add(FString::Printf(TEXT("Province: %s"), *ProvinceLabel));
     Lines.Add(FString::Printf(TEXT("Attacker: %s | Defender: %s"), Army ? *Army->DisplayName : *Battle.ArmyId, Battle.OpponentCountry.IsEmpty() ? TEXT("unknown") : *Battle.OpponentCountry));
     Lines.Add(FString::Printf(TEXT("Scores: attacker %d | defender %d"), Battle.PlayerScore, Battle.OpponentScore));
-    Lines.Add(FString::Printf(TEXT("Modifiers: readiness %+d | terrain %+d | supply %+d | tech %+d | morale %+d"),
-        Battle.ReadinessModifier,
-        Battle.TerrainModifier,
-        Battle.SupplyModifier,
-        Battle.TechModifier,
-        Battle.MoraleModifier));
+    Lines.Add(FString::Printf(TEXT("Modifiers: readiness %+d | terrain %+d | supply %+d | tech %+d | morale %+d | reinforcements %+d | defenses %+d"), Battle.ReadinessModifier, Battle.TerrainModifier, Battle.SupplyModifier, Battle.TechModifier, Battle.MoraleModifier, Battle.ReinforcementModifier, Battle.DefensiveStructureModifier));
+    Lines.Add(FString::Printf(TEXT("Losses: infantry %d | vehicles %d | aircraft %d | logistics %d | scouts %d | defenses %d | retreat %s"), Battle.InfantryLosses, Battle.VehicleLosses, Battle.AircraftLosses, Battle.LogisticsLosses, Battle.ScoutLosses, Battle.DefensiveLosses, Battle.bRetreated ? TEXT("executed") : (Battle.bRetreatRecommended ? TEXT("recommended") : TEXT("not needed"))));
     Lines.Add(FString::Printf(TEXT("Terrain: %s | Province status: %s"),
         Battle.TerrainType.IsEmpty() ? TEXT("unknown") : *Battle.TerrainType,
         *ProvinceStatus));
     Lines.Add(FString::Printf(TEXT("Summary: %s"), Battle.Summary.IsEmpty() ? TEXT("No battle summary generated.") : *Battle.Summary));
-    Lines.Add(FString::Printf(TEXT("Follow-up: %s"), *FollowUp));
+    Lines.Add(FString::Printf(TEXT("Follow-up: %s"), Battle.FollowUpActions.Num() > 0 ? *FString::Join(Battle.FollowUpActions, TEXT(" | ")) : *FollowUp));
     return FString::Join(Lines, TEXT("\n"));
 }
 
@@ -8505,7 +8612,20 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsCityBasePlaceholderWidget()
                     .Font(FCoreStyle::GetDefaultFontStyle("Regular", 12))
                     .ColorAndOpacity(FLinearColor(0.85f, 0.94f, 0.88f, 1.0f))
                 ]
-                + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 12.0f)
+                + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 10.0f)
+                [
+                    SNew(SBorder)
+                    .BorderImage(RowBrush.Get())
+                    .BorderBackgroundColor(FLinearColor(0.06f, 0.12f, 0.12f, 0.82f))
+                    .Padding(10.0f)
+                    [
+                        SNew(STextBlock)
+                        .Text(BodyText(FString::Printf(TEXT("Terrain layout: road cross links each building pad to the capital core. Production chain: resource nodes -> constructed buildings -> supply routes -> simulation stockpiles. RTS tick %d, construction advances every %d RTS tick(s). Resource output this tick: food %+d, fuel %+d, wood %+d, metals %+d, disruption %d."), RtsWorld.RtsTickCount, RtsWorld.RtsTicksPerConstructionTurn, RtsWorld.ResourceCollection.FoodSentToSimulation, RtsWorld.ResourceCollection.FuelSentToSimulation, RtsWorld.ResourceCollection.WoodSentToSimulation, RtsWorld.ResourceCollection.MetalsSentToSimulation, RtsWorld.ResourceCollection.DisruptionPenalty)))
+                        .AutoWrapText(true)
+                        .Font(FCoreStyle::GetDefaultFontStyle("Regular", 11))
+                        .ColorAndOpacity(FLinearColor(0.86f, 0.96f, 1.0f, 1.0f))
+                    ]
+                ]                + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 12.0f)
                 [
                     SNew(SHorizontalBox)
                     + SHorizontalBox::Slot().FillWidth(0.58f).Padding(0.0f, 0.0f, 10.0f, 0.0f)
@@ -8628,7 +8748,7 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsProvinceStateOverlaysWidget(float MapWidt
         }
 
         const bool bSelectedCountry = Country.CountryName.Equals(RtsSelectedCountryName, ESearchCase::IgnoreCase) || Country.ProvinceIds.Contains(RtsSelectedProvinceId);
-        const bool bHoveredCountry = Country.CountryName.Equals(State.RtsWorld.WorldInteraction.HoveredTargetId, ESearchCase::IgnoreCase) || Country.CountryId.Equals(State.RtsWorld.WorldInteraction.HoveredTargetId, ESearchCase::IgnoreCase);
+        const bool bHoveredCountry = Country.CountryName.Equals(State.RtsWorld.WorldInteraction.HoveredTargetId, ESearchCase::IgnoreCase) || Country.CountryId.Equals(State.RtsWorld.WorldInteraction.HoveredTargetId, ESearchCase::IgnoreCase) || Country.ProvinceIds.Contains(State.RtsWorld.WorldInteraction.HoveredTargetId);
         if (bSelectedCountry)
         {
             StateLabel = FString::Printf(TEXT("Selected %s"), *StateLabel);
@@ -9179,7 +9299,7 @@ void ALoginHUD::SelectRtsMapAtViewportPosition(const FGeometry& Geometry, const 
         RefreshLoginWidget();
         return;
     }
-    const FString TargetProvinceId = BestCountry->ProvinceIds.Num() > 0 ? BestCountry->ProvinceIds[0] : TEXT("");
+    const FString TargetProvinceId = SelectDuliaProvinceIdAtMapPoint(*BestCountry, MapPoint);
     if (!PendingRtsOrderType.IsEmpty() && !RtsSelectedArmyId.IsEmpty() && !TargetProvinceId.IsEmpty())
     {
         RtsSelectedCountryName = BestCountry->CountryName;
@@ -10999,11 +11119,15 @@ void ALoginHUD::RunSimulationTick()
 
     ++SimulationTickCount;
     ++State.RtsWorld.SimulationSecond;
-    if (SimulationTickCount % 3 == 0)
+    ++State.RtsWorld.RtsTickCount;
+    State.RtsWorld.RtsTicksPerSimulationTurn = FMath::Max(1, State.RtsWorld.RtsTicksPerSimulationTurn);
+    State.RtsWorld.RtsTicksPerConstructionTurn = FMath::Max(1, State.RtsWorld.RtsTicksPerConstructionTurn);
+    if (State.RtsWorld.RtsTickCount % State.RtsWorld.RtsTicksPerSimulationTurn == 0)
     {
         ++State.Turn;
     }
     const bool bAdvancedTurn = State.Turn != BeforeTick.Turn;
+    const bool bAdvancedRtsConstructionTick = State.RtsWorld.RtsTickCount % State.RtsWorld.RtsTicksPerConstructionTurn == 0;
 
     FDemocracyRtsResourceCollectionState& RtsCollection = State.RtsWorld.ResourceCollection;
     int32 BuildingFood = 0;
@@ -11068,7 +11192,7 @@ void ALoginHUD::RunSimulationTick()
     Resources.Wood = FMath::Max(0, Resources.Wood + RtsCollection.WoodSentToSimulation);
     Resources.Metals = FMath::Max(0, Resources.Metals + RtsCollection.MetalsSentToSimulation);
 
-    if (bAdvancedTurn)
+    if (bAdvancedRtsConstructionTick)
     {
         int32 CompletedConstructionCount = 0;
         int32 ActiveBuildCount = 0;
@@ -11144,6 +11268,7 @@ void ALoginHUD::RunSimulationTick()
     RecalculateResourceProductionChains(State, PolicyModifiers, FoodUse, WaterUse, GasUse, WoodUse, MetalsUse);
     ApplyResourceShortageEffects(State);
     TickRtsMovementOrdersAndSupply(State, bAdvancedTurn);
+    State.RtsWorld.TickSummary = FString::Printf(TEXT("RTS tick %d | office turn cadence %d | construction cadence %d | movement advanced %s | construction advanced %s | active orders %d | battles %d."), State.RtsWorld.RtsTickCount, State.RtsWorld.RtsTicksPerSimulationTurn, State.RtsWorld.RtsTicksPerConstructionTurn, bAdvancedTurn ? TEXT("yes") : TEXT("no"), bAdvancedRtsConstructionTick ? TEXT("yes") : TEXT("no"), State.RtsWorld.MovementOrders.FilterByPredicate([](const FDemocracyRtsMovementOrderState& Order) { return Order.bActive && !Order.bComplete && !Order.bCancelled; }).Num(), State.RtsWorld.BattleHistory.Num());
     RefreshRtsFogOfWar(State);
     RefreshRtsHudState(State);
     const bool bRtsBackflowApplied = ApplyPendingRtsBackflow(State);
