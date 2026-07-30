@@ -2066,7 +2066,9 @@ namespace
             const FString FinalizedSummary = FString::Printf(TEXT("Occupation ownership finalized: %s."), *FString::Join(Transfers, TEXT(", ")));
             RecordRtsOfficeAlert(State, TEXT("Occupation Finalized"), FinalizedSummary, TEXT(""), 55);
         }
-    }    void ApplyRtsBackflowOutcome(FDemocracySimulationState& State, FDemocracyRtsOutcomeState& Outcome)
+    }
+
+    void ApplyRtsBackflowOutcome(FDemocracySimulationState& State, FDemocracyRtsOutcomeState& Outcome)
     {
         FDemocracyCountryState& Country = State.PlayerCountry;
         FDemocracyResourceInventory& Resources = Country.Resources;
@@ -2116,7 +2118,63 @@ namespace
             }
         }
 
-        Outcome.bAppliedToSimulation = true;
+                TArray<FString> BackflowCauseLabels;
+        if (Outcome.Casualties > 0)
+        {
+            BackflowCauseLabels.Add(FString::Printf(TEXT("RTS casualties %d increased war fatigue and public concern"), Outcome.Casualties));
+            State.FailureRisk.ActiveUnrestCauses.AddUnique(TEXT("RTS casualties and war fatigue"));
+        }
+        if (Outcome.ResourceDisruption > 0)
+        {
+            BackflowCauseLabels.Add(FString::Printf(TEXT("RTS resource disruption %d reduced stockpiles and production reliability"), Outcome.ResourceDisruption));
+            State.FailureRisk.ActiveUnrestCauses.AddUnique(TEXT("RTS resource disruption"));
+        }
+        if (Outcome.BudgetStrain > 0)
+        {
+            BackflowCauseLabels.Add(FString::Printf(TEXT("RTS budget strain %d increased debt/inflation pressure"), Outcome.BudgetStrain));
+            State.FailureRisk.ActiveUnrestCauses.AddUnique(TEXT("RTS budget strain"));
+        }
+        if (Outcome.DiplomaticDamage > 0)
+        {
+            BackflowCauseLabels.Add(FString::Printf(TEXT("RTS diplomacy damage %d worsened foreign relations"), Outcome.DiplomaticDamage));
+            State.InvasionRisk.ActiveInvasionCauses.AddUnique(TEXT("RTS diplomatic damage"));
+        }
+        if (Outcome.TerritoryDelta != 0)
+        {
+            BackflowCauseLabels.Add(FString::Printf(TEXT("RTS territory delta %+d changed province control"), Outcome.TerritoryDelta));
+            if (Outcome.TerritoryDelta < 0)
+            {
+                State.InvasionRisk.ActiveInvasionCauses.AddUnique(TEXT("RTS territory lost"));
+                State.FailureRisk.ActiveUnrestCauses.AddUnique(TEXT("RTS territory lost"));
+            }
+        }
+        if (Outcome.InvasionRiskDelta > 0)
+        {
+            State.InvasionRisk.ActiveInvasionCauses.AddUnique(TEXT("RTS invasion risk increased"));
+        }
+
+        if (BackflowCauseLabels.Num() > 0)
+        {
+            FDemocracyApprovalCauseState RtsCause;
+            RtsCause.CauseName = FString::Printf(TEXT("RTS Outcome - %s"), *Outcome.OutcomeType);
+            RtsCause.Category = TEXT("RTS Backflow");
+            RtsCause.ApprovalImpact = -FMath::Clamp(Outcome.WarFatigueDelta / 2 + Outcome.Casualties / 120, 0, 12);
+            RtsCause.UnrestImpact = FMath::Clamp(Outcome.WarFatigueDelta / 2 + Outcome.Casualties / 100 + Outcome.ResourceDisruption / 12 + FMath::Max(0, -Outcome.TerritoryDelta) * 3, 0, 18);
+            RtsCause.StabilityImpact = FMath::Clamp(Outcome.StabilityDelta - Outcome.Casualties / 140 - Outcome.BudgetStrain / 10, -18, 8);
+            RtsCause.Severity = FMath::Clamp(Outcome.AttentionSeverity + Outcome.Casualties / 12 + Outcome.ResourceDisruption / 2 + Outcome.BudgetStrain / 2, 1, 100);
+            RtsCause.SourceMetric = Outcome.AffectedProvinceName.IsEmpty() ? Outcome.AffectedProvinceId : Outcome.AffectedProvinceName;
+            RtsCause.CurrentStatus = FString::Join(BackflowCauseLabels, TEXT("; "));
+            RtsCause.SuggestedResponses = { TEXT("Open advisor warnings"), TEXT("Review budget and resources"), TEXT("Consider diplomacy or ceasefire"), TEXT("Reinforce supply routes") };
+            State.ApprovalStability.Causes.Add(RtsCause);
+            while (State.ApprovalStability.Causes.Num() > 14)
+            {
+                State.ApprovalStability.Causes.RemoveAt(0);
+            }
+            State.ApprovalStability.LastUpdatedTurn = State.Turn;
+            State.ApprovalStability.Summary = FString::Printf(TEXT("RTS backflow added cause data: %s"), *RtsCause.CurrentStatus);
+            RecordRtsOfficeAlert(State, TEXT("RTS Consequences Applied"), FString::Printf(TEXT("%s Consequences: %s"), *Outcome.OutcomeType, *RtsCause.CurrentStatus), Outcome.AffectedProvinceId, RtsCause.Severity);
+        }
+Outcome.bAppliedToSimulation = true;
         Outcome.bAcknowledgedBySimulation = true;
         Outcome.SimulationAttentionStatus = TEXT("Consumed");
         Outcome.Turn = State.Turn;
@@ -8786,7 +8844,8 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsCityBasePlaceholderWidget()
         const FString ProductionLink = FString::Printf(TEXT("\nLink: %s node -> %s output -> supply"), *SlotFocus, Building && Building->bConstructed && !Building->bDisabled ? TEXT("active") : TEXT("inactive"));
         const FString PadText = Building
             ? FString::Printf(TEXT("%s\nL%d %s | %+d/tick\n%s\nHP %d/%d%s%s\n%s"), *PadTitle, Building->Level, *Building->ResourceFocus, Building->ProductionPerTick, *QueueLine, Building->CurrentHealth, Building->MaxHealth, *DisabledLine, *ProductionLink, *AvailabilityLine)
-            : FString::Printf(TEXT("%s\nFocus %s\nBuild %s\n%s\n%s"), *PadTitle, *SlotFocus, *GetRtsResourceBuildingName(SlotFocus), *AvailabilityLine, *ProductionLink);        const FLinearColor PadColor = bSelected
+            : FString::Printf(TEXT("%s\nFocus %s\nBuild %s\n%s\n%s"), *PadTitle, *SlotFocus, *GetRtsResourceBuildingName(SlotFocus), *AvailabilityLine, *ProductionLink);
+        const FLinearColor PadColor = bSelected
             ? FLinearColor(0.18f, 0.32f, 0.42f, 0.96f)
             : (bQueued ? FLinearColor(0.42f, 0.28f, 0.08f, 0.94f) : (bDisabled ? FLinearColor(0.34f, 0.06f, 0.06f, 0.92f) : (Building ? FLinearColor(0.08f, 0.20f, 0.14f, 0.92f) : FLinearColor(0.08f, 0.10f, 0.11f, 0.86f))));
 
@@ -8847,7 +8906,8 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsCityBasePlaceholderWidget()
                 .AutoWrapText(true)
                 .Font(FCoreStyle::GetDefaultFontStyle("Bold", 10))
                 .ColorAndOpacity(FLinearColor(0.86f, 0.96f, 1.0f, 1.0f))
-            ];    };
+            ];
+    };
 
     TSharedRef<SConstraintCanvas> CityLayout = SNew(SConstraintCanvas);
     CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(0.0f, 0.0f, 1120.0f, 620.0f))
