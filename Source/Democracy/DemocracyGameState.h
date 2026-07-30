@@ -681,6 +681,13 @@ struct FDemocracyProvinceOwnershipState
     bool bBorderProvince = false;
     int32 LastChangedTurn = 1;
 
+    float MapCenterX = 0.0f;
+    float MapCenterY = 0.0f;
+    float MapRadiusX = 0.0f;
+    float MapRadiusY = 0.0f;
+    FString GeometrySource = TEXT("generated-province-polygon-v1");
+    TArray<FVector2D> MapPolygon;
+
     FString ToJson(int32 IndentSpaces = 2) const;
 };
 
@@ -1392,9 +1399,4 @@ public:
         const FDifficultyProfile& DifficultyProfile,
         int32 PlayerMapCountryIndex = 1);
 };
-
-
-
-
-
 

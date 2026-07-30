@@ -30,6 +30,20 @@ namespace
         Output += TEXT("]");
         return Output;
     }
+    FString Vector2DArrayToJson(const TArray<FVector2D>& Values)
+    {
+        FString Output = TEXT("[");
+        for (int32 Index = 0; Index < Values.Num(); ++Index)
+        {
+            if (Index > 0)
+            {
+                Output += TEXT(", ");
+            }
+            Output += FString::Printf(TEXT("{\"x\": %.2f, \"y\": %.2f}"), Values[Index].X, Values[Index].Y);
+        }
+        Output += TEXT("]");
+        return Output;
+    }
 
     TArray<FString> GetAdvisorWarnings(const FDifficultyProfile& DifficultyProfile)
     {
@@ -650,6 +664,52 @@ namespace
         Ownership.Summary = FString::Printf(TEXT("%s ownership: %d durable countries, %d provinces, %d regions, %d player controlled, %d contested, %d border provinces."), *Ownership.PlanetName, Ownership.TotalCountries, Ownership.TotalProvinces, Ownership.TotalMapRegionCount, Ownership.PlayerControlledProvinces, Ownership.ContestedProvinces, Ownership.BorderProvinceCount);
     }
 
+    TArray<FVector2D> BuildGeneratedProvincePolygon(const FVector2D& Center, float RadiusX, float RadiusY, int32 Seed)
+    {
+        TArray<FVector2D> Polygon;
+        const int32 VertexCount = 6;
+        for (int32 Index = 0; Index < VertexCount; ++Index)
+        {
+            const float Angle = (2.0f * PI * Index / VertexCount) + (Seed % 3) * 0.11f;
+            const float Shape = 0.88f + 0.10f * ((Seed + Index) % 3);
+            Polygon.Add(FVector2D(
+                FMath::Clamp(Center.X + FMath::Cos(Angle) * RadiusX * Shape, 0.0f, 2242.0f),
+                FMath::Clamp(Center.Y + FMath::Sin(Angle) * RadiusY * Shape, 0.0f, 1104.0f)));
+        }
+        return Polygon;
+    }
+
+    FVector2D BuildGeneratedCountryCenter(int32 MapCountryIndex)
+    {
+        const int32 ClampedIndex = FMath::Clamp(MapCountryIndex, 1, 195) - 1;
+        constexpr int32 Columns = 15;
+        constexpr float MinX = 70.0f;
+        constexpr float MaxX = 2170.0f;
+        constexpr float MinY = 70.0f;
+        constexpr float MaxY = 1035.0f;
+        const int32 Column = ClampedIndex % Columns;
+        const int32 Row = ClampedIndex / Columns;
+        const float X = FMath::Lerp(MinX, MaxX, Column / static_cast<float>(Columns - 1));
+        const float Y = FMath::Lerp(MinY, MaxY, FMath::Clamp(Row / 12.0f, 0.0f, 1.0f));
+        return FVector2D(X, Y);
+    }
+
+    void AssignGeneratedProvinceGeometry(FDemocracyProvinceOwnershipState& Province, const FDemocracyCountryOwnershipState& Country, int32 ProvinceCount)
+    {
+        const FVector2D CountryCenter = BuildGeneratedCountryCenter(Country.MapCountryIndex);
+        const int32 RingIndex = Province.ProvinceIndex - 1;
+        const float Angle = ProvinceCount <= 1 ? 0.0f : (2.0f * PI * RingIndex / ProvinceCount) + (Country.MapCountryIndex % 7) * 0.07f;
+        const float Distance = Province.ProvinceIndex == 1 ? 0.0f : FMath::Clamp(24.0f + ProvinceCount * 3.5f, 30.0f, 64.0f);
+        const FVector2D Center(
+            FMath::Clamp(CountryCenter.X + FMath::Cos(Angle) * Distance, 8.0f, 2234.0f),
+            FMath::Clamp(CountryCenter.Y + FMath::Sin(Angle) * Distance, 8.0f, 1096.0f));
+        Province.MapCenterX = Center.X;
+        Province.MapCenterY = Center.Y;
+        Province.MapRadiusX = FMath::Clamp(22.0f + Province.AreaWeight * 0.7f, 18.0f, 54.0f);
+        Province.MapRadiusY = FMath::Clamp(18.0f + Province.PopulationWeight * 0.45f, 14.0f, 46.0f);
+        Province.GeometrySource = TEXT("generated-province-polygon-v1");
+        Province.MapPolygon = BuildGeneratedProvincePolygon(Center, Province.MapRadiusX, Province.MapRadiusY, Country.MapCountryIndex + Province.ProvinceIndex * 13);
+    }
     FDemocracyMapOwnershipState BuildMapOwnershipState(const FDemocracyWorldMapState& WorldMap, const FString& PlayerCountryName, int32 CurrentTurn, int32 PlayerProvinceTarget)
     {
         FDemocracyMapOwnershipState Ownership;
@@ -713,6 +773,7 @@ namespace
                     }
                     Province.bBorderProvince = ProvinceIndex == ProvinceCount - 1 || Country.BorderPressure >= 40 || Province.bPlayerControlled;
                     Province.LastChangedTurn = CurrentTurn;
+                    AssignGeneratedProvinceGeometry(Province, CountryOwnership, ProvinceCount);
                     Ownership.Provinces.Add(Province);
                     CountryOwnership.ProvinceIds.Add(Province.ProvinceId);
                 }
@@ -2243,7 +2304,13 @@ FString FDemocracyProvinceOwnershipState::ToJson(int32 IndentSpaces) const
         TEXT("%s\"unrest\": %d,\n")
         TEXT("%s\"playerControlled\": %s,\n")
         TEXT("%s\"borderProvince\": %s,\n")
-        TEXT("%s\"lastChangedTurn\": %d\n")
+        TEXT("%s\"lastChangedTurn\": %d,\n")
+        TEXT("%s\"mapCenterX\": %.2f,\n")
+        TEXT("%s\"mapCenterY\": %.2f,\n")
+        TEXT("%s\"mapRadiusX\": %.2f,\n")
+        TEXT("%s\"mapRadiusY\": %.2f,\n")
+        TEXT("%s\"geometrySource\": \"%s\",\n")
+        TEXT("%s\"mapPolygon\": %s\n")
         TEXT("%s}"),
         *Pad, *JsonEscape(ProvinceId),
         *Pad, *JsonEscape(CountryId),
@@ -2266,9 +2333,14 @@ FString FDemocracyProvinceOwnershipState::ToJson(int32 IndentSpaces) const
         *Pad, bPlayerControlled ? TEXT("true") : TEXT("false"),
         *Pad, bBorderProvince ? TEXT("true") : TEXT("false"),
         *Pad, LastChangedTurn,
+        *Pad, MapCenterX,
+        *Pad, MapCenterY,
+        *Pad, MapRadiusX,
+        *Pad, MapRadiusY,
+        *Pad, *JsonEscape(GeometrySource),
+        *Pad, *Vector2DArrayToJson(MapPolygon),
         *Indent(IndentSpaces - 2));
 }
-
 FString FDemocracyCountryOwnershipState::ToJson(int32 IndentSpaces) const
 {
     const FString Pad = Indent(IndentSpaces);
@@ -4605,10 +4677,4 @@ FDemocracySimulationState FDemocracyGameStateFactory::CreateInitialState(
 
     return State;
 }
-
-
-
-
-
-
 

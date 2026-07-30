@@ -353,17 +353,22 @@ namespace
 
         return Points;
     }
-    FString SelectDuliaProvinceIdAtMapPoint(const FDemocracyCountryOwnershipState& Country, const FVector2D& MapPoint)
+    TArray<FVector2D> BuildDuliaProvincePolygon(const FVector2D& Center, float RadiusX, float RadiusY, int32 Seed)
     {
-        if (Country.ProvinceIds.Num() == 0)
+        TArray<FVector2D> Polygon;
+        for (int32 Index = 0; Index < 6; ++Index)
         {
-            return TEXT("");
+            const float Angle = (2.0f * PI * Index / 6.0f) + (Seed % 4) * 0.08f;
+            const float Shape = 0.86f + 0.12f * ((Seed + Index) % 3);
+            Polygon.Add(FVector2D(
+                FMath::Clamp(Center.X + FMath::Cos(Angle) * RadiusX * Shape, 0.0f, 2242.0f),
+                FMath::Clamp(Center.Y + FMath::Sin(Angle) * RadiusY * Shape, 0.0f, 1104.0f)));
         }
-        if (Country.ProvinceIds.Num() == 1)
-        {
-            return Country.ProvinceIds[0];
-        }
+        return Polygon;
+    }
 
+    void AssignRuntimeProvinceGeometry(FDemocracyProvinceOwnershipState& Province, const FDemocracyCountryOwnershipState& Country, int32 ProvinceCount)
+    {
         const FDuliaCountryMapPoint* CountryPoint = nullptr;
         for (const FDuliaCountryMapPoint& Point : GetDuliaCountryMapPoints())
         {
@@ -373,29 +378,102 @@ namespace
                 break;
             }
         }
-
         if (!CountryPoint)
         {
-            return Country.ProvinceIds[0];
+            return;
         }
 
-        const FVector2D Delta = MapPoint - CountryPoint->Centroid;
-        const float Width = FMath::Max(1.0f, CountryPoint->BoundsMax.X - CountryPoint->BoundsMin.X);
-        const float Height = FMath::Max(1.0f, CountryPoint->BoundsMax.Y - CountryPoint->BoundsMin.Y);
-        const float NormalizedRadius = FMath::Clamp(Delta.Size() / FMath::Max(Width, Height), 0.0f, 1.0f);
-        if (NormalizedRadius < 0.18f)
+        const float Width = FMath::Max(18.0f, CountryPoint->BoundsMax.X - CountryPoint->BoundsMin.X);
+        const float Height = FMath::Max(18.0f, CountryPoint->BoundsMax.Y - CountryPoint->BoundsMin.Y);
+        const int32 RingIndex = Province.ProvinceIndex - 1;
+        const float Angle = ProvinceCount <= 1 ? 0.0f : (2.0f * PI * RingIndex / ProvinceCount) + (Country.MapCountryIndex % 7) * 0.07f;
+        const float Distance = Province.ProvinceIndex == 1 ? 0.0f : FMath::Clamp(FMath::Min(Width, Height) * 0.28f, 12.0f, 48.0f);
+        const FVector2D Center(
+            FMath::Clamp(CountryPoint->Centroid.X + FMath::Cos(Angle) * Distance, CountryPoint->BoundsMin.X, CountryPoint->BoundsMax.X),
+            FMath::Clamp(CountryPoint->Centroid.Y + FMath::Sin(Angle) * Distance, CountryPoint->BoundsMin.Y, CountryPoint->BoundsMax.Y));
+        Province.MapCenterX = Center.X;
+        Province.MapCenterY = Center.Y;
+        Province.MapRadiusX = FMath::Clamp(Width / FMath::Max(2.4f, ProvinceCount * 0.72f), 10.0f, 46.0f);
+        Province.MapRadiusY = FMath::Clamp(Height / FMath::Max(2.4f, ProvinceCount * 0.72f), 10.0f, 42.0f);
+        Province.GeometrySource = TEXT("dulia-generated-province-polygon-v1");
+        Province.MapPolygon = BuildDuliaProvincePolygon(Center, Province.MapRadiusX, Province.MapRadiusY, Country.MapCountryIndex + Province.ProvinceIndex * 17);
+    }
+
+    bool IsPointInsideProvinceGeometry(const FDemocracyProvinceOwnershipState& Province, const FVector2D& MapPoint)
+    {
+        if (Province.MapPolygon.Num() >= 3 && DuliaPointInPolygon(MapPoint, Province.MapPolygon))
         {
-            return Country.ProvinceIds[0];
+            return true;
+        }
+        if (Province.MapRadiusX > 0.0f && Province.MapRadiusY > 0.0f)
+        {
+            const float NormalizedX = (MapPoint.X - Province.MapCenterX) / Province.MapRadiusX;
+            const float NormalizedY = (MapPoint.Y - Province.MapCenterY) / Province.MapRadiusY;
+            return NormalizedX * NormalizedX + NormalizedY * NormalizedY <= 1.0f;
+        }
+        return false;
+    }
+
+    bool EnsureRuntimeProvinceGeometry(FDemocracyMapOwnershipState& Ownership)
+    {
+        bool bChanged = false;
+        for (const FDemocracyCountryOwnershipState& Country : Ownership.Countries)
+        {
+            const int32 ProvinceCount = FMath::Max(1, Country.ProvinceIds.Num());
+            for (FDemocracyProvinceOwnershipState& Province : Ownership.Provinces)
+            {
+                if (!Country.ProvinceIds.Contains(Province.ProvinceId))
+                {
+                    continue;
+                }
+                if (Province.MapPolygon.Num() < 3 || Province.MapCenterX <= 0.0f || Province.MapCenterY <= 0.0f)
+                {
+                    AssignRuntimeProvinceGeometry(Province, Country, ProvinceCount);
+                    bChanged = true;
+                }
+            }
+        }
+        return bChanged;
+    }
+
+    FString SelectDuliaProvinceIdAtMapPoint(const FDemocracyMapOwnershipState& Ownership, const FDemocracyCountryOwnershipState& Country, const FVector2D& MapPoint, bool& bExactProvinceHit)
+    {
+        bExactProvinceHit = false;
+        if (Country.ProvinceIds.Num() == 0)
+        {
+            return TEXT("");
         }
 
-        const float Angle = FMath::Atan2(Delta.Y, Delta.X);
-        const float NormalizedAngle = (Angle + PI) / (2.0f * PI);
-        int32 ProvinceIndex = FMath::Clamp(FMath::FloorToInt(NormalizedAngle * Country.ProvinceIds.Num()), 0, Country.ProvinceIds.Num() - 1);
-        if (Country.ProvinceIds.Num() > 4 && NormalizedRadius > 0.72f)
+        float BestDistanceSq = TNumericLimits<float>::Max();
+        FString BestProvinceId = Country.ProvinceIds[0];
+        for (const FString& ProvinceId : Country.ProvinceIds)
         {
-            ProvinceIndex = (ProvinceIndex + Country.ProvinceIds.Num() / 2) % Country.ProvinceIds.Num();
+            const FDemocracyProvinceOwnershipState* Province = nullptr;
+            for (const FDemocracyProvinceOwnershipState& CandidateProvince : Ownership.Provinces)
+            {
+                if (CandidateProvince.ProvinceId.Equals(ProvinceId, ESearchCase::IgnoreCase))
+                {
+                    Province = &CandidateProvince;
+                    break;
+                }
+            }
+            if (!Province)
+            {
+                continue;
+            }
+            if (IsPointInsideProvinceGeometry(*Province, MapPoint))
+            {
+                bExactProvinceHit = true;
+                return Province->ProvinceId;
+            }
+            const float DistanceSq = FVector2D::DistSquared(MapPoint, FVector2D(Province->MapCenterX, Province->MapCenterY));
+            if (DistanceSq < BestDistanceSq)
+            {
+                BestDistanceSq = DistanceSq;
+                BestProvinceId = Province->ProvinceId;
+            }
         }
-        return Country.ProvinceIds[ProvinceIndex];
+        return BestProvinceId;
     }
     FString SaveTimestamp()
     {
@@ -1765,6 +1843,7 @@ namespace
         FDemocracyMapOwnershipState& Ownership = State.RtsWorld.Ownership;
         if (Ownership.Provinces.Num() > 0 && Ownership.Countries.Num() > 0)
         {
+            EnsureRuntimeProvinceGeometry(Ownership);
             RefreshRuntimeMapOwnership(Ownership);
             State.RtsWorld.ControlledTerritories = Ownership.PlayerControlledProvinces;
             State.RtsWorld.BorderTerritories = Ownership.BorderProvinceCount;
@@ -1829,6 +1908,7 @@ namespace
                     }
                     Province.bBorderProvince = Province.bPlayerControlled || ProvinceIndex == ProvinceCount - 1 || Country.BorderPressure >= 40;
                     Province.LastChangedTurn = State.Turn;
+                    AssignRuntimeProvinceGeometry(Province, CountryOwnership, ProvinceCount);
                     Ownership.Provinces.Add(Province);
                     CountryOwnership.ProvinceIds.Add(Province.ProvinceId);
                 }
@@ -1956,6 +2036,7 @@ namespace
         if (Transfers.Num() > 0)
         {
             Ownership.LastUpdatedTurn = State.Turn;
+            EnsureRuntimeProvinceGeometry(Ownership);
             RefreshRuntimeMapOwnership(Ownership);
             State.RtsWorld.ControlledTerritories = Ownership.PlayerControlledProvinces;
             State.RtsWorld.BorderTerritories = Ownership.BorderProvinceCount;
@@ -7536,7 +7617,8 @@ FReply ALoginHUD::HandleRtsMapMouseMove(const FGeometry& Geometry, const FPointe
                 {
                     if (Country.MapCountryIndex == HoverCountryIndex)
                     {
-                        NewHoveredTarget = SelectDuliaProvinceIdAtMapPoint(Country, MapPoint);
+                        bool bExactProvinceHit = false;
+                        NewHoveredTarget = SelectDuliaProvinceIdAtMapPoint(State.RtsWorld.Ownership, Country, MapPoint, bExactProvinceHit);
                         break;
                     }
                 }
@@ -9486,7 +9568,9 @@ void ALoginHUD::SelectRtsMapAtViewportPosition(const FGeometry& Geometry, const 
         RefreshLoginWidget();
         return;
     }
-    const FString TargetProvinceId = SelectDuliaProvinceIdAtMapPoint(*BestCountry, MapPoint);
+    EnsureRuntimeProvinceGeometry(State.RtsWorld.Ownership);
+    bool bExactProvinceHit = false;
+    const FString TargetProvinceId = SelectDuliaProvinceIdAtMapPoint(State.RtsWorld.Ownership, *BestCountry, MapPoint, bExactProvinceHit);
     if (!PendingRtsOrderType.IsEmpty() && !RtsSelectedArmyId.IsEmpty() && !TargetProvinceId.IsEmpty())
     {
         RtsSelectedCountryName = BestCountry->CountryName;
@@ -9516,7 +9600,7 @@ void ALoginHUD::SelectRtsMapAtViewportPosition(const FGeometry& Geometry, const 
 
     State.RtsWorld.WorldInteraction.ActiveSelectionId = RtsSelectedProvinceId.IsEmpty() ? BestCountry->CountryId : RtsSelectedProvinceId;
     State.RtsWorld.WorldInteraction.ActiveSelectionType = RtsSelectedProvinceId.IsEmpty() ? TEXT("Country") : TEXT("Province");
-    State.RtsWorld.WorldInteraction.LastInteractionSummary = FString::Printf(TEXT("Selected %s in %s."), *RtsSelectedCountryName, *GetRtsZoomModeLabel());
+    State.RtsWorld.WorldInteraction.LastInteractionSummary = FString::Printf(TEXT("Selected %s in %s%s."), *RtsSelectedCountryName, *GetRtsZoomModeLabel(), bExactProvinceHit ? TEXT(" by province footprint") : TEXT(" by nearest province fallback"));
     State.RtsWorld.ActiveViewMode = GetRtsZoomModeLabel();
     RefreshRtsHudState(State);
     RefreshLoginWidget();
@@ -14306,8 +14390,5 @@ void ALoginHUD::HandleUiScaleChanged(float NewValue)
 {
     UiScale = FMath::Clamp(NewValue, 0.50f, 1.50f);
 }
-
-
-
 
 
