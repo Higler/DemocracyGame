@@ -9165,18 +9165,29 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsArmyMarkersWidget(float MapWidth, float M
         return nullptr;
     };
 
-    auto FindPointForProvince = [&FindProvince, &FindCountryForProvince, &FindPointForCountry](const FString& ProvinceId, const FString& ArmyCountryName) -> const FDuliaCountryMapPoint*
+    auto GetProvinceMapCenter = [&FindPointForCountry](const FDemocracyProvinceOwnershipState& Province, const FDemocracyCountryOwnershipState& Country) -> FVector2D
+    {
+        if (Province.MapCenterX > 0.0f && Province.MapCenterY > 0.0f)
+        {
+            return FVector2D(Province.MapCenterX, Province.MapCenterY);
+        }
+        if (const FDuliaCountryMapPoint* Point = FindPointForCountry(Country))
+        {
+            return Point->Centroid;
+        }
+        return FVector2D(-1.0f, -1.0f);
+    };
+
+    auto FindCenterForProvince = [&FindProvince, &FindCountryForProvince, &GetProvinceMapCenter](const FString& ProvinceId, const FString& ArmyCountryName) -> FVector2D
     {
         const FDemocracyProvinceOwnershipState* Province = FindProvince(ProvinceId);
         if (!Province)
         {
-            return nullptr;
+            return FVector2D(-1.0f, -1.0f);
         }
-
         const FDemocracyCountryOwnershipState* Country = FindCountryForProvince(*Province, ArmyCountryName);
-        return Country ? FindPointForCountry(*Country) : nullptr;
+        return Country ? GetProvinceMapCenter(*Province, *Country) : FVector2D(-1.0f, -1.0f);
     };
-
     auto AddPathSegment = [this, &MarkerOverlay](float X, float Y, float Width, float Height, const FLinearColor& Color)
     {
         if (Width <= 0.0f || Height <= 0.0f)
@@ -9224,8 +9235,8 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsArmyMarkersWidget(float MapWidth, float M
             continue;
         }
 
-        const FDuliaCountryMapPoint* Point = FindPointForCountry(*Country);
-        if (!Point)
+        const FVector2D ProvinceMapCenter = GetProvinceMapCenter(*Province, *Country);
+        if (ProvinceMapCenter.X < 0.0f || ProvinceMapCenter.Y < 0.0f)
         {
             continue;
         }
@@ -9236,7 +9247,7 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsArmyMarkersWidget(float MapWidth, float M
         const FLinearColor OwnerColor = bSelected ? FLinearColor(1.0f, 0.84f, 0.12f, 0.98f) : (Province->bPlayerControlled ? FLinearColor(0.03f, 0.75f, 0.22f, 0.92f) : (bHostile ? FLinearColor(0.85f, 0.06f, 0.06f, 0.90f) : FLinearColor(0.08f, 0.34f, 0.90f, 0.90f)));
         const FLinearColor PathColor = bSelected ? FLinearColor(1.0f, 0.82f, 0.10f, 0.58f) : FLinearColor(0.78f, 0.88f, 1.0f, 0.36f);
 
-        FVector2D ArmyCenter(Point->Centroid.X * ScaleX, Point->Centroid.Y * ScaleY);
+        FVector2D ArmyCenter(ProvinceMapCenter.X * ScaleX, ProvinceMapCenter.Y * ScaleY);
         const FDemocracyRtsMovementOrderState* ActiveMovementOrder = nullptr;
         for (const FDemocracyRtsMovementOrderState& Order : State.RtsWorld.MovementOrders)
         {
@@ -9248,11 +9259,11 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsArmyMarkersWidget(float MapWidth, float M
         }
         if (ActiveMovementOrder && !ActiveMovementOrder->TargetProvinceId.IsEmpty() && ActiveMovementOrder->TotalTurns > 0)
         {
-            const FDuliaCountryMapPoint* DestinationPointForProgress = FindPointForProvince(ActiveMovementOrder->TargetProvinceId, Army.CurrentCountryName);
-            if (DestinationPointForProgress)
+            const FVector2D DestinationMapCenterForProgress = FindCenterForProvince(ActiveMovementOrder->TargetProvinceId, Army.CurrentCountryName);
+            if (DestinationMapCenterForProgress.X >= 0.0f && DestinationMapCenterForProgress.Y >= 0.0f)
             {
-                const FVector2D DestinationCenter(DestinationPointForProgress->Centroid.X * ScaleX, DestinationPointForProgress->Centroid.Y * ScaleY);
-                const float Progress = FMath::Clamp(1.0f - (static_cast<float>(ActiveMovementOrder->TurnsRemaining) / static_cast<float>(FMath::Max(1, ActiveMovementOrder->TotalTurns))), 0.12f, 0.88f);
+                const FVector2D DestinationCenter(DestinationMapCenterForProgress.X * ScaleX, DestinationMapCenterForProgress.Y * ScaleY);
+                const float Progress = FMath::Clamp(1.0f - (static_cast<float>(ActiveMovementOrder->TurnsRemaining) / static_cast<float>(FMath::Max(1, ActiveMovementOrder->TotalTurns))), 0.10f, 0.90f);
                 ArmyCenter = FMath::Lerp(ArmyCenter, DestinationCenter, Progress);
             }
         }
@@ -9272,10 +9283,10 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsArmyMarkersWidget(float MapWidth, float M
         if (bMoving)
         {
             const FString DestinationId = Army.DestinationProvinceId.IsEmpty() ? Army.OrderTargetProvinceId : Army.DestinationProvinceId;
-            const FDuliaCountryMapPoint* DestinationPoint = FindPointForProvince(DestinationId, Army.CurrentCountryName);
-            if (DestinationPoint)
+            const FVector2D DestinationMapCenter = FindCenterForProvince(DestinationId, Army.CurrentCountryName);
+            if (DestinationMapCenter.X >= 0.0f && DestinationMapCenter.Y >= 0.0f)
             {
-                const FVector2D DestCenter(DestinationPoint->Centroid.X * ScaleX, DestinationPoint->Centroid.Y * ScaleY);
+                const FVector2D DestCenter(DestinationMapCenter.X * ScaleX, DestinationMapCenter.Y * ScaleY);
                 const float PathThickness = bSelected ? 5.0f : 3.0f;
                 const float CornerX = DestCenter.X;
                 AddPathSegment(FMath::Min(ArmyCenter.X, CornerX), ArmyCenter.Y - PathThickness * 0.5f, FMath::Abs(CornerX - ArmyCenter.X), PathThickness, PathColor);
@@ -9443,6 +9454,15 @@ bool ALoginHUD::TryIssueRtsOrderToProvince(const FString& TargetProvinceId)
     if (!AuthorityBlockReason.IsEmpty())
     {
         State.RtsWorld.WorldInteraction.LastInteractionSummary = FString::Printf(TEXT("RTS order blocked: %s"), *AuthorityBlockReason);
+        Army->MovementState = TEXT("Path Blocked");
+        Army->DestinationProvinceId = Army->CurrentProvinceId;
+        Army->OrderTurnsRemaining = 0;
+        Army->MovementTurnsRemaining = 0;
+        Army->Orders.Add(State.RtsWorld.WorldInteraction.LastInteractionSummary);
+        if (Army->Orders.Num() > 8)
+        {
+            Army->Orders.RemoveAt(0, Army->Orders.Num() - 8);
+        }
         AddRtsHudAlert(State.RtsWorld, State.RtsWorld.WorldInteraction.LastInteractionSummary);
         PendingRtsOrderConfirmationText = State.RtsWorld.WorldInteraction.LastInteractionSummary;
         RefreshRtsHudState(State);
@@ -14390,5 +14410,4 @@ void ALoginHUD::HandleUiScaleChanged(float NewValue)
 {
     UiScale = FMath::Clamp(NewValue, 0.50f, 1.50f);
 }
-
 
