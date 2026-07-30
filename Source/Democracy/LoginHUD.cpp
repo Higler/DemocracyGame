@@ -6666,18 +6666,53 @@ TSharedRef<SWidget> ALoginHUD::BuildOfficeComputerMenuScreen()
     [BuildInfoRow(TEXT("Save"), LastSaveStatus.IsEmpty() ? TEXT("Manual save and autosave protection are available from this computer.") : LastSaveStatus)];
 
     Body->AddSlot().AutoHeight().Padding(0.0f, 12.0f, 0.0f, 4.0f)
-    [BuildInfoRow(TEXT("Office Orders"), TEXT("These are the powers available from the simulation office. RTS-only orders are visible in the status list but cannot execute here."))];
+    [BuildInfoRow(TEXT("War / Diplomacy Commands"), TEXT("Office decisions gate RTS authority. Each command shows availability, cost, consequence, and the RTS permission or lock it changes."))];
     if (bHasLoadedRuntimeState)
     {
         TSharedRef<SVerticalBox> CommandRows = SNew(SVerticalBox);
-        for (const FDemocracyCommandAuthorityActionState& Action : LoadedSaveState.RuntimeState.CommandAuthority.Actions)
+        const TArray<FString> PriorityCommandIds = {
+            TEXT("office_declare_war"),
+            TEXT("office_negotiate_ceasefire"),
+            TEXT("office_surrender_territory"),
+            TEXT("office_impose_sanctions"),
+            TEXT("office_request_alliance_aid"),
+            TEXT("office_propose_alliance"),
+            TEXT("office_propose_treaty")
+        };
+        for (const FString& CommandId : PriorityCommandIds)
         {
-            if (!Action.bOfficeAllowed)
+            const FDemocracyCommandAuthorityActionState* Action = LoadedSaveState.RuntimeState.CommandAuthority.Actions.FindByPredicate([&CommandId](const FDemocracyCommandAuthorityActionState& Candidate)
+            {
+                return Candidate.CommandId.Equals(CommandId, ESearchCase::IgnoreCase);
+            });
+            if (!Action || !Action->bOfficeAllowed)
             {
                 continue;
             }
-            CommandRows->AddSlot().AutoHeight().Padding(0.0f, 3.0f)
-            [BuildButton(Action.Label, FOnClicked::CreateUObject(this, &ALoginHUD::HandleExecuteAuthorityCommand, Action.CommandId, FString(TEXT("Office"))), 360.0f, 36.0f, Action.bEnabled)];
+
+            const FString EnabledText = Action->bEnabled ? TEXT("Enabled") : FString::Printf(TEXT("Disabled: %s"), Action->DisabledReason.IsEmpty() ? TEXT("requirements not met") : *Action->DisabledReason);
+            const FString CostText = Action->TreasuryCost > 0
+                ? FString::Printf(TEXT("Cost: treasury %d"), Action->TreasuryCost)
+                : TEXT("Cost: none");
+            const FString ConsequenceText = FString::Printf(TEXT("Approval %+d | Stability %+d | Unrest %+d | Diplomacy %+d | Military %+d | Invasion risk %+d | Resources %+d"),
+                Action->ApprovalDelta,
+                Action->StabilityDelta,
+                Action->UnrestDelta,
+                Action->DiplomacyDelta,
+                Action->MilitaryDelta,
+                Action->InvasionRiskDelta,
+                Action->ResourceDelta);
+            const FString RequirementText = Action->Prerequisite.IsEmpty() ? TEXT("Requirement: current authority posture allows review.") : FString::Printf(TEXT("Requirement: %s"), *Action->Prerequisite);
+            const FString Details = FString::Printf(TEXT("%s\n%s\n%s\n%s\nRTS effect: %s"), *EnabledText, *CostText, *RequirementText, *ConsequenceText, *Action->EffectPreview);
+
+            CommandRows->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
+            [
+                SNew(SHorizontalBox)
+                + SHorizontalBox::Slot().FillWidth(1.0f).Padding(0.0f, 0.0f, 10.0f, 0.0f)
+                [BuildInfoRow(Action->Label, Details)]
+                + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+                [BuildButton(Action->bEnabled ? TEXT("Execute") : TEXT("Blocked"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleExecuteAuthorityCommand, Action->CommandId, FString(TEXT("Office"))), 120.0f, 38.0f, Action->bEnabled)]
+            ];
         }
         Body->AddSlot().AutoHeight().Padding(0.0f, 4.0f)[CommandRows];
     }
@@ -12257,6 +12292,71 @@ FReply ALoginHUD::HandleExecuteAuthorityCommand(FString CommandId, FString Surfa
         State.WarSystem.WarFatigue = FMath::Clamp(State.WarSystem.WarFatigue + 10, 0, 100);
         State.WarSystem.Summary = TEXT("Territory surrendered to reduce immediate takeover pressure; ownership must be reconciled by RTS/server authority.");
     }
+    else if (SelectedAction->CommandId.Equals(TEXT("office_propose_alliance"), ESearchCase::IgnoreCase))
+    {
+        FDemocracyDiplomacyRelationshipState* AllianceTarget = nullptr;
+        for (FDemocracyDiplomacyRelationshipState& Relationship : State.DiplomacyMatrix.Relationships)
+        {
+            const bool bSameAlignment = Relationship.GovernmentType.Equals(State.ObjectiveState.PlayerGovernmentType, ESearchCase::IgnoreCase);
+            const bool bEligible = bSameAlignment
+                && !Relationship.RelationshipStatus.Equals(TEXT("Ally"), ESearchCase::IgnoreCase)
+                && !Relationship.RelationshipStatus.Equals(TEXT("Hostile"), ESearchCase::IgnoreCase)
+                && Relationship.Trust >= 55;
+            if (bEligible && (!AllianceTarget || Relationship.Trust > AllianceTarget->Trust))
+            {
+                AllianceTarget = &Relationship;
+            }
+        }
+        if (AllianceTarget)
+        {
+            AllianceTarget->RelationshipStatus = TEXT("Ally");
+            AllianceTarget->TreatyStatus = TEXT("Mutual Defense Framework");
+            AllianceTarget->bTradePartner = true;
+            AllianceTarget->Trust = FMath::Clamp(AllianceTarget->Trust + 8, 0, 100);
+            AllianceTarget->TradeValue = FMath::Clamp(AllianceTarget->TradeValue + 8, 0, 100);
+            AllianceTarget->BorderTension = FMath::Max(0, AllianceTarget->BorderTension - 10);
+            AllianceTarget->LastChangedTurn = State.Turn;
+            AllianceTarget->ActiveTreaties.AddUnique(TEXT("Mutual Defense Framework"));
+            AllianceTarget->Notes.AddUnique(TEXT("Alliance formed through office command authority; allied aid and reinforcement RTS permissions are available."));
+            State.RtsWorld.Hud.Alerts.Add(FString::Printf(TEXT("Alliance formed with %s. Allied aid and reinforcement permissions unlocked."), *AllianceTarget->CountryName));
+            State.CommandAuthority.LastCommandSummary = FString::Printf(TEXT("Alliance formed with %s. RTS may request aid and reinforce allied positions."), *AllianceTarget->CountryName);
+        }
+        else
+        {
+            State.CommandAuthority.LastCommandSummary = TEXT("Alliance proposal recorded, but no eligible same-government partner was found during execution.");
+        }
+    }
+    else if (SelectedAction->CommandId.Equals(TEXT("office_propose_treaty"), ESearchCase::IgnoreCase))
+    {
+        FDemocracyDiplomacyRelationshipState* TreatyTarget = nullptr;
+        for (FDemocracyDiplomacyRelationshipState& Relationship : State.DiplomacyMatrix.Relationships)
+        {
+            const bool bEligible = !Relationship.RelationshipStatus.Equals(TEXT("Hostile"), ESearchCase::IgnoreCase)
+                && Relationship.Trust >= 45
+                && Relationship.BorderTension <= 65;
+            if (bEligible && (!TreatyTarget || Relationship.BorderTension > TreatyTarget->BorderTension))
+            {
+                TreatyTarget = &Relationship;
+            }
+        }
+        if (TreatyTarget)
+        {
+            TreatyTarget->TreatyStatus = TEXT("Trade And Border Stability Treaty");
+            TreatyTarget->bTradePartner = true;
+            TreatyTarget->Trust = FMath::Clamp(TreatyTarget->Trust + 5, 0, 100);
+            TreatyTarget->TradeValue = FMath::Clamp(TreatyTarget->TradeValue + 10, 0, 100);
+            TreatyTarget->BorderTension = FMath::Max(0, TreatyTarget->BorderTension - 12);
+            TreatyTarget->LastChangedTurn = State.Turn;
+            TreatyTarget->ActiveTreaties.AddUnique(TEXT("Trade And Border Stability Treaty"));
+            TreatyTarget->Notes.AddUnique(TEXT("Treaty signed through office command authority; RTS border risk and supply/trade friction are reduced."));
+            State.RtsWorld.Hud.Alerts.Add(FString::Printf(TEXT("Treaty signed with %s. Border risk and trade/supply friction reduced."), *TreatyTarget->CountryName));
+            State.CommandAuthority.LastCommandSummary = FString::Printf(TEXT("Treaty signed with %s. RTS border risk and trade/supply friction reduced."), *TreatyTarget->CountryName);
+        }
+        else
+        {
+            State.CommandAuthority.LastCommandSummary = TEXT("Treaty proposal recorded, but no eligible partner was found during execution.");
+        }
+    }
     else if (SelectedAction->CommandId.Equals(TEXT("office_impose_sanctions"), ESearchCase::IgnoreCase))
     {
         for (FDemocracyDiplomacyRelationshipState& Relationship : State.DiplomacyMatrix.Relationships)
@@ -14054,3 +14154,4 @@ void ALoginHUD::HandleUiScaleChanged(float NewValue)
 {
     UiScale = FMath::Clamp(NewValue, 0.50f, 1.50f);
 }
+
