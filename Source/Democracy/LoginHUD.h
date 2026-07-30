@@ -186,6 +186,7 @@ private:
     FReply HandleZoomRtsMapOutClicked();
     FReply HandleResetRtsMapViewClicked();
     FReply HandleFocusRtsMapSelectionClicked();
+    FReply HandleFocusRtsMapPlayerClicked();
     FString GetRtsZoomModeLabel() const;
     FString BuildRtsSelectedTerritoryText() const;
     FString BuildRtsSelectedArmyText() const;
