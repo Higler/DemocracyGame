@@ -1272,6 +1272,35 @@ struct FDemocracyCommandAuthorityState
     FString ToJson(int32 IndentSpaces = 2) const;
 };
 
+
+struct FDemocracyMultiplayerServerMessageState
+{
+    FString MessageId;
+    FString Direction = TEXT("ClientToServer");
+    FString Channel = TEXT("RTS");
+    FString PayloadOwner = TEXT("Server");
+    FString Reliability = TEXT("Reliable");
+    FString ValidationRule;
+    FString Summary;
+    TArray<FString> RequiredFields;
+    TArray<FString> ServerMutations;
+
+    FString ToJson(int32 IndentSpaces = 2) const;
+};
+
+struct FDemocracyMultiplayerServerContractState
+{
+    int32 LastUpdatedTurn = 1;
+    FString ContractVersion = TEXT("MultiplayerServerContract.v1");
+    FString AuthoritySummary = TEXT("Multiplayer server contract has not been initialized yet.");
+    TArray<FDemocracyMultiplayerServerMessageState> Messages;
+    TArray<FString> ServerAuthoritativeDomains;
+    TArray<FString> AntiCheatRules;
+    TArray<FString> ClientPredictionRules;
+    TArray<FString> ServerReconciliationRules;
+
+    FString ToJson(int32 IndentSpaces = 2) const;
+};
 struct FDemocracyObjectiveState
 {
     FString Mode = TEXT("SinglePlayer");
@@ -1336,6 +1365,7 @@ struct FDemocracySimulationState
     FDemocracyWarSystemState WarSystem;
     FDemocracySimulationToRtsContractState SimulationToRtsContract;
     FDemocracyCommandAuthorityState CommandAuthority;
+    FDemocracyMultiplayerServerContractState MultiplayerServerContract;
     FDemocracyObjectiveState ObjectiveState;
 
     FString ToJson(int32 IndentSpaces = 2) const;
@@ -1348,6 +1378,7 @@ public:
     static FDemocracyRtsSaveBoundaryState BuildRtsSaveBoundaryState(const FDemocracySimulationState& State);
     static FDemocracyWarSystemState BuildWarConflictState(const FDemocracySimulationState& State);
     static FDemocracySimulationToRtsContractState BuildSimulationToRtsContractState(const FDemocracySimulationState& State);
+    static FDemocracyMultiplayerServerContractState BuildMultiplayerServerContractState(const FDemocracySimulationState& State);
 
     static FDemocracyWorldMapState BuildStartingCountryPreviewMap(
         const FString& Climate,

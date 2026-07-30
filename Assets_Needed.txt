@@ -47,3 +47,11 @@ RTS Art Replacement Audit - 2026-07-28
 - Available but not yet imported as usable project Content for RTS units/buildings: RTS_Modern_Combat_Vehicle_Pack_Free-f9509a39, Vehicle_Variety_Pack_Volume_2-591e3b3f, Arctic_Military_Soldier, Middle_Eastern_Armed_Fighter, Naval_Tactical_Soldier, Tactical_Crowd_AI_Toolkit, MW_Landscape_Auto_Material, Industry_Props_Pack_6, Concrete_Road_Barrier, Military_Assault_Rifle, and Military_Pistol.
 - Current RTS HUD now uses improved placeholder cards/icons for infantry, tanks/vehicles, supply carriers, scouts, routes, destinations, fog, occupation, and battle reports so mechanics remain testable before final art import.
 - Still needed before final RTS visual pass: imported/static project assets for terrain tiles, city/base buildings, soldier squads, tanks, troop/supply carriers, construction scaffolds, route VFX, battle/casualty icons, occupation markers, and polished HUD icon art.
+
+RTS Asset Replacement Pipeline - 2026-07-30
+- Terrain: replace placeholder Dulia water/land colors with final terrain layers, coast treatment, province/country border materials, fog overlays, and zoom-level map textures.
+- Buildings: import and assign final city/base structures for government center, barracks, vehicle depot, airfield placeholder, supply depot, farms, fuel sites, wood/lumber sites, metals/mines, roads, and construction scaffolds.
+- Units: import and assign final soldier squad, tank/armored vehicle, and troop/supply carrier models/icons with owner-color variants, selection rings, destination markers, and movement path visuals.
+- HUD: replace placeholder RTS command buttons for move, defend, rally, scout, reinforce, attack, occupy, retreat, build, upgrade, cancel, return-to-office, battle report, and alert categories.
+- Map effects: add route/path VFX, capture timers, contested/occupied overlays, supply broken markers, battle result callouts, resource disruption effects, and selected-country/province highlights.
+- Pipeline rule: one asset class is replaced at a time, mechanics remain in place, and any unavailable final asset stays listed here until imported into project Content and wired by path.

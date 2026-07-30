@@ -772,6 +772,61 @@ namespace
             MakeCommandAuthorityAction(TEXT("rts_deploy_forces"), TEXT("Deploy Forces"), TEXT("RTS"), TEXT("Military"), TEXT("RTS View"), false, true, 1, 0, 0, 0, 0, 0, 0, 0, 0, TEXT("Future RTS layer only."), TEXT("Direct troop deployment is not ordered from the simulation office; RTS results flow back after battles.")),
             MakeCommandAuthorityAction(TEXT("rts_attack_operation"), TEXT("Launch Attack Operation"), TEXT("RTS"), TEXT("Military"), TEXT("RTS View"), false, true, 2, 0, 0, 0, 0, 0, 0, 0, 0, TEXT("Future RTS layer only."), TEXT("Attack orders belong to the RTS layer and will later create casualties, fatigue, diplomacy, and territory backflow."))
         };
+        int32 HostileOrRivalCount = 0;
+        int32 HighTrustSupportCount = 0;
+        bool bHighBorderTension = State.GovernmentDiplomacyRules.HighBorderTensionCount > 0 || State.DiplomacyMatrix.AverageBorderTension >= 55;
+        for (const FDemocracyDiplomacyRelationshipState& Relationship : State.DiplomacyMatrix.Relationships)
+        {
+            const bool bHostileOrRival = Relationship.RelationshipStatus.Equals(TEXT("Hostile"), ESearchCase::IgnoreCase) || Relationship.RelationshipStatus.Equals(TEXT("Rival"), ESearchCase::IgnoreCase);
+            if (bHostileOrRival || Relationship.BorderTension >= 55)
+            {
+                ++HostileOrRivalCount;
+            }
+            if (Relationship.RelationshipStatus.Equals(TEXT("Ally"), ESearchCase::IgnoreCase) || Relationship.ActiveTreaties.Num() > 0 || Relationship.Trust >= 70 || Relationship.bTradePartner)
+            {
+                ++HighTrustSupportCount;
+            }
+        }
+        const bool bHasActiveWar = State.WarSystem.ActiveConflictCount > 0 || State.WarSystem.ActiveConflicts.Num() > 0;
+        const bool bCanDeclareWar = State.PlayerCountry.MilitaryReadiness >= 45 && (HostileOrRivalCount > 0 || bHighBorderTension);
+        const bool bCanCeasefire = bHasActiveWar || State.WarSystem.EscalationPressure >= 45 || bHighBorderTension;
+        const bool bCanSurrender = bHasActiveWar && (State.InvasionRisk.CurrentInvasionRisk >= State.InvasionRisk.BorderPressureWarningThreshold || State.WarSystem.EscalationPressure >= 60);
+        const bool bCanAllianceAid = HighTrustSupportCount > 0;
+        const bool bCanSanction = bHasActiveWar || HostileOrRivalCount > 0 || bHighBorderTension;
+        const bool bCanProposeAlliance = State.GovernmentDiplomacyRules.BlockedAllianceCount == 0 && HighTrustSupportCount > 0 && State.PlayerCountry.DiplomaticStanding >= 35;
+        const bool bCanProposeTreaty = State.DiplomacyMatrix.TreatyCount < State.DiplomacyMatrix.TradePartnerCount + State.DiplomacyMatrix.AllyCount + 1 && State.PlayerCountry.DiplomaticStanding >= 30;
+
+        Authority.Actions.Add(MakeCommandAuthorityAction(TEXT("office_propose_alliance"), TEXT("Propose Alliance"), TEXT("Office"), TEXT("Diplomacy"), TEXT("Meeting Room/Globe"), true, false, 5, 85, 1, 1, -1, 8, 2, -6, 3, TEXT("Requires matching government alignment, strong trust, and diplomatic standing 35+."), TEXT("Creates alliance negotiation path; if accepted, unlocks alliance aid and shared RTS defense permissions.")));
+        Authority.Actions.Add(MakeCommandAuthorityAction(TEXT("office_propose_treaty"), TEXT("Propose Treaty"), TEXT("Office"), TEXT("Diplomacy"), TEXT("Meeting Room/Computer"), true, false, 3, 55, 1, 1, -1, 6, 0, -3, 5, TEXT("Requires trust 45+, border tension below 65, and diplomatic standing 30+."), TEXT("Creates trade/non-aggression/treaty negotiation path; accepted treaties improve RTS supply/trade access and reduce border pressure.")));
+
+        auto GateCommand = [&Authority](const FString& Id, bool bAllowed, const FString& DisabledReason, const FString& ExtraPreview)
+        {
+            for (FDemocracyCommandAuthorityActionState& Action : Authority.Actions)
+            {
+                if (Action.CommandId.Equals(Id, ESearchCase::IgnoreCase))
+                {
+                    Action.bEnabled = bAllowed;
+                    Action.DisabledReason = bAllowed ? TEXT("") : DisabledReason;
+                    if (!ExtraPreview.IsEmpty())
+                    {
+                        Action.EffectPreview += TEXT(" ");
+                        Action.EffectPreview += ExtraPreview;
+                    }
+                    break;
+                }
+            }
+        };
+        GateCommand(TEXT("office_declare_war"), bCanDeclareWar, TEXT("Blocked until a hostile/rival/high-tension target exists and readiness is at least 45."), TEXT("If accepted, RTS attack/occupation orders become available against target conflict provinces."));
+        GateCommand(TEXT("office_negotiate_ceasefire"), bCanCeasefire, TEXT("Blocked until there is an active war, severe border conflict, or high escalation pressure."), TEXT("If accepted, RTS attack orders pause and occupation/ownership transfers follow ceasefire rules."));
+        GateCommand(TEXT("office_surrender_territory"), bCanSurrender, TEXT("Blocked until active war plus high invasion pressure or escalation makes surrender a valid emergency option."), TEXT("If accepted, province ownership changes are server/RTS-authoritative and imported through backflow."));
+        GateCommand(TEXT("office_impose_sanctions"), bCanSanction, TEXT("Blocked until hostile/rival status, active war, or high border tension exists."), TEXT("Sanctions restrict trade/supply permissions and may increase hostile RTS posture."));
+        GateCommand(TEXT("office_request_alliance_aid"), bCanAllianceAid, TEXT("Blocked until at least one ally, treaty partner, high-trust country, or trade partner can receive the request."), TEXT("Accepted aid can add supplies/readiness and future allied reinforcement permissions."));
+        GateCommand(TEXT("office_propose_alliance"), bCanProposeAlliance, TEXT("Blocked by alignment mismatch, low trust, or diplomatic standing below 35."), TEXT("Formal alliances are alignment-locked: democracies with democracies, dictatorships with dictatorships."));
+        GateCommand(TEXT("office_propose_treaty"), bCanProposeTreaty, TEXT("Blocked by low diplomacy, high border tension, or no eligible treaty partner."), TEXT("Treaties unlock trade/supply permissions without allowing cross-alignment alliances."));
+
+        Authority.OfficeAuthoritySummary = FString::Printf(TEXT("Office diplomacy/war commands are gated by relationships, government alignment, treaty trust, sanctions, active wars, readiness, and treasury. Targets: hostile/rival/high tension %d, support partners %d, active wars %d."), HostileOrRivalCount, HighTrustSupportCount, bHasActiveWar ? 1 : 0);
+        Authority.RtsAuthoritySummary = TEXT("RTS availability follows office decisions: war enables attack/occupation, ceasefire pauses attack authority, surrender transfers territory through backflow, sanctions restrict trade/supply, alliances/treaties unlock aid and shared defense permissions.");
+        Authority.LastCommandSummary = TEXT("War and diplomacy command gates refreshed; no office command may directly mutate RTS tactical state without the RTS/backflow handshake.");
         return Authority;
     }
     FDemocracyFailureRiskState BuildFailureRiskState(const FDifficultyProfile& DifficultyProfile)
@@ -3419,6 +3474,66 @@ FString FDemocracyCommandAuthorityState::ToJson(int32 IndentSpaces) const
         *Pad, LastUpdatedTurn, *Pad, *JsonEscape(ActiveCommandPosture), *Pad, *JsonEscape(OfficeAuthoritySummary), *Pad, *JsonEscape(RtsAuthoritySummary), *Pad, *JsonEscape(LastCommandSummary), *Pad, *ActionJson, *Indent(IndentSpaces - 2));
 }
 
+
+FString FDemocracyMultiplayerServerMessageState::ToJson(int32 IndentSpaces) const
+{
+    const FString Pad = Indent(IndentSpaces);
+    return FString::Printf(
+        TEXT("{\n")
+        TEXT("%s\"messageId\": \"%s\",\n")
+        TEXT("%s\"direction\": \"%s\",\n")
+        TEXT("%s\"channel\": \"%s\",\n")
+        TEXT("%s\"payloadOwner\": \"%s\",\n")
+        TEXT("%s\"reliability\": \"%s\",\n")
+        TEXT("%s\"validationRule\": \"%s\",\n")
+        TEXT("%s\"summary\": \"%s\",\n")
+        TEXT("%s\"requiredFields\": %s,\n")
+        TEXT("%s\"serverMutations\": %s\n")
+        TEXT("%s}"),
+        *Pad, *JsonEscape(MessageId),
+        *Pad, *JsonEscape(Direction),
+        *Pad, *JsonEscape(Channel),
+        *Pad, *JsonEscape(PayloadOwner),
+        *Pad, *JsonEscape(Reliability),
+        *Pad, *JsonEscape(ValidationRule),
+        *Pad, *JsonEscape(Summary),
+        *Pad, *StringArrayToJson(RequiredFields),
+        *Pad, *StringArrayToJson(ServerMutations),
+        *Indent(IndentSpaces - 2));
+}
+
+FString FDemocracyMultiplayerServerContractState::ToJson(int32 IndentSpaces) const
+{
+    const FString Pad = Indent(IndentSpaces);
+    const FString MessagePad = Indent(IndentSpaces + 2);
+    FString MessageJson = TEXT("[");
+    for (int32 Index = 0; Index < Messages.Num(); ++Index)
+    {
+        MessageJson += FString::Printf(TEXT("\n%s%s"), *MessagePad, *Messages[Index].ToJson(IndentSpaces + 4));
+        if (Index < Messages.Num() - 1) MessageJson += TEXT(",");
+    }
+    MessageJson += FString::Printf(TEXT("\n%s]"), *Pad);
+    return FString::Printf(
+        TEXT("{\n")
+        TEXT("%s\"lastUpdatedTurn\": %d,\n")
+        TEXT("%s\"contractVersion\": \"%s\",\n")
+        TEXT("%s\"authoritySummary\": \"%s\",\n")
+        TEXT("%s\"messages\": %s,\n")
+        TEXT("%s\"serverAuthoritativeDomains\": %s,\n")
+        TEXT("%s\"antiCheatRules\": %s,\n")
+        TEXT("%s\"clientPredictionRules\": %s,\n")
+        TEXT("%s\"serverReconciliationRules\": %s\n")
+        TEXT("%s}"),
+        *Pad, LastUpdatedTurn,
+        *Pad, *JsonEscape(ContractVersion),
+        *Pad, *JsonEscape(AuthoritySummary),
+        *Pad, *MessageJson,
+        *Pad, *StringArrayToJson(ServerAuthoritativeDomains),
+        *Pad, *StringArrayToJson(AntiCheatRules),
+        *Pad, *StringArrayToJson(ClientPredictionRules),
+        *Pad, *StringArrayToJson(ServerReconciliationRules),
+        *Indent(IndentSpaces - 2));
+}
 FString FDemocracyObjectiveState::ToJson(int32 IndentSpaces) const
 {
     const FString Pad = Indent(IndentSpaces);
@@ -3518,6 +3633,7 @@ FString FDemocracySimulationState::ToJson(int32 IndentSpaces) const
         TEXT("%s\"warSystem\": %s,\n")
         TEXT("%s\"simulationToRtsContract\": %s,\n")
         TEXT("%s\"commandAuthority\": %s,\n")
+        TEXT("%s\"multiplayerServerContract\": %s,\n")
         TEXT("%s\"objectiveState\": %s\n")
         TEXT("%s}"),
         *Pad, Turn,
@@ -3546,6 +3662,7 @@ FString FDemocracySimulationState::ToJson(int32 IndentSpaces) const
         *Pad, *WarSystem.ToJson(IndentSpaces + 2),
         *Pad, *SimulationToRtsContract.ToJson(IndentSpaces + 2),
         *Pad, *CommandAuthority.ToJson(IndentSpaces + 2),
+        *Pad, *MultiplayerServerContract.ToJson(IndentSpaces + 2),
         *Pad, *ObjectiveState.ToJson(IndentSpaces + 2),
         *Indent(IndentSpaces - 2));
 }
@@ -3686,7 +3803,7 @@ FDemocracyRtsSaveBoundaryState FDemocracyGameStateFactory::BuildRtsSaveBoundaryS
 {
     FDemocracyRtsSaveBoundaryState Boundary = State.RtsSaveBoundary;
     Boundary.LastUpdatedTurn = State.Turn;
-    Boundary.BoundaryVersion = TEXT("RTSSaveBoundary.v2");
+    Boundary.BoundaryVersion = TEXT("RTSSaveBoundary.v3");
     const bool bMultiplayer = State.ObjectiveState.Mode.Equals(TEXT("Multiplayer"), ESearchCase::IgnoreCase);
     Boundary.SimulationAuthority = TEXT("Simulation owns national policy, diplomacy, economy, approval, stability, unrest, advisors, events, objectives, press history, meetings, development, and failure risks.");
     Boundary.RtsAuthority = TEXT("RTS owns unit positions, unit orders, battle resolution, local tactical objectives, province control changes, battlefield construction, resource extraction sites, and army logistics.");
@@ -3699,48 +3816,56 @@ FDemocracyRtsSaveBoundaryState FDemocracyGameStateFactory::BuildRtsSaveBoundaryS
         TEXT("diplomacyMatrix relationships/treaties/sanctions/trade"),
         TEXT("eventSystem/advisorSystem/meetingSystem/pressOffice/departments/developmentSystem"),
         TEXT("failureRisk/invasionRisk/warSystem strategic status"),
-        TEXT("objectiveState and government transition progress")
+        TEXT("objectiveState and government transition progress"),
+        TEXT("war and diplomacy decisions: declarations, ceasefires, surrender terms, sanctions, alliances, treaties, and side-switch consequences")
     };
     Boundary.RtsOwnedFields = {
         TEXT("army positions, unit health, formations, movement orders, rally/defend/scout/reinforce orders, and army groups"),
         TEXT("battle instances, battle results, local objectives, casualties, and tactical victory state"),
         TEXT("province controller deltas, province ownership changes, occupations, contested borders, and capital-control changes"),
         TEXT("battlefield construction, construction queue completion, farms, mines, cities, roads, resource extraction nodes, and build timers"),
-        TEXT("local RTS fog-of-war, pathing, supply lines, deployment state, resource collection, and tactical alerts")
+        TEXT("local RTS fog-of-war, pathing, supply lines, deployment state, resource collection, and tactical alerts"),
+        TEXT("accepted tactical execution: movement, battles, occupation timers, province controller changes, construction completion, and army-state deltas")
     };
     Boundary.SharedHandshakeFields = {
         TEXT("rtsWorld.ownership provides the durable map ownership snapshot"),
         TEXT("simulationToRtsContract exports simulation inputs to the RTS layer"),
         TEXT("rtsWorld.backflow imports tactical outcomes back into simulation"),
         TEXT("warSystem links strategic wars to RTS conflict identifiers"),
-        TEXT("commandAuthority decides which office orders can request RTS actions")
+        TEXT("commandAuthority decides which office orders can request RTS actions"),
+        TEXT("multiplayerServerContract defines request/response messages and anti-cheat validation for future server authority")
     };
     Boundary.SimulationExportsToRts = {
         TEXT("country resources, treasury, technology, policies, readiness, stability, unrest, approval"),
         TEXT("allies, enemies, treaties, sanctions, trade partners, border tension"),
         TEXT("active wars, escalation, objectives, fronts, victory/defeat conditions"),
         TEXT("region stability, unrest, climate, resource focus, and strategic value"),
-        TEXT("authorized strategic commands such as mobilize, defend, negotiate, embargo, trade, aid, emergency")
+        TEXT("authorized strategic commands such as mobilize, defend, negotiate, embargo, trade, aid, emergency"),
+        TEXT("war/diplomacy permissions: declare war, ceasefire, surrender territory, sanctions, alliance proposals, treaty proposals, and alliance aid")
     };
     Boundary.RtsImportsToSimulation = {
         TEXT("territory gained/lost, province controller changes, province ownership changes, and occupation/capture results"),
         TEXT("battle results, battle casualties, war fatigue, morale/readiness pressure, and damaged/disabled armies"),
         TEXT("resource disruption, supply route damage, budget strain, construction completion, and infrastructure damage"),
         TEXT("diplomatic damage, border escalation, invasion risk, stability shifts, and unrest impact"),
-        TEXT("battle completion, ceasefire, surrender, occupation, capital-threat, supply-break, and anti-cheat validation results")
+        TEXT("battle completion, ceasefire, surrender, occupation, capital-threat, supply-break, and anti-cheat validation results"),
+        TEXT("accepted diplomacy effects that change RTS availability: war opens attack/occupation, ceasefire pauses attack, sanctions restrict trade/supply, alliances/treaties unlock aid/shared defense")
     };
     Boundary.ForbiddenSimulationWrites = {
         TEXT("Simulation office must not directly write unit positions or individual battle results."),
+        TEXT("Simulation office must not directly change province controller/owner; it can only request surrender/treaty/ceasefire outcomes that RTS/server applies."),
         TEXT("Simulation office must not directly build farms, mines, cities, roads, or battlefield structures."),
         TEXT("Simulation office must not directly teleport resources, troops, or assets on the RTS map."),
-        TEXT("Local multiplayer clients must not write save state, country ownership, war outcome, government side, or resource totals.")
+        TEXT("Local multiplayer clients must not write save state, country ownership, war outcome, government side, or resource totals."),
+        TEXT("RTS must not directly mutate approval, stability, unrest, economy, diplomacy, failure risk, or objective victory state; it queues backflow outcomes instead.")
     };
     Boundary.SaveRules = {
         TEXT("Single-player manual save persists currentGameState including simulation, RTS ownership/backflow, war, command, contract, and boundary state."),
         TEXT("Single-player autosave rotates primary/autosave/bak1/bak2 so fail-state recovery can load a protected previous save."),
         TEXT("RTS transient render/pathing state should be rebuilt by RTS from durable ownership, unit, battle, and contract data."),
         TEXT("Multiplayer local files may cache UI preferences only; authoritative save state must come from server response."),
-        TEXT("Every RTS outcome must enter rtsWorld.backflow before it mutates simulation-owned systems.")
+        TEXT("Every RTS outcome must enter rtsWorld.backflow before it mutates simulation-owned systems."),
+        TEXT("Every office war/diplomacy command must produce a server/simulation transaction before RTS availability changes.")
     };
     Boundary.ServerAuthoritativeFields = {
         TEXT("saves: account-linked multiplayer save data, autosave snapshots, protected recovery points, and server revision ids"),
@@ -3906,6 +4031,7 @@ FDemocracySimulationToRtsContractState FDemocracyGameStateFactory::BuildSimulati
     Contract.StrategicPermissions = {
         TEXT("Simulation office may mobilize, defend, negotiate, embargo, trade, send aid, and declare emergencies."),
         TEXT("RTS layer receives readiness, diplomacy, resources, regional stability, wars, technologies, and policy posture."),
+        TEXT("Office war/diplomacy commands control RTS availability: declare war opens attack/occupation, ceasefire pauses attack, surrender transfers through backflow, sanctions restrict trade/supply, alliances/treaties unlock aid/shared defense."),
         TEXT("Direct troop movement, battles, construction, farms, mines, city upgrades, and manual resource transport remain RTS-only."),
         State.RtsSaveBoundary.BoundarySummary
     };
@@ -4002,6 +4128,68 @@ FDemocracyWorldMapState FDemocracyGameStateFactory::BuildStartingCountryPreviewM
     return BuildWorldMapState(DifficultyProfile, TEXT("Player Preview"), Climate, 0);
 }
 
+
+FDemocracyMultiplayerServerContractState FDemocracyGameStateFactory::BuildMultiplayerServerContractState(const FDemocracySimulationState& State)
+{
+    FDemocracyMultiplayerServerContractState Contract;
+    Contract.LastUpdatedTurn = State.Turn;
+    Contract.ContractVersion = TEXT("MultiplayerServerContract.v1");
+
+    auto MakeMessage = [](const FString& Id, const FString& Direction, const FString& Channel, const FString& Owner, const FString& Reliability, const FString& Validation, const FString& Summary, TArray<FString> Fields, TArray<FString> Mutations)
+    {
+        FDemocracyMultiplayerServerMessageState Message;
+        Message.MessageId = Id;
+        Message.Direction = Direction;
+        Message.Channel = Channel;
+        Message.PayloadOwner = Owner;
+        Message.Reliability = Reliability;
+        Message.ValidationRule = Validation;
+        Message.Summary = Summary;
+        Message.RequiredFields = MoveTemp(Fields);
+        Message.ServerMutations = MoveTemp(Mutations);
+        return Message;
+    };
+
+    Contract.Messages = {
+        MakeMessage(TEXT("client.rts.order.request"), TEXT("ClientToServer"), TEXT("RTSOrders"), TEXT("ClientRequestOnly"), TEXT("Reliable"), TEXT("Server validates player slot, army ownership, source province, destination reachability, supply, readiness, fog visibility, order cooldown, and resource cost."), TEXT("Player requests move, defend, rally, scout, reinforce, attack, occupy, or retreat; server accepts or rejects before RTS state changes."), { TEXT("playerId"), TEXT("serverSessionId"), TEXT("armyId"), TEXT("orderType"), TEXT("sourceProvinceId"), TEXT("targetProvinceId"), TEXT("clientTick"), TEXT("nonce") }, { TEXT("accepted movement/order state"), TEXT("server tick stamp"), TEXT("resource/supply reservation"), TEXT("audit log entry") }),
+        MakeMessage(TEXT("server.rts.order.accepted"), TEXT("ServerToClient"), TEXT("RTSOrders"), TEXT("ServerAuthoritative"), TEXT("Reliable"), TEXT("Client reconciles to the server order id, route, start tick, and ETA."), TEXT("Server broadcasts the accepted RTS order and canonical route preview."), { TEXT("orderId"), TEXT("armyId"), TEXT("orderType"), TEXT("sourceProvinceId"), TEXT("targetProvinceId"), TEXT("startTick"), TEXT("etaTick"), TEXT("routeProvinceIds") }, { TEXT("client display snapshot only") }),
+        MakeMessage(TEXT("server.rts.battle.result"), TEXT("ServerToClient"), TEXT("RTSBattles"), TEXT("ServerAuthoritative"), TEXT("Reliable"), TEXT("Server recomputes combat from unit composition, readiness, terrain, supply, tech, morale, reinforcements, and defensive structures."), TEXT("Battle result carries losses, winner, modifiers, occupation status, and simulation backflow payload."), { TEXT("battleId"), TEXT("provinceId"), TEXT("attackerArmyId"), TEXT("defenderArmyId"), TEXT("winnerOwnerId"), TEXT("lossesByUnitType"), TEXT("modifiers"), TEXT("backflowOutcomeId") }, { TEXT("army losses"), TEXT("battle history"), TEXT("province contested/occupied state"), TEXT("RTS-to-simulation backflow queued") }),
+        MakeMessage(TEXT("server.rts.province.control.changed"), TEXT("ServerToClient"), TEXT("RTSOwnership"), TEXT("ServerAuthoritative"), TEXT("Reliable"), TEXT("Server validates occupation timer, active war/peace condition, capital rules, and treaty/surrender constraints before ownership transfer."), TEXT("Province controller or owner changed after battle, occupation timer, ceasefire, surrender, or treaty."), { TEXT("provinceId"), TEXT("previousController"), TEXT("newController"), TEXT("previousOwner"), TEXT("newOwner"), TEXT("changeReason"), TEXT("serverRevision") }, { TEXT("province controller"), TEXT("province owner"), TEXT("country controlled/lost counts"), TEXT("office alert/backflow") }),
+        MakeMessage(TEXT("client.rts.construction.request"), TEXT("ClientToServer"), TEXT("RTSConstruction"), TEXT("ClientRequestOnly"), TEXT("Reliable"), TEXT("Server validates building slot, prerequisite, cost, queue limit, province controller, resource node availability, and cooldown."), TEXT("Player requests build, upgrade, repair, or cancel on an RTS city/base slot."), { TEXT("playerId"), TEXT("provinceId"), TEXT("slotId"), TEXT("buildingId"), TEXT("queueType"), TEXT("clientTick"), TEXT("nonce") }, { TEXT("server queue entry"), TEXT("resource reservation"), TEXT("construction audit") }),
+        MakeMessage(TEXT("server.rts.construction.completed"), TEXT("ServerToClient"), TEXT("RTSConstruction"), TEXT("ServerAuthoritative"), TEXT("Reliable"), TEXT("Server owns timer completion and refuses client-submitted completion."), TEXT("Build/upgrade/repair/cancel result is finalized and production output can change."), { TEXT("queueId"), TEXT("provinceId"), TEXT("buildingId"), TEXT("targetLevel"), TEXT("completionTick"), TEXT("serverRevision") }, { TEXT("building level/status"), TEXT("resource production"), TEXT("supply capacity"), TEXT("office alert/backflow when strategic") }),
+        MakeMessage(TEXT("client.sim.diplomacy.command.request"), TEXT("ClientToServer"), TEXT("SimulationDiplomacy"), TEXT("ClientRequestOnly"), TEXT("Reliable"), TEXT("Server validates government alignment, relationship state, active war, treaty/sanction cooldown, treasury cost, and side-switch status."), TEXT("Player requests declare war, ceasefire, surrender territory, sanctions, alliance, or treaty from office UI."), { TEXT("playerId"), TEXT("commandId"), TEXT("targetCountryId"), TEXT("offeredProvinceIds"), TEXT("turn"), TEXT("nonce") }, { TEXT("war/diplomacy transaction"), TEXT("RTS command availability changed"), TEXT("simulation decision history"), TEXT("server revision") }),
+        MakeMessage(TEXT("server.anti_cheat.validation.failed"), TEXT("ServerToClient"), TEXT("Security"), TEXT("ServerAuthoritative"), TEXT("Reliable"), TEXT("Any mismatched save revision, impossible movement, fake resource, fake ownership, fake battle result, or invalid government-side action is rejected and logged."), TEXT("Server rejects a client request and sends a sanitized reason for UI display."), { TEXT("requestId"), TEXT("failureCode"), TEXT("serverRevision"), TEXT("retryAllowed") }, { TEXT("security audit entry"), TEXT("optional client resync") }),
+        MakeMessage(TEXT("server.state.snapshot.delta"), TEXT("ServerToClient"), TEXT("StateSync"), TEXT("ServerAuthoritative"), TEXT("Reliable"), TEXT("Snapshot delta is signed by server and supersedes local multiplayer cache."), TEXT("Server sends canonical RTS/simulation delta for reconciliation after accepted actions or periodic sync."), { TEXT("serverRevision"), TEXT("changedDomains"), TEXT("stateHash"), TEXT("deltaPayload") }, { TEXT("client cache only") })
+    };
+
+    Contract.ServerAuthoritativeDomains = {
+        TEXT("account-linked multiplayer saves and protected recovery snapshots"),
+        TEXT("country slots, player government side, side-switch timers, and transition consequences"),
+        TEXT("war declarations, ceasefires, surrender terms, sanctions, alliances, treaties, border tension, and diplomacy cooldowns"),
+        TEXT("army positions, routes, orders, arrival ticks, supply, morale, casualties, and battle results"),
+        TEXT("province controller/owner, occupation timers, capital control, construction queues, resources, and RTS backflow results")
+    };
+    Contract.AntiCheatRules = {
+        TEXT("Never accept client-submitted resources, construction completion, battle outcome, province ownership, government side, alliance, treaty, sanction, or war resolution as authoritative."),
+        TEXT("Recompute movement path, battle score, occupation timer, construction cost, and resource production on the server before mutating state."),
+        TEXT("Require monotonic server revision, player slot ownership, order nonce, and command cooldown validation for every request."),
+        TEXT("Reject cross-side alliances between democracy and dictatorship and reject side-switch shortcuts that skip transition timers."),
+        TEXT("All RTS outcomes must be imported through the backflow queue before they affect approval, stability, unrest, budget, diplomacy, or invasion risk.")
+    };
+    Contract.ClientPredictionRules = {
+        TEXT("Client may preview route lines, ETA, expected cost, build timer, and likely battle modifiers, but labels them predicted until server accepted."),
+        TEXT("Client may cache map pan/zoom, selected country, selected army, and UI filters locally."),
+        TEXT("Client must visually reconcile to server accepted orders, battle reports, province control updates, and resource totals when deltas arrive.")
+    };
+    Contract.ServerReconciliationRules = {
+        TEXT("Server snapshot delta overwrites local multiplayer cache for all authoritative domains."),
+        TEXT("Rejected client orders clear local predicted route/build state and display the sanitized validation failure."),
+        TEXT("If state hashes diverge, request a full server snapshot before accepting more RTS commands."),
+        TEXT("Single-player can persist locally, but it still uses the same ownership fields to keep future multiplayer migration clean.")
+    };
+    Contract.AuthoritySummary = FString::Printf(TEXT("%s turn %d: %d network messages defined; server owns wars, diplomacy, RTS orders/results, province control, construction, resources, and anti-cheat validation."), *Contract.ContractVersion, State.Turn, Contract.Messages.Num());
+    return Contract;
+}
 FDemocracySimulationState FDemocracyGameStateFactory::CreateInitialState(
     const FString& StateName,
     const FString& LeaderGender,
@@ -4413,6 +4601,7 @@ FDemocracySimulationState FDemocracyGameStateFactory::CreateInitialState(
     State.RtsSaveBoundary = FDemocracyGameStateFactory::BuildRtsSaveBoundaryState(State);
     State.SimulationToRtsContract = FDemocracyGameStateFactory::BuildSimulationToRtsContractState(State);
     State.CommandAuthority = BuildCommandAuthorityState(State);
+    State.MultiplayerServerContract = FDemocracyGameStateFactory::BuildMultiplayerServerContractState(State);
 
     return State;
 }
