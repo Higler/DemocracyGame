@@ -1922,6 +1922,9 @@ namespace
         State.RtsWorld.BorderTerritories = Ownership.BorderProvinceCount;
     }
 
+    bool HasActiveWarAuthority(const FDemocracySimulationState& State);
+    bool HasCeasefireLock(const FDemocracySimulationState& State);
+
     FString ApplyOwnershipTransferFromRtsOutcome(FDemocracySimulationState& State, const FDemocracyRtsOutcomeState& Outcome)
     {
         InitializeRuntimeMapOwnershipIfMissing(State);
@@ -1948,7 +1951,7 @@ namespace
                     Province.bBorderProvince = true;
                     Province.LastChangedTurn = State.Turn;
                     Captured.Add(Province.ProvinceName);
-                    RecordRtsOfficeAlert(State, TEXT("Province Occupied"), FString::Printf(TEXT("%s entered occupied/contested control under %s. Ownership transfers after 3 held turn(s) or a peace condition."), *Province.ProvinceName, *PlayerName), Province.ProvinceId, 50);
+                    RecordRtsOfficeAlert(State, TEXT("Province Occupied"), FString::Printf(TEXT("%s entered occupied/contested control under %s. Ownership transfers after peace/ceasefire/surrender timing or long occupation control."), *Province.ProvinceName, *PlayerName), Province.ProvinceId, 50);
                     --TransfersRemaining;
                 }
             }
@@ -1972,7 +1975,7 @@ namespace
                     Province.bBorderProvince = true;
                     Province.LastChangedTurn = State.Turn;
                     Lost.Add(Province.ProvinceName);
-                    RecordRtsOfficeAlert(State, TEXT("Province Occupied"), FString::Printf(TEXT("%s entered occupied/contested control under %s. Ownership transfer is pending unless control is restored."), *Province.ProvinceName, *Province.CurrentControllerCountryName), Province.ProvinceId, 70);
+                    RecordRtsOfficeAlert(State, TEXT("Province Occupied"), FString::Printf(TEXT("%s entered occupied/contested control under %s. Ownership transfer is pending and can be prevented by restoring control, peace, or surrender terms."), *Province.ProvinceName, *Province.CurrentControllerCountryName), Province.ProvinceId, 70);
                     --TransfersRemaining;
                 }
             }
@@ -1989,9 +1992,12 @@ namespace
     {
         InitializeRuntimeMapOwnershipIfMissing(State);
         FDemocracyMapOwnershipState& Ownership = State.RtsWorld.Ownership;
-        constexpr int32 RequiredOccupationTurns = 3;
+        constexpr int32 PeaceOccupationTurns = 3;
+        constexpr int32 LongOccupationTurns = 8;
         TArray<FString> Transfers;
         TArray<FString> ActiveOccupations;
+        TArray<FString> ContestedWarnings;
+        const bool bPeaceOrCeasefireAllowsTransfer = !HasActiveWarAuthority(State) || HasCeasefireLock(State);
 
         for (FDemocracyProvinceOwnershipState& Province : Ownership.Provinces)
         {
@@ -2009,13 +2015,25 @@ namespace
             }
 
             const int32 OccupationTurns = FMath::Max(0, State.Turn - Province.LastChangedTurn);
-            const int32 TurnsRemaining = FMath::Max(0, RequiredOccupationTurns - OccupationTurns);
-            Province.Unrest = FMath::Clamp(Province.Unrest + (TurnsRemaining > 0 ? 1 : 0), 0, 100);
-            Province.Stability = FMath::Clamp(Province.Stability - (TurnsRemaining > 0 ? 1 : 0), 0, 100);
+            const bool bControllerIsPlayer = Province.CurrentControllerCountryName.Equals(State.PlayerCountry.CountryName, ESearchCase::IgnoreCase);
+            const bool bOwnerIsPlayer = Province.CurrentOwnerCountryName.Equals(State.PlayerCountry.CountryName, ESearchCase::IgnoreCase);
+            const bool bPeaceTransferReady = bPeaceOrCeasefireAllowsTransfer && OccupationTurns >= PeaceOccupationTurns;
+            const bool bLongOccupationReady = OccupationTurns >= LongOccupationTurns;
+            const int32 TargetTurns = bPeaceOrCeasefireAllowsTransfer ? PeaceOccupationTurns : LongOccupationTurns;
+            const int32 TurnsRemaining = FMath::Max(0, TargetTurns - OccupationTurns);
 
-            if (OccupationTurns < RequiredOccupationTurns)
+            Province.bPlayerControlled = bControllerIsPlayer;
+            Province.bBorderProvince = true;
+            Province.Unrest = FMath::Clamp(Province.Unrest + (bLongOccupationReady ? 0 : 1) + (bOwnerIsPlayer && !bControllerIsPlayer ? 2 : 0), 0, 100);
+            Province.Stability = FMath::Clamp(Province.Stability - (bLongOccupationReady ? 0 : 1) - (bOwnerIsPlayer && !bControllerIsPlayer ? 2 : 0), 0, 100);
+
+            if (!bPeaceTransferReady && !bLongOccupationReady)
             {
-                ActiveOccupations.Add(FString::Printf(TEXT("%s controlled by %s, ownership in %d turn(s) unless peace changes control"), *Province.ProvinceName, *Province.CurrentControllerCountryName, TurnsRemaining));
+                ActiveOccupations.Add(FString::Printf(TEXT("%s contested: owner %s, controller %s, held %d turn(s), transfer in %d turn(s) %s"), *Province.ProvinceName, *Province.CurrentOwnerCountryName, *Province.CurrentControllerCountryName, OccupationTurns, TurnsRemaining, bPeaceOrCeasefireAllowsTransfer ? TEXT("under peace/ceasefire terms") : TEXT("under long occupation rules")));
+                if (OccupationTurns == 0 || OccupationTurns == PeaceOccupationTurns || OccupationTurns == LongOccupationTurns - 1)
+                {
+                    ContestedWarnings.Add(FString::Printf(TEXT("%s remains contested between %s and %s."), *Province.ProvinceName, *Province.CurrentOwnerCountryName, *Province.CurrentControllerCountryName));
+                }
                 continue;
             }
 
@@ -2023,14 +2041,19 @@ namespace
             Province.bPlayerControlled = Province.CurrentOwnerCountryName.Equals(State.PlayerCountry.CountryName, ESearchCase::IgnoreCase);
             Province.GovernmentType = Province.bPlayerControlled ? TEXT("Democracy") : (Province.GovernmentType.IsEmpty() ? TEXT("Dictatorship") : Province.GovernmentType);
             Province.LastChangedTurn = State.Turn;
-            Transfers.Add(FString::Printf(TEXT("%s -> %s"), *Province.ProvinceName, *Province.CurrentOwnerCountryName));
+            Transfers.Add(FString::Printf(TEXT("%s -> %s (%s)"), *Province.ProvinceName, *Province.CurrentOwnerCountryName, bPeaceTransferReady ? TEXT("peace/surrender transfer") : TEXT("long occupation transfer")));
         }
 
         if (ActiveOccupations.Num() > 0)
         {
-            const FString OccupationSummary = FString::Printf(TEXT("Occupation timer active: %s."), *FString::Join(ActiveOccupations, TEXT("; ")));
+            const FString OccupationSummary = FString::Printf(TEXT("Occupation active: %s."), *FString::Join(ActiveOccupations, TEXT("; ")));
             State.RtsWorld.Backflow.LastImportQueueSummary = OccupationSummary;
             AddRtsHudAlert(State.RtsWorld, OccupationSummary);
+        }
+
+        for (const FString& Warning : ContestedWarnings)
+        {
+            RecordRtsOfficeAlert(State, TEXT("Province Contested"), Warning, TEXT(""), 45);
         }
 
         if (Transfers.Num() > 0)
@@ -2043,8 +2066,7 @@ namespace
             const FString FinalizedSummary = FString::Printf(TEXT("Occupation ownership finalized: %s."), *FString::Join(Transfers, TEXT(", ")));
             RecordRtsOfficeAlert(State, TEXT("Occupation Finalized"), FinalizedSummary, TEXT(""), 55);
         }
-    }
-    void ApplyRtsBackflowOutcome(FDemocracySimulationState& State, FDemocracyRtsOutcomeState& Outcome)
+    }    void ApplyRtsBackflowOutcome(FDemocracySimulationState& State, FDemocracyRtsOutcomeState& Outcome)
     {
         FDemocracyCountryState& Country = State.PlayerCountry;
         FDemocracyResourceInventory& Resources = Country.Resources;
