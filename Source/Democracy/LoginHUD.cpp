@@ -2382,23 +2382,79 @@ namespace
     {
         if (TerrainType.Contains(TEXT("Mountain")) || TerrainType.Contains(TEXT("Highlands")))
         {
-            return OrderType.Equals(TEXT("Defend"), ESearchCase::IgnoreCase) ? 10 : -8;
+            return OrderType.Equals(TEXT("Defend"), ESearchCase::IgnoreCase) ? 16 : -12;
         }
         if (TerrainType.Contains(TEXT("Urban")) || TerrainType.Contains(TEXT("Capital")))
         {
-            return OrderType.Equals(TEXT("Defend"), ESearchCase::IgnoreCase) ? 8 : -3;
+            return OrderType.Equals(TEXT("Defend"), ESearchCase::IgnoreCase) ? 14 : -5;
         }
         if (TerrainType.Contains(TEXT("Rainforest")) || TerrainType.Contains(TEXT("Jungle")))
         {
-            return OrderType.Equals(TEXT("Patrol/Scout"), ESearchCase::IgnoreCase) ? -4 : -6;
+            return OrderType.Equals(TEXT("Patrol/Scout"), ESearchCase::IgnoreCase) ? -5 : -9;
         }
         if (TerrainType.Contains(TEXT("Plains")) || TerrainType.Contains(TEXT("Basin")))
         {
-            return OrderType.Equals(TEXT("Move"), ESearchCase::IgnoreCase) ? 4 : 0;
+            return OrderType.Equals(TEXT("Move"), ESearchCase::IgnoreCase) ? 6 : 0;
+        }
+        if (TerrainType.Contains(TEXT("Coast")) || TerrainType.Contains(TEXT("River")))
+        {
+            return OrderType.Equals(TEXT("Reinforce"), ESearchCase::IgnoreCase) ? 5 : -2;
         }
         return 0;
     }
 
+    int32 RtsTerrainVehicleLossModifier(const FString& TerrainType)
+    {
+        if (TerrainType.Contains(TEXT("Mountain")) || TerrainType.Contains(TEXT("Highlands")) || TerrainType.Contains(TEXT("Rainforest")) || TerrainType.Contains(TEXT("Jungle")))
+        {
+            return 2;
+        }
+        if (TerrainType.Contains(TEXT("Urban")) || TerrainType.Contains(TEXT("Capital")))
+        {
+            return 1;
+        }
+        return 0;
+    }
+
+    int32 RtsTerrainInfantryLossModifier(const FString& TerrainType)
+    {
+        if (TerrainType.Contains(TEXT("Urban")) || TerrainType.Contains(TEXT("Capital")))
+        {
+            return 2;
+        }
+        if (TerrainType.Contains(TEXT("Plains")) || TerrainType.Contains(TEXT("Basin")))
+        {
+            return 1;
+        }
+        return 0;
+    }
+
+    int32 RtsArmyCompositionStrength(const FDemocracyRtsArmyGroupState& Army, const FString& TerrainType, const FString& OrderType)
+    {
+        int32 Strength = Army.InfantryCount * 8 + Army.VehicleCount * 22 + Army.AircraftCount * 28 + Army.LogisticsCount * 6 + Army.ScoutCount * 5 + Army.DefensiveUnitCount * 18;
+        if (TerrainType.Contains(TEXT("Mountain")) || TerrainType.Contains(TEXT("Highlands")) || TerrainType.Contains(TEXT("Rainforest")) || TerrainType.Contains(TEXT("Jungle")))
+        {
+            Strength -= Army.VehicleCount * 4;
+            Strength += Army.InfantryCount * 2;
+            Strength += Army.ScoutCount * 3;
+        }
+        if (TerrainType.Contains(TEXT("Urban")) || TerrainType.Contains(TEXT("Capital")))
+        {
+            Strength += Army.InfantryCount * 2;
+            Strength += Army.DefensiveUnitCount * 4;
+            Strength -= Army.AircraftCount * 2;
+        }
+        if (OrderType.Equals(TEXT("Defend"), ESearchCase::IgnoreCase))
+        {
+            Strength += Army.DefensiveUnitCount * 6;
+        }
+        if (OrderType.Equals(TEXT("Patrol/Scout"), ESearchCase::IgnoreCase))
+        {
+            Strength += Army.ScoutCount * 5;
+            Strength -= Army.VehicleCount * 2;
+        }
+        return FMath::Clamp(Strength, 0, 999);
+    }
     FDemocracyRtsBattleResolutionState ResolveDeterministicRtsBattle(const FDemocracySimulationState& State, const FDemocracyRtsArmyGroupState& Army, const FDemocracyProvinceOwnershipState& Province, const FString& OrderType)
     {
         FDemocracyRtsBattleResolutionState Battle;
@@ -2407,20 +2463,20 @@ namespace
         Battle.ProvinceId = Province.ProvinceId;
         Battle.OpponentCountry = Province.CurrentControllerCountryName.Equals(State.PlayerCountry.CountryName, ESearchCase::IgnoreCase) ? (State.RtsWorld.Rivals.Num() > 0 ? State.RtsWorld.Rivals[0].CountryName : TEXT("Unknown Rival")) : Province.CurrentControllerCountryName;
         Battle.TerrainType = Province.TerrainType;
-        Battle.ReadinessModifier = FMath::Clamp(State.PlayerCountry.MilitaryReadiness / 5, 0, 20);
+        Battle.ReadinessModifier = FMath::Clamp((State.PlayerCountry.MilitaryReadiness - 45) / 2, -18, 26);
         Battle.TerrainModifier = RtsTerrainBattleModifier(Province.TerrainType, OrderType);
-        Battle.SupplyModifier = FMath::Clamp((Army.SupplyStatus - 50) / 3, -20, 20);
+        Battle.SupplyModifier = FMath::Clamp((Army.SupplyStatus - 55) / 2 - (Army.bSupplyRouteBroken ? 18 : 0), -38, 22);
         Battle.TechModifier = FMath::Clamp(State.PlayerCountry.Technology / 8, 0, 15);
-        Battle.MoraleModifier = FMath::Clamp((Army.Morale - 50) / 3, -15, 15);
+        Battle.MoraleModifier = FMath::Clamp((Army.Morale - 50) / 2, -22, 22);
 
         int32 FriendlyReinforcements = 0;
         for (const FDemocracyRtsArmyGroupState& OtherArmy : State.RtsWorld.ArmyGroups)
         {
             if (!OtherArmy.ArmyId.Equals(Army.ArmyId, ESearchCase::IgnoreCase)
-                && OtherArmy.CurrentProvinceId.Equals(Army.CurrentProvinceId, ESearchCase::IgnoreCase)
+                && (OtherArmy.CurrentProvinceId.Equals(Army.CurrentProvinceId, ESearchCase::IgnoreCase) || OtherArmy.CurrentProvinceId.Equals(Province.ProvinceId, ESearchCase::IgnoreCase))
                 && OtherArmy.CurrentCountryName.Equals(Army.CurrentCountryName, ESearchCase::IgnoreCase))
             {
-                FriendlyReinforcements += FMath::Clamp(OtherArmy.TotalStrength / 18, 2, 8);
+                FriendlyReinforcements += FMath::Clamp(OtherArmy.TotalStrength / 16, 2, 10);
             }
         }
         Battle.ReinforcementModifier = FMath::Clamp(FriendlyReinforcements, 0, 18);
@@ -2432,46 +2488,52 @@ namespace
             {
                 if (Building.bConstructed && !Building.bDisabled)
                 {
-                    BuildingDefense += FMath::Max(0, Building.DefenseValue / 3);
+                    BuildingDefense += FMath::Max(0, Building.DefenseValue / 2);
                 }
             }
         }
-        Battle.DefensiveStructureModifier = FMath::Clamp(BuildingDefense + Province.StrategicValue / 3 + (Province.bBorderProvince ? 6 : 0), 0, 28);
+        Battle.DefensiveStructureModifier = FMath::Clamp(BuildingDefense + Province.StrategicValue / 2 + (Province.bBorderProvince ? 8 : 0), 0, 34);
 
-        Battle.PlayerScore = Army.TotalStrength + Battle.ReadinessModifier + Battle.TerrainModifier + Battle.SupplyModifier + Battle.TechModifier + Battle.MoraleModifier + Battle.ReinforcementModifier;
-        Battle.OpponentScore = FMath::Clamp(Province.StrategicValue * 12 + Province.Unrest / 4 + (Province.bBorderProvince ? 8 : 0) + FMath::Max(0, 55 - Province.Stability) / 3 + Battle.DefensiveStructureModifier, 20, 170);
+        const int32 CompositionStrength = RtsArmyCompositionStrength(Army, Province.TerrainType, OrderType);
+        Battle.PlayerScore = CompositionStrength + Battle.ReadinessModifier + Battle.TerrainModifier + Battle.SupplyModifier + Battle.TechModifier + Battle.MoraleModifier + Battle.ReinforcementModifier;
+        Battle.OpponentScore = FMath::Clamp(Province.StrategicValue * 13 + Province.Unrest / 3 + (Province.bBorderProvince ? 10 : 0) + FMath::Max(0, 60 - Province.Stability) / 2 + Battle.DefensiveStructureModifier, 26, 190);
+        const bool bSevereDefeat = Battle.PlayerScore + 26 < Battle.OpponentScore;
+        const bool bBadSupplyRetreat = Army.bSupplyRouteBroken && Army.SupplyStatus < 35 && !OrderType.Equals(TEXT("Defend"), ESearchCase::IgnoreCase);
+        const bool bScoutRetreat = OrderType.Equals(TEXT("Patrol/Scout"), ESearchCase::IgnoreCase) && Battle.PlayerScore + 10 < Battle.OpponentScore;
         if (Battle.PlayerScore >= Battle.OpponentScore + 15)
         {
             Battle.Result = TEXT("Province Captured");
-            Battle.FollowUpActions = { TEXT("Hold Occupation"), TEXT("Fortify"), TEXT("Negotiate Peace"), TEXT("Reinforce Supply") };
+            Battle.FollowUpActions = { TEXT("Hold Occupation"), TEXT("Fortify"), TEXT("Establish Supply Route"), TEXT("Negotiate Peace"), TEXT("Bring Reinforcements") };
         }
-        else if (Battle.PlayerScore + 15 < Battle.OpponentScore)
+        else if (bSevereDefeat || bBadSupplyRetreat || bScoutRetreat)
         {
-            Battle.Result = TEXT("Battle Lost");
+            Battle.Result = (bBadSupplyRetreat || bScoutRetreat) ? TEXT("Retreated") : TEXT("Battle Lost");
             Battle.bRetreatRecommended = true;
             Battle.bRetreated = true;
-            Battle.FollowUpActions = { TEXT("Retreat"), TEXT("Request Reinforcements"), TEXT("Defend Border"), TEXT("Negotiate Ceasefire") };
+            Battle.FollowUpActions = { TEXT("Retreat"), TEXT("Request Reinforcements"), TEXT("Repair Supply"), TEXT("Defend Border"), TEXT("Negotiate Ceasefire") };
         }
         else
         {
             Battle.Result = TEXT("Stalemate");
             Battle.bRetreatRecommended = Army.SupplyStatus < 45 || Army.Morale < 45;
-            Battle.FollowUpActions = { TEXT("Reinforce"), TEXT("Scout"), TEXT("Withdraw"), TEXT("Attack Again") };
+            Battle.FollowUpActions = { TEXT("Reinforce"), TEXT("Scout"), TEXT("Withdraw"), TEXT("Attack Again"), TEXT("Request Alliance Aid") };
         }
 
         const int32 LossPressure = Battle.Result.Equals(TEXT("Province Captured"), ESearchCase::IgnoreCase)
             ? FMath::Clamp(Battle.OpponentScore / 18, 1, 9)
             : Battle.Result.Equals(TEXT("Battle Lost"), ESearchCase::IgnoreCase)
                 ? FMath::Clamp(Battle.OpponentScore / 10, 4, 22)
-                : FMath::Clamp((Battle.PlayerScore + Battle.OpponentScore) / 22, 2, 14);
-        Battle.InfantryLosses = FMath::Min(Army.InfantryCount, FMath::Max(0, LossPressure / 2));
-        Battle.VehicleLosses = FMath::Min(Army.VehicleCount, FMath::Max(0, LossPressure / 5));
+                : Battle.Result.Equals(TEXT("Retreated"), ESearchCase::IgnoreCase)
+                    ? FMath::Clamp(Battle.OpponentScore / 18, 2, 12)
+                    : FMath::Clamp((Battle.PlayerScore + Battle.OpponentScore) / 22, 2, 14);
+        Battle.InfantryLosses = FMath::Min(Army.InfantryCount, FMath::Max(0, LossPressure / 2 + RtsTerrainInfantryLossModifier(Province.TerrainType)));
+        Battle.VehicleLosses = FMath::Min(Army.VehicleCount, FMath::Max(0, LossPressure / 5 + RtsTerrainVehicleLossModifier(Province.TerrainType)));
         Battle.AircraftLosses = FMath::Min(Army.AircraftCount, FMath::Max(0, LossPressure / 7));
-        Battle.LogisticsLosses = FMath::Min(Army.LogisticsCount, Battle.bRetreated ? 1 : FMath::Max(0, LossPressure / 8));
-        Battle.ScoutLosses = FMath::Min(Army.ScoutCount, FMath::Max(0, LossPressure / 9));
-        Battle.DefensiveLosses = FMath::Min(Army.DefensiveUnitCount, FMath::Max(0, LossPressure / 6));
+        Battle.LogisticsLosses = FMath::Min(Army.LogisticsCount, FMath::Max(0, LossPressure / 8 + (Army.bSupplyRouteBroken ? 2 : 0) + (Battle.bRetreated ? 1 : 0)));
+        Battle.ScoutLosses = FMath::Min(Army.ScoutCount, FMath::Max(0, LossPressure / 9 + (OrderType.Equals(TEXT("Patrol/Scout"), ESearchCase::IgnoreCase) ? 1 : 0)));
+        Battle.DefensiveLosses = FMath::Min(Army.DefensiveUnitCount, FMath::Max(0, LossPressure / 6 + (OrderType.Equals(TEXT("Defend"), ESearchCase::IgnoreCase) ? 0 : 1)));
 
-        Battle.Summary = FString::Printf(TEXT("%s resolved in %s. Player score %d vs opponent score %d. Modifiers readiness %+d, terrain %+d, supply %+d, tech %+d, morale %+d, reinforcements %+d, defenses %+d. Losses I%d V%d A%d L%d S%d D%d. Follow-ups: %s."), *OrderType, *Province.ProvinceName, Battle.PlayerScore, Battle.OpponentScore, Battle.ReadinessModifier, Battle.TerrainModifier, Battle.SupplyModifier, Battle.TechModifier, Battle.MoraleModifier, Battle.ReinforcementModifier, Battle.DefensiveStructureModifier, Battle.InfantryLosses, Battle.VehicleLosses, Battle.AircraftLosses, Battle.LogisticsLosses, Battle.ScoutLosses, Battle.DefensiveLosses, *FString::Join(Battle.FollowUpActions, TEXT(", ")));
+        Battle.Summary = FString::Printf(TEXT("%s resolved in %s with result %s. Player score %d vs opponent score %d. Modifiers readiness %+d, terrain %+d, supply %+d, tech %+d, morale %+d, reinforcements %+d, defenses %+d. Losses soldiers %d, tanks %d, aircraft %d, supply carriers %d, scouts %d, defensive units %d. %s Follow-ups: %s."), *OrderType, *Province.ProvinceName, *Battle.Result, Battle.PlayerScore, Battle.OpponentScore, Battle.ReadinessModifier, Battle.TerrainModifier, Battle.SupplyModifier, Battle.TechModifier, Battle.MoraleModifier, Battle.ReinforcementModifier, Battle.DefensiveStructureModifier, Battle.InfantryLosses, Battle.VehicleLosses, Battle.AircraftLosses, Battle.LogisticsLosses, Battle.ScoutLosses, Battle.DefensiveLosses, Battle.bRetreated ? TEXT("Retreat behavior triggered to preserve remaining forces.") : TEXT("No automatic retreat triggered."), *FString::Join(Battle.FollowUpActions, TEXT(", ")));
         return Battle;
     }
 
@@ -2510,7 +2572,7 @@ namespace
             Outcome.InvasionRiskDelta = -8;
             Outcome.StabilityDelta = 1;
         }
-        else if (Battle.Result.Equals(TEXT("Battle Lost"), ESearchCase::IgnoreCase))
+        else if (Battle.Result.Equals(TEXT("Battle Lost"), ESearchCase::IgnoreCase) || Battle.Result.Equals(TEXT("Retreated"), ESearchCase::IgnoreCase))
         {
             Outcome.TerritoryDelta = 0;
             Outcome.Casualties = FMath::Clamp(PlayerUnitLosses * 18 + Battle.OpponentScore / 2, 55, 220);
@@ -8009,7 +8071,7 @@ FString ALoginHUD::BuildRtsBattlePresentationText() const
     {
         FollowUp = TEXT("Hold the occupation timer, reinforce supply, prepare diplomacy pressure, or return to the office for stability management.");
     }
-    else if (Battle.Result.Equals(TEXT("Battle Lost"), ESearchCase::IgnoreCase))
+    else if (Battle.Result.Equals(TEXT("Battle Lost"), ESearchCase::IgnoreCase) || Battle.Result.Equals(TEXT("Retreated"), ESearchCase::IgnoreCase))
     {
         FollowUp = TEXT("Reinforce, defend the border, request alliance aid, negotiate ceasefire, or accept the province risk.");
     }
