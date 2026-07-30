@@ -8341,14 +8341,18 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsBattlePresentationWidget()
             + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 2.0f, 0.0f, 0.0f)
             [
                 SNew(SHorizontalBox)
-                + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 5.0f, 0.0f)
-                [BuildButton(PrimaryFollowUp, FOnClicked::CreateLambda([FollowUpOrder, PrimaryFollowUp]() mutable { return FollowUpOrder(PrimaryFollowUp); }), 96.0f, 30.0f, Army != nullptr)]
-                + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 5.0f, 0.0f)
-                [BuildButton(SecondaryFollowUp, FOnClicked::CreateLambda([FollowUpOrder, SecondaryFollowUp]() mutable { return FollowUpOrder(SecondaryFollowUp); }), 104.0f, 30.0f, Army != nullptr)]
-                + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 5.0f, 0.0f)
-                [BuildButton(TertiaryFollowUp, FOnClicked::CreateLambda([FollowUpOrder, TertiaryFollowUp]() mutable { return FollowUpOrder(TertiaryFollowUp); }), 104.0f, 30.0f, Army != nullptr)]
-                + SHorizontalBox::Slot().AutoWidth()
-                [BuildButton(TEXT("Office"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleCloseOfficeOverlayClicked), 86.0f, 30.0f)]
+                + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 5.0f, 5.0f)
+                [BuildButton(TEXT("Retreat"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleRtsBattleFollowUpClicked, FString(TEXT("Retreat"))), 88.0f, 30.0f, Army != nullptr)]
+                + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 5.0f, 5.0f)
+                [BuildButton(TEXT("Reinforce"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleRtsBattleFollowUpClicked, FString(TEXT("Reinforce"))), 104.0f, 30.0f, Army != nullptr)]
+                + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 5.0f, 5.0f)
+                [BuildButton(TEXT("Fortify"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleRtsBattleFollowUpClicked, FString(TEXT("Fortify"))), 88.0f, 30.0f)]
+                + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 5.0f, 5.0f)
+                [BuildButton(TEXT("Ceasefire"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleRtsBattleFollowUpClicked, FString(TEXT("Negotiate Ceasefire"))), 104.0f, 30.0f)]
+                + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 5.0f, 5.0f)
+                [BuildButton(TEXT("Hold Occ."), FOnClicked::CreateUObject(this, &ALoginHUD::HandleRtsBattleFollowUpClicked, FString(TEXT("Hold Occupation"))), 102.0f, 30.0f)]
+                + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 5.0f, 5.0f)
+                [BuildButton(TEXT("Abandon"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleRtsBattleFollowUpClicked, FString(TEXT("Abandon Occupation"))), 92.0f, 30.0f)]
             ]
         ];
 }
@@ -8722,6 +8726,451 @@ FReply ALoginHUD::HandleCancelRtsConstruction(FString QueueId)
     RefreshLoginWidget();
     return FReply::Handled();
 }
+FReply ALoginHUD::HandleRtsBattleFollowUpClicked(FString FollowUpAction)
+{
+    if (!bHasLoadedRuntimeState || LoadedSaveState.RuntimeState.RtsWorld.BattleHistory.Num() == 0)
+    {
+        return FReply::Handled();
+    }
+
+    FDemocracySimulationState& State = LoadedSaveState.RuntimeState;
+    const FDemocracyRtsBattleResolutionState& Battle = State.RtsWorld.BattleHistory.Last();
+    FDemocracyRtsArmyGroupState* Army = nullptr;
+    for (FDemocracyRtsArmyGroupState& CandidateArmy : State.RtsWorld.ArmyGroups)
+    {
+        CandidateArmy.bSelected = CandidateArmy.ArmyId.Equals(Battle.ArmyId, ESearchCase::IgnoreCase);
+        if (CandidateArmy.bSelected)
+        {
+            Army = &CandidateArmy;
+            RtsSelectedArmyId = CandidateArmy.ArmyId;
+        }
+    }
+
+    FDemocracyProvinceOwnershipState* Province = FindMutableRtsProvinceById(State, Battle.ProvinceId);
+    FString Summary;
+    int32 Severity = 30;
+
+    if (FollowUpAction.Equals(TEXT("Retreat"), ESearchCase::IgnoreCase) && Army)
+    {
+        FString RetreatProvince = Army->CurrentProvinceId;
+        for (const FDemocracyProvinceOwnershipState& CandidateProvince : State.RtsWorld.Ownership.Provinces)
+        {
+            if (CandidateProvince.bPlayerControlled)
+            {
+                RetreatProvince = CandidateProvince.ProvinceId;
+                break;
+            }
+        }
+        Army->DestinationProvinceId = RetreatProvince;
+        Army->OrderTargetProvinceId = RetreatProvince;
+        Army->ActiveOrderType = TEXT("Retreat");
+        Army->MovementState = TEXT("Retreating");
+        Army->MovementTurnsRemaining = FMath::Max(1, Army->MovementTurnsRemaining);
+        Army->Morale = FMath::Clamp(Army->Morale - 4, 0, 100);
+        Army->SupplyStatus = FMath::Clamp(Army->SupplyStatus + 10, 0, 100);
+        Army->Orders.AddUnique(TEXT("Retreat from recent battle"));
+        Summary = FString::Printf(TEXT("%s is retreating toward %s. Morale -4, supply +10 while command regroups."), *Army->DisplayName, *RetreatProvince);
+        Severity = 45;
+    }
+    else if (FollowUpAction.Equals(TEXT("Reinforce"), ESearchCase::IgnoreCase) && Army)
+    {
+        const int32 TreasuryCost = 45, FoodCost = 10, FuelCost = 8, WoodCost = 0, MetalsCost = 12;
+        if (CanPayRtsCost(State.PlayerCountry, TreasuryCost, FoodCost, FuelCost, WoodCost, MetalsCost))
+        {
+            ApplyRtsCost(State.PlayerCountry, TreasuryCost, FoodCost, FuelCost, WoodCost, MetalsCost);
+            Army->InfantryCount += 6;
+            Army->LogisticsCount += 1;
+            Army->SupplyStatus = FMath::Clamp(Army->SupplyStatus + 8, 0, 100);
+            Army->Morale = FMath::Clamp(Army->Morale + 3, 0, 100);
+            Army->TotalStrength = FMath::Clamp(Army->InfantryCount * 8 + Army->VehicleCount * 22 + Army->AircraftCount * 28 + Army->LogisticsCount * 6 + Army->ScoutCount * 5 + Army->DefensiveUnitCount * 18, 0, 999);
+            Summary = FString::Printf(TEXT("%s reinforced after battle. Infantry +6, logistics +1, supply +8. %s."), *Army->DisplayName, *BuildRtsCostText(TreasuryCost, FoodCost, FuelCost, WoodCost, MetalsCost));
+        }
+        else
+        {
+            Summary = TEXT("Reinforcement blocked: treasury/resources are too low for emergency reinforcement.");
+            Severity = 55;
+        }
+    }
+    else if (FollowUpAction.Equals(TEXT("Fortify"), ESearchCase::IgnoreCase))
+    {
+        const int32 TreasuryCost = 35, FoodCost = 0, FuelCost = 4, WoodCost = 18, MetalsCost = 14;
+        if (Province && CanPayRtsCost(State.PlayerCountry, TreasuryCost, FoodCost, FuelCost, WoodCost, MetalsCost))
+        {
+            ApplyRtsCost(State.PlayerCountry, TreasuryCost, FoodCost, FuelCost, WoodCost, MetalsCost);
+            Province->StrategicValue = FMath::Clamp(Province->StrategicValue + 2, 1, 100);
+            Province->Stability = FMath::Clamp(Province->Stability + 3, 0, 100);
+            Province->Unrest = FMath::Clamp(Province->Unrest - 4, 0, 100);
+            if (Army)
+            {
+                Army->DefensiveUnitCount += 1;
+                Army->TotalStrength = FMath::Clamp(Army->InfantryCount * 8 + Army->VehicleCount * 22 + Army->AircraftCount * 28 + Army->LogisticsCount * 6 + Army->ScoutCount * 5 + Army->DefensiveUnitCount * 18, 0, 999);
+            }
+            Summary = FString::Printf(TEXT("Fortified %s. Strategic value +2, stability +3, unrest -4. %s."), *Province->ProvinceName, *BuildRtsCostText(TreasuryCost, FoodCost, FuelCost, WoodCost, MetalsCost));
+        }
+        else
+        {
+            Summary = TEXT("Fortify blocked: select a valid province and confirm enough wood/metals/treasury are available.");
+            Severity = 50;
+        }
+    }
+    else if (FollowUpAction.Equals(TEXT("Negotiate Ceasefire"), ESearchCase::IgnoreCase))
+    {
+        State.DiplomacyMatrix.Summary = FString::Printf(TEXT("Ceasefire channel opened after RTS battle in %s. Follow through from the office diplomacy dashboard."), Province ? *Province->ProvinceName : *Battle.ProvinceId);
+        State.InvasionRisk.CurrentInvasionRisk = FMath::Clamp(State.InvasionRisk.CurrentInvasionRisk - 3, 0, 100);
+        Summary = FString::Printf(TEXT("Ceasefire negotiation channel opened after battle at %s. Invasion risk -3 while talks are active."), Province ? *Province->ProvinceName : *Battle.ProvinceId);
+        Severity = 35;
+    }
+    else if (FollowUpAction.Equals(TEXT("Hold Occupation"), ESearchCase::IgnoreCase) && Province)
+    {
+        Province->CurrentControllerCountryName = State.PlayerCountry.CountryName;
+        Province->bPlayerControlled = true;
+        Province->Stability = FMath::Clamp(Province->Stability + 2, 0, 100);
+        Province->Unrest = FMath::Clamp(Province->Unrest - 2, 0, 100);
+        Province->LastChangedTurn = State.Turn;
+        Summary = FString::Printf(TEXT("Holding occupation in %s. Controller remains %s; stability +2, unrest -2."), *Province->ProvinceName, *State.PlayerCountry.CountryName);
+        Severity = 42;
+    }
+    else if (FollowUpAction.Equals(TEXT("Abandon Occupation"), ESearchCase::IgnoreCase) && Province)
+    {
+        Province->CurrentControllerCountryName = Province->CurrentOwnerCountryName;
+        Province->bPlayerControlled = Province->CurrentOwnerCountryName.Equals(State.PlayerCountry.CountryName, ESearchCase::IgnoreCase);
+        Province->Unrest = FMath::Clamp(Province->Unrest + 3, 0, 100);
+        Province->LastChangedTurn = State.Turn;
+        Summary = FString::Printf(TEXT("Abandoned occupation in %s. Controller restored to %s; local unrest +3 from withdrawal shock."), *Province->ProvinceName, *Province->CurrentOwnerCountryName);
+        Severity = 50;
+    }
+    else
+    {
+        Summary = FString::Printf(TEXT("No valid battle follow-up target for action: %s."), *FollowUpAction);
+        Severity = 30;
+    }
+
+    RefreshRuntimeMapOwnership(State.RtsWorld.Ownership);
+    RecordRtsOfficeAlert(State, TEXT("RTS Battle Follow-Up"), Summary, Battle.ProvinceId, Severity);
+    LogDecision(State, TEXT("RTS Battle Follow-Up"), FollowUpAction, FString::Printf(TEXT("Latest battle %s at %s."), *Battle.Result, *Battle.ProvinceId), Summary, Severity, { TEXT("rts"), TEXT("battle"), FollowUpAction });
+    RefreshRtsHudState(State);
+    RefreshLoginWidget();
+    return FReply::Handled();
+}
+
+TSharedRef<SWidget> ALoginHUD::BuildRtsOccupationActionsWidget()
+{
+    const bool bEnabled = bHasLoadedRuntimeState && !RtsSelectedProvinceId.IsEmpty();
+    FString Status = TEXT("Select an occupied or contested province to manage pacification, fortification, transfer, or withdrawal.");
+    if (bEnabled)
+    {
+        if (const FDemocracyProvinceOwnershipState* Province = FindRtsProvinceById(LoadedSaveState.RuntimeState, RtsSelectedProvinceId))
+        {
+            Status = FString::Printf(TEXT("%s | owner %s | controller %s | stability %d | unrest %d"), *Province->ProvinceName, *Province->CurrentOwnerCountryName, *Province->CurrentControllerCountryName, Province->Stability, Province->Unrest);
+        }
+    }
+
+    return SNew(SBorder).BorderImage(RowBrush.Get()).BorderBackgroundColor(FLinearColor(0.07f, 0.10f, 0.12f, 0.84f)).Padding(8.0f)
+    [
+        SNew(SVerticalBox)
+        + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 6.0f)
+        [SNew(STextBlock).Text(BodyText(Status)).AutoWrapText(true).Font(FCoreStyle::GetDefaultFontStyle("Regular", 10)).ColorAndOpacity(FLinearColor(0.90f, 0.96f, 1.0f, 1.0f))]
+        + SVerticalBox::Slot().AutoHeight()
+        [
+            SNew(SHorizontalBox)
+            + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 5.0f, 5.0f)[BuildButton(TEXT("Pacify"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleRtsOccupationActionClicked, FString(TEXT("Pacify"))), 88.0f, 28.0f, bEnabled)]
+            + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 5.0f, 5.0f)[BuildButton(TEXT("Fortify"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleRtsOccupationActionClicked, FString(TEXT("Fortify"))), 88.0f, 28.0f, bEnabled)]
+            + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 5.0f, 5.0f)[BuildButton(TEXT("Interim Gov"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleRtsOccupationActionClicked, FString(TEXT("Install Interim Government"))), 116.0f, 28.0f, bEnabled)]
+            + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 5.0f, 5.0f)[BuildButton(TEXT("Transfer"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleRtsOccupationActionClicked, FString(TEXT("Negotiate Transfer"))), 92.0f, 28.0f, bEnabled)]
+            + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 5.0f, 5.0f)[BuildButton(TEXT("Withdraw"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleRtsOccupationActionClicked, FString(TEXT("Withdraw"))), 94.0f, 28.0f, bEnabled)]
+        ]
+    ];
+}
+
+FReply ALoginHUD::HandleRtsOccupationActionClicked(FString ActionName)
+{
+    if (!bHasLoadedRuntimeState || RtsSelectedProvinceId.IsEmpty()) { return FReply::Handled(); }
+    FDemocracySimulationState& State = LoadedSaveState.RuntimeState;
+    FDemocracyProvinceOwnershipState* Province = FindMutableRtsProvinceById(State, RtsSelectedProvinceId);
+    if (!Province) { return FReply::Handled(); }
+
+    FString Summary;
+    int32 Severity = 35;
+    if (ActionName.Equals(TEXT("Pacify"), ESearchCase::IgnoreCase))
+    {
+        if (CanPayRtsCost(State.PlayerCountry, 30, 12, 0, 0, 0))
+        {
+            ApplyRtsCost(State.PlayerCountry, 30, 12, 0, 0, 0);
+            Province->Unrest = FMath::Clamp(Province->Unrest - 10, 0, 100);
+            Province->Stability = FMath::Clamp(Province->Stability + 4, 0, 100);
+            Summary = FString::Printf(TEXT("Pacification program started in %s. Unrest -10, stability +4. Cost T30 F12."), *Province->ProvinceName);
+        }
+        else { Summary = TEXT("Pacify blocked: treasury or food reserves are too low."); Severity = 50; }
+    }
+    else if (ActionName.Equals(TEXT("Fortify"), ESearchCase::IgnoreCase))
+    {
+        if (CanPayRtsCost(State.PlayerCountry, 35, 0, 5, 16, 16))
+        {
+            ApplyRtsCost(State.PlayerCountry, 35, 0, 5, 16, 16);
+            Province->StrategicValue = FMath::Clamp(Province->StrategicValue + 3, 1, 100);
+            Province->Stability = FMath::Clamp(Province->Stability + 2, 0, 100);
+            Summary = FString::Printf(TEXT("Fortified occupation positions in %s. Strategic value +3, stability +2. Cost T35 G5 W16 M16."), *Province->ProvinceName);
+        }
+        else { Summary = TEXT("Fortify blocked: fuel, wood, metals, or treasury are too low."); Severity = 50; }
+    }
+    else if (ActionName.Equals(TEXT("Install Interim Government"), ESearchCase::IgnoreCase))
+    {
+        Province->GovernmentType = TEXT("Democracy Transition");
+        Province->Stability = FMath::Clamp(Province->Stability + 6, 0, 100);
+        Province->Unrest = FMath::Clamp(Province->Unrest - 5, 0, 100);
+        State.DiplomacyMatrix.Summary = FString::Printf(TEXT("Interim democratic administration installed in %s; rivals may treat this as forced political transition."), *Province->ProvinceName);
+        Summary = FString::Printf(TEXT("Installed interim government in %s. Government is now Democracy Transition, stability +6, unrest -5."), *Province->ProvinceName);
+        Severity = 45;
+    }
+    else if (ActionName.Equals(TEXT("Negotiate Transfer"), ESearchCase::IgnoreCase))
+    {
+        const bool bControllerIsPlayer = Province->CurrentControllerCountryName.Equals(State.PlayerCountry.CountryName, ESearchCase::IgnoreCase);
+        const int32 HeldTurns = FMath::Max(0, State.Turn - Province->LastChangedTurn);
+        if (bControllerIsPlayer && HeldTurns >= 3)
+        {
+            Province->CurrentOwnerCountryName = State.PlayerCountry.CountryName;
+            Province->bPlayerControlled = true;
+            Province->GovernmentType = State.GovernmentDiplomacyRules.PlayerGovernmentType;
+            Province->LastChangedTurn = State.Turn;
+            Summary = FString::Printf(TEXT("Negotiated transfer finalized for %s after %d held turn(s). Owner/controller now %s."), *Province->ProvinceName, HeldTurns, *State.PlayerCountry.CountryName);
+            Severity = 55;
+        }
+        else
+        {
+            Summary = FString::Printf(TEXT("Transfer negotiation opened for %s. Hold the province for at least 3 turns or secure peace/surrender terms before ownership can change."), *Province->ProvinceName);
+            Severity = 40;
+        }
+    }
+    else if (ActionName.Equals(TEXT("Withdraw"), ESearchCase::IgnoreCase))
+    {
+        Province->CurrentControllerCountryName = Province->CurrentOwnerCountryName;
+        Province->bPlayerControlled = Province->CurrentOwnerCountryName.Equals(State.PlayerCountry.CountryName, ESearchCase::IgnoreCase);
+        Province->Unrest = FMath::Clamp(Province->Unrest + 4, 0, 100);
+        Province->LastChangedTurn = State.Turn;
+        Summary = FString::Printf(TEXT("Withdrew from %s. Controller restored to %s; unrest +4 from rapid withdrawal."), *Province->ProvinceName, *Province->CurrentOwnerCountryName);
+        Severity = 48;
+    }
+    else { Summary = FString::Printf(TEXT("Unknown occupation action: %s."), *ActionName); }
+
+    RefreshRuntimeMapOwnership(State.RtsWorld.Ownership);
+    RecordRtsOfficeAlert(State, TEXT("Occupation Action"), Summary, Province->ProvinceId, Severity);
+    LogDecision(State, TEXT("RTS Occupation"), ActionName, FString::Printf(TEXT("Managed province %s."), *Province->ProvinceName), Summary, Severity, { TEXT("rts"), TEXT("occupation"), ActionName });
+    RefreshRtsHudState(State);
+    RefreshLoginWidget();
+    return FReply::Handled();
+}
+
+TSharedRef<SWidget> ALoginHUD::BuildRtsSupplyActionsWidget()
+{
+    TSharedRef<SVerticalBox> RouteList = SNew(SVerticalBox);
+    if (!bHasLoadedRuntimeState || LoadedSaveState.RuntimeState.RtsWorld.SupplyRoutes.Num() == 0)
+    {
+        RouteList->AddSlot().AutoHeight()[SNew(STextBlock).Text(BodyText(TEXT("No active supply routes. Issue a movement order to create a route."))).AutoWrapText(true).Font(FCoreStyle::GetDefaultFontStyle("Regular", 10)).ColorAndOpacity(FLinearColor(0.82f, 0.92f, 0.96f, 1.0f))];
+    }
+    else
+    {
+        const int32 RouteCount = FMath::Min(LoadedSaveState.RuntimeState.RtsWorld.SupplyRoutes.Num(), 3);
+        for (int32 Index = 0; Index < RouteCount; ++Index)
+        {
+            const FDemocracyRtsSupplyRouteState& Route = LoadedSaveState.RuntimeState.RtsWorld.SupplyRoutes[Index];
+            RouteList->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 7.0f)
+            [
+                SNew(SVerticalBox)
+                + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 4.0f)
+                [SNew(STextBlock).Text(BodyText(FString::Printf(TEXT("%s | %s -> %s | supply %d | disruption %d%s"), *Route.ArmyId, *Route.SourceProvinceId, *Route.DestinationProvinceId, Route.SupplyStatus, Route.Disruption, Route.bBroken ? TEXT(" | BROKEN") : TEXT("")))).AutoWrapText(true).Font(FCoreStyle::GetDefaultFontStyle("Regular", 10)).ColorAndOpacity(FLinearColor(0.88f, 0.96f, 1.0f, 1.0f))]
+                + SVerticalBox::Slot().AutoHeight()
+                [
+                    SNew(SHorizontalBox)
+                    + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 4.0f, 4.0f)[BuildButton(TEXT("Repair"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleRtsSupplyActionClicked, Route.RouteId, FString(TEXT("Repair Route"))), 74.0f, 26.0f)]
+                    + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 4.0f, 4.0f)[BuildButton(TEXT("Reroute"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleRtsSupplyActionClicked, Route.RouteId, FString(TEXT("Reroute Supply"))), 78.0f, 26.0f)]
+                    + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 4.0f, 4.0f)[BuildButton(TEXT("Escort"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleRtsSupplyActionClicked, Route.RouteId, FString(TEXT("Escort Convoy"))), 76.0f, 26.0f)]
+                    + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 4.0f, 4.0f)[BuildButton(TEXT("Fuel"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleRtsSupplyActionClicked, Route.RouteId, FString(TEXT("Prioritize Fuel"))), 62.0f, 26.0f)]
+                    + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 4.0f, 4.0f)[BuildButton(TEXT("Ammo"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleRtsSupplyActionClicked, Route.RouteId, FString(TEXT("Prioritize Ammo"))), 66.0f, 26.0f)]
+                    + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 4.0f, 4.0f)[BuildButton(TEXT("Food"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleRtsSupplyActionClicked, Route.RouteId, FString(TEXT("Prioritize Food"))), 64.0f, 26.0f)]
+                ]
+            ];
+        }
+    }
+    return SNew(SBorder).BorderImage(RowBrush.Get()).BorderBackgroundColor(FLinearColor(0.06f, 0.09f, 0.11f, 0.84f)).Padding(8.0f)[RouteList];
+}
+
+FReply ALoginHUD::HandleRtsSupplyActionClicked(FString RouteId, FString ActionName)
+{
+    if (!bHasLoadedRuntimeState || RouteId.IsEmpty()) { return FReply::Handled(); }
+    FDemocracySimulationState& State = LoadedSaveState.RuntimeState;
+    FDemocracyRtsSupplyRouteState* Route = nullptr;
+    FDemocracyRtsArmyGroupState* Army = nullptr;
+    for (FDemocracyRtsSupplyRouteState& CandidateRoute : State.RtsWorld.SupplyRoutes)
+    {
+        if (CandidateRoute.RouteId.Equals(RouteId, ESearchCase::IgnoreCase)) { Route = &CandidateRoute; break; }
+    }
+    if (Route)
+    {
+        for (FDemocracyRtsArmyGroupState& CandidateArmy : State.RtsWorld.ArmyGroups)
+        {
+            if (CandidateArmy.ArmyId.Equals(Route->ArmyId, ESearchCase::IgnoreCase)) { Army = &CandidateArmy; break; }
+        }
+    }
+    if (!Route) { return FReply::Handled(); }
+
+    FString Summary;
+    int32 Severity = 28;
+    if (ActionName.Equals(TEXT("Repair Route"), ESearchCase::IgnoreCase))
+    {
+        if (CanPayRtsCost(State.PlayerCountry, 22, 0, 8, 8, 6))
+        {
+            ApplyRtsCost(State.PlayerCountry, 22, 0, 8, 8, 6);
+            Route->Disruption = FMath::Clamp(Route->Disruption - 24, 0, 100);
+            Route->SupplyStatus = FMath::Clamp(Route->SupplyStatus + 24, 0, 100);
+            Route->bBroken = Route->SupplyStatus < 35;
+            Summary = FString::Printf(TEXT("Repaired supply route %s. Supply +24, disruption -24. Cost T22 G8 W8 M6."), *Route->RouteId);
+        }
+        else { Summary = TEXT("Repair route blocked: fuel, wood, metals, or treasury are too low."); Severity = 45; }
+    }
+    else if (ActionName.Equals(TEXT("Reroute Supply"), ESearchCase::IgnoreCase))
+    {
+        Route->DistancePenalty = FMath::Clamp(Route->DistancePenalty + 4, 0, 100);
+        Route->Disruption = FMath::Clamp(Route->Disruption - 12, 0, 100);
+        Route->SupplyStatus = FMath::Clamp(Route->SupplyStatus + 12, 0, 100);
+        Route->bBroken = Route->SupplyStatus < 35;
+        Route->Risks.AddUnique(TEXT("longer rerouted convoy path"));
+        Summary = FString::Printf(TEXT("Rerouted %s. Supply +12, disruption -12, distance penalty +4."), *Route->RouteId);
+    }
+    else if (ActionName.Equals(TEXT("Escort Convoy"), ESearchCase::IgnoreCase))
+    {
+        if (CanPayRtsCost(State.PlayerCountry, 28, 0, 10, 0, 8))
+        {
+            ApplyRtsCost(State.PlayerCountry, 28, 0, 10, 0, 8);
+            Route->SupplyStatus = FMath::Clamp(Route->SupplyStatus + 14, 0, 100);
+            Route->Disruption = FMath::Clamp(Route->Disruption - 10, 0, 100);
+            Route->bBroken = Route->SupplyStatus < 35;
+            if (Army)
+            {
+                Army->LogisticsCount += 1;
+                Army->DefensiveUnitCount += 1;
+                Army->TotalStrength = FMath::Clamp(Army->InfantryCount * 8 + Army->VehicleCount * 22 + Army->AircraftCount * 28 + Army->LogisticsCount * 6 + Army->ScoutCount * 5 + Army->DefensiveUnitCount * 18, 0, 999);
+            }
+            Summary = FString::Printf(TEXT("Escort convoy assigned to %s. Supply +14, disruption -10, logistics/defense support added."), *Route->RouteId);
+        }
+        else { Summary = TEXT("Escort convoy blocked: fuel, metals, or treasury are too low."); Severity = 45; }
+    }
+    else
+    {
+        const bool bFuel = ActionName.Contains(TEXT("Fuel"));
+        const bool bAmmo = ActionName.Contains(TEXT("Ammo"));
+        const int32 FoodCost = ActionName.Contains(TEXT("Food")) ? 14 : 0;
+        const int32 FuelCost = bFuel ? 14 : 4;
+        const int32 MetalsCost = bAmmo ? 12 : 2;
+        if (CanPayRtsCost(State.PlayerCountry, 16, FoodCost, FuelCost, 0, MetalsCost))
+        {
+            ApplyRtsCost(State.PlayerCountry, 16, FoodCost, FuelCost, 0, MetalsCost);
+            Route->SupplyStatus = FMath::Clamp(Route->SupplyStatus + 10, 0, 100);
+            Route->Disruption = FMath::Clamp(Route->Disruption - 6, 0, 100);
+            Route->bBroken = Route->SupplyStatus < 35;
+            Route->Risks.AddUnique(ActionName);
+            if (Army)
+            {
+                if (bFuel) { Army->MovementTurnsRemaining = FMath::Max(0, Army->MovementTurnsRemaining - 1); }
+                if (bAmmo) { Army->Morale = FMath::Clamp(Army->Morale + 2, 0, 100); }
+                if (ActionName.Contains(TEXT("Food"))) { Army->SupplyStatus = FMath::Clamp(Army->SupplyStatus + 8, 0, 100); }
+            }
+            Summary = FString::Printf(TEXT("%s applied to %s. Route supply +10, disruption -6."), *ActionName, *Route->RouteId);
+        }
+        else { Summary = FString::Printf(TEXT("%s blocked: required supplies are unavailable."), *ActionName); Severity = 45; }
+    }
+    Route->StatusSummary = Summary;
+    if (Army)
+    {
+        Army->SupplyStatus = FMath::Clamp(FMath::Max(Army->SupplyStatus, Route->SupplyStatus), 0, 100);
+        Army->bSupplyRouteBroken = Route->bBroken;
+    }
+
+    RecordRtsOfficeAlert(State, TEXT("Supply Route Action"), Summary, Route->DestinationProvinceId, Severity);
+    LogDecision(State, TEXT("RTS Supply"), ActionName, FString::Printf(TEXT("Managed route %s."), *Route->RouteId), Summary, Severity, { TEXT("rts"), TEXT("supply"), ActionName });
+    RefreshRtsHudState(State);
+    RefreshLoginWidget();
+    return FReply::Handled();
+}
+
+FReply ALoginHUD::HandleRecruitRtsUnitsClicked(FString UnitType)
+{
+    if (!bHasLoadedRuntimeState) { return FReply::Handled(); }
+    FDemocracySimulationState& State = LoadedSaveState.RuntimeState;
+    FDemocracyRtsArmyGroupState* Army = nullptr;
+    for (FDemocracyRtsArmyGroupState& CandidateArmy : State.RtsWorld.ArmyGroups)
+    {
+        if ((!RtsSelectedArmyId.IsEmpty() && CandidateArmy.ArmyId.Equals(RtsSelectedArmyId, ESearchCase::IgnoreCase)) || CandidateArmy.bSelected)
+        {
+            Army = &CandidateArmy;
+            break;
+        }
+    }
+    if (!Army && State.RtsWorld.ArmyGroups.Num() > 0)
+    {
+        Army = &State.RtsWorld.ArmyGroups[0];
+        RtsSelectedArmyId = Army->ArmyId;
+        Army->bSelected = true;
+    }
+    if (!Army) { return FReply::Handled(); }
+
+    int32 TreasuryCost = 0, FoodCost = 0, FuelCost = 0, WoodCost = 0, MetalsCost = 0;
+    FString RequiredFocus;
+    if (UnitType.Equals(TEXT("Soldiers"), ESearchCase::IgnoreCase)) { TreasuryCost = 32; FoodCost = 14; MetalsCost = 5; RequiredFocus = TEXT("Food"); }
+    else if (UnitType.Equals(TEXT("Tanks"), ESearchCase::IgnoreCase)) { TreasuryCost = 90; FuelCost = 24; MetalsCost = 32; RequiredFocus = TEXT("Metals"); }
+    else { UnitType = TEXT("Supply Carriers"); TreasuryCost = 48; FuelCost = 18; MetalsCost = 10; RequiredFocus = TEXT("Fuel"); }
+
+    bool bHasProductionBuilding = false;
+    for (const FDemocracyRtsBuildingState& Building : State.RtsWorld.CityBase.Buildings)
+    {
+        if (Building.bConstructed && !Building.bDisabled && (Building.ResourceFocus.Equals(RequiredFocus, ESearchCase::IgnoreCase) || Building.ResourceFocus.Equals(TEXT("Security"), ESearchCase::IgnoreCase) || Building.ResourceFocus.Equals(TEXT("Logistics"), ESearchCase::IgnoreCase)))
+        {
+            bHasProductionBuilding = true;
+            break;
+        }
+    }
+
+    FString Summary;
+    int32 Severity = 24;
+    if (!bHasProductionBuilding)
+    {
+        Summary = FString::Printf(TEXT("Recruit %s blocked: city/base needs an operational %s, Security, or Logistics building."), *UnitType, *RequiredFocus);
+        Severity = 45;
+    }
+    else if (!CanPayRtsCost(State.PlayerCountry, TreasuryCost, FoodCost, FuelCost, WoodCost, MetalsCost))
+    {
+        Summary = FString::Printf(TEXT("Recruit %s blocked: %s unavailable."), *UnitType, *BuildRtsCostText(TreasuryCost, FoodCost, FuelCost, WoodCost, MetalsCost));
+        Severity = 45;
+    }
+    else
+    {
+        ApplyRtsCost(State.PlayerCountry, TreasuryCost, FoodCost, FuelCost, WoodCost, MetalsCost);
+        if (UnitType.Equals(TEXT("Soldiers"), ESearchCase::IgnoreCase))
+        {
+            Army->InfantryCount += 10;
+            Summary = FString::Printf(TEXT("Recruited soldier company into %s. Infantry +10. %s."), *Army->DisplayName, *BuildRtsCostText(TreasuryCost, FoodCost, FuelCost, WoodCost, MetalsCost));
+        }
+        else if (UnitType.Equals(TEXT("Tanks"), ESearchCase::IgnoreCase))
+        {
+            Army->VehicleCount += 3;
+            Summary = FString::Printf(TEXT("Produced tank platoon into %s. Vehicles +3. %s."), *Army->DisplayName, *BuildRtsCostText(TreasuryCost, FoodCost, FuelCost, WoodCost, MetalsCost));
+        }
+        else
+        {
+            Army->LogisticsCount += 4;
+            Army->SupplyStatus = FMath::Clamp(Army->SupplyStatus + 12, 0, 100);
+            Summary = FString::Printf(TEXT("Produced supply-carrier group into %s. Logistics +4, supply +12. %s."), *Army->DisplayName, *BuildRtsCostText(TreasuryCost, FoodCost, FuelCost, WoodCost, MetalsCost));
+        }
+        Army->TotalStrength = FMath::Clamp(Army->InfantryCount * 8 + Army->VehicleCount * 22 + Army->AircraftCount * 28 + Army->LogisticsCount * 6 + Army->ScoutCount * 5 + Army->DefensiveUnitCount * 18, 0, 999);
+        State.RtsWorld.CityBase.RuntimeNotes.Add(Summary);
+    }
+
+    State.RtsWorld.WorldInteraction.LastInteractionSummary = Summary;
+    RecordRtsOfficeAlert(State, TEXT("Unit Recruitment"), Summary, Army->CurrentProvinceId, Severity);
+    LogDecision(State, TEXT("RTS Recruitment"), UnitType, FString::Printf(TEXT("Assigned units to %s."), *Army->DisplayName), Summary, Severity, { TEXT("rts"), TEXT("recruitment"), UnitType });
+    RefreshRtsHudState(State);
+    RefreshLoginWidget();
+    return FReply::Handled();
+}
 TSharedRef<SWidget> ALoginHUD::BuildRtsResourceNodesWidget() const
 {
     TSharedRef<SUniformGridPanel> NodeGrid = SNew(SUniformGridPanel).SlotPadding(FMargin(6.0f));
@@ -9024,7 +9473,36 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsCityBasePlaceholderWidget()
                         .Font(FCoreStyle::GetDefaultFontStyle("Regular", 11))
                         .ColorAndOpacity(FLinearColor(0.86f, 0.96f, 1.0f, 1.0f))
                     ]
-                ]                + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 12.0f)
+                ]
+                + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 12.0f)
+                [
+                    SNew(SBorder)
+                    .BorderImage(RowBrush.Get())
+                    .BorderBackgroundColor(FLinearColor(0.07f, 0.10f, 0.12f, 0.86f))
+                    .Padding(10.0f)
+                    [
+                        SNew(SVerticalBox)
+                        + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 6.0f)
+                        [
+                            SNew(STextBlock)
+                            .Text(BodyText(TEXT("Unit Production / Recruitment: create soldier, tank, and supply-carrier units from operational base buildings, then assign them into the selected army group.")))
+                            .AutoWrapText(true)
+                            .Font(FCoreStyle::GetDefaultFontStyle("Regular", 11))
+                            .ColorAndOpacity(FLinearColor(0.90f, 0.96f, 1.0f, 1.0f))
+                        ]
+                        + SVerticalBox::Slot().AutoHeight()
+                        [
+                            SNew(SHorizontalBox)
+                            + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 8.0f, 0.0f)
+                            [BuildButton(TEXT("Recruit Soldiers"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleRecruitRtsUnitsClicked, FString(TEXT("Soldiers"))), 150.0f, 34.0f, bHasLoadedRuntimeState)]
+                            + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 8.0f, 0.0f)
+                            [BuildButton(TEXT("Build Tanks"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleRecruitRtsUnitsClicked, FString(TEXT("Tanks"))), 128.0f, 34.0f, bHasLoadedRuntimeState)]
+                            + SHorizontalBox::Slot().AutoWidth()
+                            [BuildButton(TEXT("Supply Carriers"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleRecruitRtsUnitsClicked, FString(TEXT("Supply Carriers"))), 160.0f, 34.0f, bHasLoadedRuntimeState)]
+                        ]
+                    ]
+                ]
+                + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 12.0f)
                 [
                     SNew(SHorizontalBox)
                     + SHorizontalBox::Slot().FillWidth(0.58f).Padding(0.0f, 0.0f, 10.0f, 0.0f)
@@ -9971,6 +10449,28 @@ TSharedRef<SWidget> ALoginHUD::BuildOfficeWorldRtsScreen()
                             + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 12.0f)
                             [
                                 BuildRtsBattlePresentationWidget()
+                            ]
+                            + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 14.0f, 0.0f, 8.0f)
+                            [
+                                SNew(STextBlock)
+                                .Text(BodyText(TEXT("Occupation Actions")))
+                                .Font(FCoreStyle::GetDefaultFontStyle("Bold", 13))
+                                .ColorAndOpacity(FLinearColor(0.86f, 0.95f, 1.0f, 1.0f))
+                            ]
+                            + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 12.0f)
+                            [
+                                BuildRtsOccupationActionsWidget()
+                            ]
+                            + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 14.0f, 0.0f, 8.0f)
+                            [
+                                SNew(STextBlock)
+                                .Text(BodyText(TEXT("Supply Routes")))
+                                .Font(FCoreStyle::GetDefaultFontStyle("Bold", 13))
+                                .ColorAndOpacity(FLinearColor(0.86f, 0.95f, 1.0f, 1.0f))
+                            ]
+                            + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 12.0f)
+                            [
+                                BuildRtsSupplyActionsWidget()
                             ]
                             + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 14.0f, 0.0f, 8.0f)
                             [

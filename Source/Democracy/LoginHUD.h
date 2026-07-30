@@ -193,6 +193,8 @@ private:
     FString BuildRtsActionText() const;
     FString BuildRtsBattlePresentationText() const;
     TSharedRef<SWidget> BuildRtsBattlePresentationWidget();
+    TSharedRef<SWidget> BuildRtsOccupationActionsWidget();
+    TSharedRef<SWidget> BuildRtsSupplyActionsWidget();
     FString BuildRtsCommandConsequenceText(const FString& OrderType, const FString& TargetProvinceId) const;
     FString BuildRtsConstructionAvailabilityText(const FDemocracyRtsBuildingState* Building, int32 SlotIndex, const FString& SlotFocus, bool bUpgrade) const;
     FString BuildRtsCityBaseSummaryText() const;
@@ -214,6 +216,10 @@ private:
     FReply HandleQueueRtsBuildSlot(int32 SlotIndex, FString ResourceFocus);
     FReply HandleQueueRtsUpgrade(FString BuildingId);
     FReply HandleCancelRtsConstruction(FString QueueId);
+    FReply HandleRtsBattleFollowUpClicked(FString FollowUpAction);
+    FReply HandleRtsOccupationActionClicked(FString ActionName);
+    FReply HandleRtsSupplyActionClicked(FString RouteId, FString ActionName);
+    FReply HandleRecruitRtsUnitsClicked(FString UnitType);
     TSharedRef<SWidget> BuildOfficeAdvisorWarningsScreen();
     TSharedRef<SWidget> BuildOfficeMeetingAdvisorScreen();
     TSharedRef<SWidget> BuildOfficePressReleaseScreen();
