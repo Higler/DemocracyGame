@@ -6953,12 +6953,16 @@ TSharedRef<SWidget> ALoginHUD::BuildStartingCountrySelectionWidget()
     TSharedRef<SOverlay> MapOverlay = SNew(SOverlay);
     MapOverlay->AddSlot()
     [
-        SNew(SBox)
-        .WidthOverride(PreviewWidth)
-        .HeightOverride(PreviewHeight)
+        SNew(SRtsMapInputSurface)
+        .OnMapMouseButtonDown(FPointerEventHandler::CreateUObject(this, &ALoginHUD::HandleStartingCountryMapClicked))
         [
-            SNew(SImage)
-            .Image(RtsLandMapBrush.IsValid() ? RtsLandMapBrush.Get() : WorldMapBrush.Get())
+            SNew(SBox)
+            .WidthOverride(PreviewWidth)
+            .HeightOverride(PreviewHeight)
+            [
+                SNew(SImage)
+                .Image(WorldMapBrush.Get())
+            ]
         ]
     ];
 
@@ -9999,6 +10003,11 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsProvinceStateOverlaysWidget(float MapWidt
             StateColor = FLinearColor(0.20f, 0.92f, 1.0f, 0.76f);
         }
 
+        const bool bShowStateLabel = bHoveredCountry || Occupied > 0 || PeaceRequired > 0 || CaptureTurnsRemaining > 0;
+        if (!bShowStateLabel)
+        {
+            continue;
+        }
         const FString LabelText = FString::Printf(TEXT("%s\n%d/%d ctrl%s"), *StateLabel, Controlled, FMath::Max(1, Country.TotalProvinces), CaptureTurnsRemaining > 0 ? *FString::Printf(TEXT(" | cap %d"), CaptureTurnsRemaining) : TEXT(""));
         const float X = FMath::Clamp(Point->Centroid.X * ScaleX - 42.0f, 0.0f, FMath::Max(0.0f, MapWidth - 92.0f));
         const float Y = FMath::Clamp(Point->Centroid.Y * ScaleY - 58.0f, 0.0f, FMath::Max(0.0f, MapHeight - 42.0f));
@@ -10085,6 +10094,11 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsFogOverlaysWidget(float MapWidth, float M
             FogLabel = TEXT("Contested");
         }
 
+        const bool bHoveredFogProvince = FogProvince.ProvinceId.Equals(State.RtsWorld.WorldInteraction.HoveredTargetId, ESearchCase::IgnoreCase) || Country->CountryName.Equals(State.RtsWorld.WorldInteraction.HoveredTargetId, ESearchCase::IgnoreCase) || Country->CountryId.Equals(State.RtsWorld.WorldInteraction.HoveredTargetId, ESearchCase::IgnoreCase);
+        if (!bHoveredFogProvince)
+        {
+            continue;
+        }
         const float OffsetX = ((Province->ProvinceIndex % 3) - 1) * 22.0f * RtsMapZoom;
         const float OffsetY = ((Province->ProvinceIndex % 4) - 1) * 14.0f * RtsMapZoom;
         const float X = FMath::Clamp(Point->Centroid.X * ScaleX + OffsetX - 26.0f, 0.0f, FMath::Max(0.0f, MapWidth - 68.0f));
@@ -12999,6 +13013,53 @@ FReply ALoginHUD::HandleSelectLeaderGender(FString GenderName)
     return FReply::Handled();
 }
 
+FReply ALoginHUD::HandleStartingCountryMapClicked(const FGeometry& Geometry, const FPointerEvent& MouseEvent)
+{
+    if (!MouseEvent.GetEffectingButton().IsValid() || MouseEvent.GetEffectingButton() != EKeys::LeftMouseButton)
+    {
+        return FReply::Unhandled();
+    }
+
+    const FVector2D LocalClick = Geometry.AbsoluteToLocal(MouseEvent.GetScreenSpacePosition());
+    const FVector2D LocalSize = Geometry.GetLocalSize();
+    if (LocalSize.X <= 0.0f || LocalSize.Y <= 0.0f || LocalClick.X < 0.0f || LocalClick.Y < 0.0f || LocalClick.X > LocalSize.X || LocalClick.Y > LocalSize.Y)
+    {
+        return FReply::Handled();
+    }
+
+    const FVector2D MapPoint(
+        (LocalClick.X / LocalSize.X) * 2242.0f,
+        (LocalClick.Y / LocalSize.Y) * 1104.0f);
+    const int32 CountryIndex = SampleDuliaCountryIdAtMapPoint(MapPoint);
+    if (CountryIndex <= 0)
+    {
+        LastSaveStatus = TEXT("No country selected. Click a land country on the Dulia map.");
+        RefreshLoginWidget();
+        return FReply::Handled();
+    }
+
+    const FDifficultyProfile DifficultyProfile = FDifficultyProfileLibrary::GetProfile(PendingDifficulty.IsEmpty() ? TEXT("Normal") : PendingDifficulty);
+    const FString PreviewClimate = PendingClimate.IsEmpty() ? TEXT("Middle Moderate") : PendingClimate;
+    const FDemocracyWorldMapState PreviewMap = FDemocracyGameStateFactory::BuildStartingCountryPreviewMap(PreviewClimate, DifficultyProfile);
+    for (const FDemocracyContinentState& Continent : PreviewMap.Continents)
+    {
+        for (const FDemocracyGeneratedCountryState& Country : Continent.Countries)
+        {
+            if (Country.MapCountryIndex == CountryIndex)
+            {
+                PendingStartingCountryName = Country.CountryName;
+                PendingStartingCountryMapIndex = Country.MapCountryIndex;
+                LastSaveStatus = FString::Printf(TEXT("Selected starting country: %s."), *PendingStartingCountryName);
+                RefreshLoginWidget();
+                return FReply::Handled();
+            }
+        }
+    }
+
+    LastSaveStatus = FString::Printf(TEXT("Clicked Dulia map slot %03d, but that country is not available for the current difficulty preview."), CountryIndex);
+    RefreshLoginWidget();
+    return FReply::Handled();
+}
 FReply ALoginHUD::HandleSelectStartingCountry(FString CountryName, int32 MapCountryIndex)
 {
     PendingStartingCountryName = CountryName;
@@ -13012,7 +13073,7 @@ FReply ALoginHUD::HandleCreateInitialSaveClicked()
 {
     if (PendingStateName.TrimStartAndEnd().IsEmpty())
     {
-        LastSaveStatus = TEXT("Enter a state name before creating the save.");
+        LastSaveStatus = TEXT("Enter a country name before creating the save.");
         RefreshLoginWidget();
         return FReply::Handled();
     }

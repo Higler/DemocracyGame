@@ -296,6 +296,7 @@ private:
     FReply HandleSelectClimate(FString ClimateName);
     FReply HandleSelectLeaderGender(FString GenderName);
     FReply HandleSelectStartingCountry(FString CountryName, int32 MapCountryIndex);
+    FReply HandleStartingCountryMapClicked(const FGeometry& Geometry, const FPointerEvent& MouseEvent);
     FReply HandleCreateInitialSaveClicked();
     FReply HandleResumeSimulationClicked();
     FReply HandlePauseSimulationClicked();
