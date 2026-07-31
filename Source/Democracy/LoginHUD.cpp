@@ -6526,7 +6526,7 @@ void ALoginHUD::HandleOfficeInteractable(const FString& InteractionName)
     {
         bInOfficeMode = true;
         WorldRtsEntryMode = TEXT("RtsEntry");
-        RtsMapZoom = 2.25f;
+        RtsMapZoom = 0.88f;
         RtsMapPan = FVector2D::ZeroVector;
         bIsDraggingRtsMap = false;
         bRtsMapDragMoved = false;
@@ -6545,12 +6545,12 @@ void ALoginHUD::HandleOfficeInteractable(const FString& InteractionName)
                     RtsSelectedProvinceId = Country.ProvinceIds.Num() > 0 ? Country.ProvinceIds[0] : TEXT("");
                     State.RtsWorld.WorldInteraction.ActiveSelectionId = RtsSelectedProvinceId.IsEmpty() ? Country.CountryId : RtsSelectedProvinceId;
                     State.RtsWorld.WorldInteraction.ActiveSelectionType = RtsSelectedProvinceId.IsEmpty() ? TEXT("Country") : TEXT("Province");
-                    State.RtsWorld.WorldInteraction.LastInteractionSummary = FString::Printf(TEXT("Entered RTS command mode focused on %s."), *Country.CountryName);
+                    State.RtsWorld.WorldInteraction.LastInteractionSummary = TEXT("Entered RTS command mode centered on Planet Dulia. Select your country to enter country/base command view.");
                     break;
                 }
             }
+            State.RtsWorld.ActiveViewMode = TEXT("World View");
             RefreshRtsHudState(State);
-            FocusRtsMapOnSelection();
         }
 
         ShowScreen(ELoginFlowScreen::OfficeWorldRts);
@@ -6919,7 +6919,7 @@ TSharedRef<SWidget> ALoginHUD::BuildStartingCountrySelectionWidget()
     Body->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
     [BuildInfoRow(TEXT("Starting Country"), PendingStartingCountryMapIndex > 0
         ? FString::Printf(TEXT("%s | Map slot %03d"), *PendingStartingCountryName, PendingStartingCountryMapIndex)
-        : TEXT("Choose where your state starts on Planet Dulia. This location becomes the player democracy."))];
+        : TEXT("Choose where your country starts on Planet Dulia. This location becomes the player country."))];
 
     Body->AddSlot().AutoHeight().Padding(0.0f, 6.0f)
     [
@@ -6929,12 +6929,90 @@ TSharedRef<SWidget> ALoginHUD::BuildStartingCountrySelectionWidget()
         .OnTextChanged(FOnTextChanged::CreateUObject(this, &ALoginHUD::HandleStartingCountrySearchChanged))
     ];
 
-    TSharedRef<SScrollBox> CountryList = SNew(SScrollBox);
     const TArray<FDemocracyGeneratedCountryState> Options = BuildStartingCountryOptions();
+    FString SelectedDescription = PendingStartingCountryMapIndex > 0
+        ? FString::Printf(TEXT("%s is selected. Map slot %03d. Use search to compare other Dulia countries before creation."), *PendingStartingCountryName, PendingStartingCountryMapIndex)
+        : TEXT("Select a country from the filtered results below. The marker on the map shows the selected location.");
+
+    for (const FDemocracyGeneratedCountryState& Country : Options)
+    {
+        if (Country.MapCountryIndex == PendingStartingCountryMapIndex)
+        {
+            SelectedDescription = FString::Printf(
+                TEXT("%s starts on %s in a %s climate. It is currently %s in preview data and will become your player country on creation."),
+                *Country.CountryName,
+                *Country.ContinentName,
+                *Country.Climate,
+                *Country.PoliticalType);
+            break;
+        }
+    }
+
+    const float PreviewWidth = 760.0f;
+    const float PreviewHeight = 374.0f;
+    TSharedRef<SOverlay> MapOverlay = SNew(SOverlay);
+    MapOverlay->AddSlot()
+    [
+        SNew(SBox)
+        .WidthOverride(PreviewWidth)
+        .HeightOverride(PreviewHeight)
+        [
+            SNew(SImage)
+            .Image(RtsLandMapBrush.IsValid() ? RtsLandMapBrush.Get() : WorldMapBrush.Get())
+        ]
+    ];
+
+    if (PendingStartingCountryMapIndex > 0)
+    {
+        FVector2D MarkerPoint(-1.0f, -1.0f);
+        for (const FDuliaCountryMapPoint& Point : GetDuliaCountryMapPoints())
+        {
+            if (Point.CountryIndex == PendingStartingCountryMapIndex)
+            {
+                MarkerPoint = Point.Centroid;
+                break;
+            }
+        }
+
+        if (MarkerPoint.X >= 0.0f && MarkerPoint.Y >= 0.0f)
+        {
+            const float MarkerX = FMath::Clamp((MarkerPoint.X / 2242.0f) * PreviewWidth - 10.0f, 0.0f, PreviewWidth - 20.0f);
+            const float MarkerY = FMath::Clamp((MarkerPoint.Y / 1104.0f) * PreviewHeight - 10.0f, 0.0f, PreviewHeight - 20.0f);
+            MapOverlay->AddSlot()
+            .HAlign(HAlign_Left)
+            .VAlign(VAlign_Top)
+            .Padding(FMargin(MarkerX, MarkerY, 0.0f, 0.0f))
+            [
+                SNew(SBorder)
+                .BorderImage(RowBrush.Get())
+                .BorderBackgroundColor(FLinearColor(0.05f, 0.9f, 0.25f, 0.95f))
+                .Padding(FMargin(4.0f))
+                [
+                    SNew(STextBlock)
+                    .Text(BodyText(TEXT("X")))
+                    .ColorAndOpacity(FSlateColor(FLinearColor::White))
+                ]
+            ];
+        }
+    }
+
+    Body->AddSlot().AutoHeight().Padding(0.0f, 8.0f)
+    [
+        SNew(SBorder)
+        .BorderImage(RowBrush.Get())
+        .BorderBackgroundColor(FLinearColor(0.02f, 0.05f, 0.06f, 0.92f))
+        .Padding(FMargin(6.0f))
+        [MapOverlay]
+    ];
+
+    Body->AddSlot().AutoHeight().Padding(0.0f, 6.0f)
+    [BuildInfoRow(TEXT("Selected Country"), SelectedDescription)];
+
+    TSharedRef<SScrollBox> CountryList = SNew(SScrollBox);
     int32 VisibleRows = 0;
     for (const FDemocracyGeneratedCountryState& Country : Options)
     {
-        if (VisibleRows >= 60)
+        if (VisibleRows >= 18)
         {
             break;
         }
@@ -6943,7 +7021,7 @@ TSharedRef<SWidget> ALoginHUD::BuildStartingCountrySelectionWidget()
         const bool bSelected = Country.MapCountryIndex == PendingStartingCountryMapIndex;
         const FString Label = FString::Printf(TEXT("%s%s"), *Country.CountryName, bSelected ? TEXT(" - Selected") : TEXT(""));
         const FString Detail = FString::Printf(
-            TEXT("Slot %03d | %s | %s | currently %s | will become your player democracy on creation."),
+            TEXT("Slot %03d | %s | %s | currently %s"),
             Country.MapCountryIndex,
             *Country.ContinentName,
             *Country.Climate,
@@ -6953,7 +7031,7 @@ TSharedRef<SWidget> ALoginHUD::BuildStartingCountrySelectionWidget()
         [
             SNew(SVerticalBox)
             + SVerticalBox::Slot().AutoHeight()
-            [BuildButton(Label, FOnClicked::CreateUObject(this, &ALoginHUD::HandleSelectStartingCountry, Country.CountryName, Country.MapCountryIndex), 560.0f, 42.0f)]
+            [BuildButton(Label, FOnClicked::CreateUObject(this, &ALoginHUD::HandleSelectStartingCountry, Country.CountryName, Country.MapCountryIndex), 560.0f, 40.0f)]
             + SVerticalBox::Slot().AutoHeight()
             [BuildInfoRow(TEXT("Map Location"), Detail)]
         ];
@@ -6970,12 +7048,11 @@ TSharedRef<SWidget> ALoginHUD::BuildStartingCountrySelectionWidget()
         [BuildInfoRow(TEXT("Filtered"), FString::Printf(TEXT("Showing first %d of %d matches. Use search to narrow the list."), VisibleRows, Options.Num()))];
     }
 
-    Body->AddSlot().MaxHeight(330.0f).Padding(0.0f, 8.0f)
+    Body->AddSlot().MaxHeight(210.0f).Padding(0.0f, 8.0f)
     [CountryList];
 
     return Body;
 }
-
 TSharedRef<SWidget> ALoginHUD::BuildNewStateSetupScreen()
 {
     const bool bHasRequiredSelections = !PendingDifficulty.IsEmpty() && !PendingClimate.IsEmpty() && !PendingLeaderGender.IsEmpty() && PendingStartingCountryMapIndex > 0;
@@ -6990,7 +7067,7 @@ TSharedRef<SWidget> ALoginHUD::BuildNewStateSetupScreen()
     Body->AddSlot().AutoHeight().Padding(0.0f, 8.0f)
     [
         SNew(SEditableTextBox)
-        .HintText(BodyText(TEXT("State name")))
+        .HintText(BodyText(TEXT("Country name")))
         .Text(BodyText(PendingStateName))
         .OnTextChanged(FOnTextChanged::CreateUObject(this, &ALoginHUD::HandlePendingStateNameChanged))
     ];
@@ -7013,11 +7090,11 @@ TSharedRef<SWidget> ALoginHUD::BuildNewStateSetupScreen()
     Body->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
     [BuildInfoRow(TEXT("Create Status"), LastSaveStatus.IsEmpty() ? TEXT("Ready") : LastSaveStatus)];
     Body->AddSlot().AutoHeight().Padding(0.0f, 12.0f)
-    [BuildButton(TEXT("Create State and Load Game"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleCreateInitialSaveClicked), 360.0f, 52.0f, bHasRequiredSelections)];
+    [BuildButton(TEXT("Create Country and Load Game"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleCreateInitialSaveClicked), 360.0f, 52.0f, bHasRequiredSelections)];
     Body->AddSlot().AutoHeight().Padding(0.0f, 14.0f)
     [BuildButton(TEXT("Back"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleBackToDifficultyClicked), 180.0f, 44.0f)];
 
-    return BuildPanel(TEXT("New State Setup"), TEXT("Name the state, choose its climate, and choose where it starts on Planet Dulia."),
+    return BuildPanel(TEXT("New Country Setup"), TEXT("Name the country, choose its climate, and choose where it starts on Planet Dulia."),
         SNew(SScrollBox)
         + SScrollBox::Slot()
         [Body], 820.0f);
@@ -8032,7 +8109,7 @@ void ALoginHUD::FocusRtsMapOnSelection()
     {
         if (Point.CountryIndex == FocusCountry->MapCountryIndex)
         {
-            RtsMapZoom = FMath::Max(RtsMapZoom, 2.25f);
+            RtsMapZoom = FMath::Max(RtsMapZoom, 1.65f);
             RtsMapPan = (FVector2D(1121.0f, 552.0f) - Point.Centroid) * RtsMapZoom;
             ClampRtsMapView();
             return;
@@ -10548,6 +10625,19 @@ void ALoginHUD::SelectRtsMapAtViewportPosition(const FGeometry& Geometry, const 
 
     State.RtsWorld.WorldInteraction.ActiveSelectionId = RtsSelectedProvinceId.IsEmpty() ? BestCountry->CountryId : RtsSelectedProvinceId;
     State.RtsWorld.WorldInteraction.ActiveSelectionType = RtsSelectedProvinceId.IsEmpty() ? TEXT("Country") : TEXT("Province");
+
+    const bool bSelectedPlayerCountry = BestCountry->bPlayerCountry || BestCountry->CountryName.Equals(State.PlayerCountry.CountryName, ESearchCase::IgnoreCase);
+    if (bSelectedPlayerCountry && PendingRtsOrderType.IsEmpty())
+    {
+        State.RtsWorld.WorldInteraction.LastInteractionSummary = FString::Printf(TEXT("Opened country/base command view for %s."), *RtsSelectedCountryName);
+        State.RtsWorld.ActiveViewMode = TEXT("city_base");
+        RtsMapZoom = 4.6f;
+        FocusRtsMapOnSelection();
+        RefreshRtsHudState(State);
+        RefreshLoginWidget();
+        return;
+    }
+
     State.RtsWorld.WorldInteraction.LastInteractionSummary = FString::Printf(TEXT("Selected %s in %s%s."), *RtsSelectedCountryName, *GetRtsZoomModeLabel(), bExactProvinceHit ? TEXT(" by province footprint") : TEXT(" by nearest province fallback"));
     State.RtsWorld.ActiveViewMode = GetRtsZoomModeLabel();
     RefreshRtsHudState(State);
