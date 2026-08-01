@@ -301,6 +301,159 @@ namespace
         CompressedData.Append(CompressedData64.GetData(), CompressedData64.Num());
         return FFileHelper::SaveArrayToFile(CompressedData, *OutImagePath);
     }
+    bool IsRuntimeMapDemocracyType(const FString& GovernmentType)
+    {
+        return GovernmentType.Contains(TEXT("Democracy"), ESearchCase::IgnoreCase) ||
+            GovernmentType.Contains(TEXT("Democratic"), ESearchCase::IgnoreCase) ||
+            GovernmentType.Contains(TEXT("Republic"), ESearchCase::IgnoreCase) ||
+            GovernmentType.Contains(TEXT("Player"), ESearchCase::IgnoreCase);
+    }
+
+    bool IsRuntimeMapDictatorshipType(const FString& GovernmentType)
+    {
+        return GovernmentType.Contains(TEXT("Dictatorship"), ESearchCase::IgnoreCase) ||
+            GovernmentType.Contains(TEXT("Authoritarian"), ESearchCase::IgnoreCase) ||
+            GovernmentType.Contains(TEXT("Autocracy"), ESearchCase::IgnoreCase) ||
+            GovernmentType.Contains(TEXT("Regime"), ESearchCase::IgnoreCase) ||
+            GovernmentType.Contains(TEXT("Hostile"), ESearchCase::IgnoreCase);
+    }
+
+    int32 ResolveRuntimePlayerMapCountryIndex(const FDemocracySimulationState& State)
+    {
+        for (const FDemocracyCountryOwnershipState& Country : State.RtsWorld.Ownership.Countries)
+        {
+            if (Country.MapCountryIndex > 0 && (Country.bPlayerCountry || Country.CountryName.Equals(State.PlayerCountry.CountryName, ESearchCase::IgnoreCase)))
+            {
+                return Country.MapCountryIndex;
+            }
+        }
+        for (const FDemocracyContinentState& Continent : State.WorldMap.Continents)
+        {
+            for (const FDemocracyGeneratedCountryState& Country : Continent.Countries)
+            {
+                if (Country.MapCountryIndex > 0 && (Country.CountryName.Equals(State.PlayerCountry.CountryName, ESearchCase::IgnoreCase) || Country.PoliticalType.Contains(TEXT("Player"), ESearchCase::IgnoreCase)))
+                {
+                    return Country.MapCountryIndex;
+                }
+            }
+        }
+        return 0;
+    }
+
+    bool EnsureDuliaRuntimeGovernmentMapImage(const FDemocracySimulationState& State, FString& OutImagePath)
+    {
+        FDuliaCountryIdMask& Mask = GetMutableDuliaCountryIdMask();
+        if (!Mask.bLoaded || Mask.Width <= 0 || Mask.Height <= 0 || Mask.CountryIds.Num() <= 0)
+        {
+            return false;
+        }
+
+        const int32 PlayerMapCountryIndex = ResolveRuntimePlayerMapCountryIndex(State);
+        if (PlayerMapCountryIndex <= 0)
+        {
+            return false;
+        }
+
+        OutImagePath = FPaths::ProjectDir() / TEXT("Generated") / FString::Printf(TEXT("Dulia_Rts_Government_Player_%03d.png"), PlayerMapCountryIndex);
+        if (FPaths::FileExists(OutImagePath))
+        {
+            return true;
+        }
+
+        TMap<int32, FColor> CountryColors;
+        auto SetCountryColor = [&CountryColors, PlayerMapCountryIndex](int32 MapCountryIndex, const FString& GovernmentType, bool bPlayerCountry)
+        {
+            if (MapCountryIndex <= 0 || CountryColors.Contains(MapCountryIndex))
+            {
+                return;
+            }
+
+            if (bPlayerCountry || MapCountryIndex == PlayerMapCountryIndex)
+            {
+                CountryColors.Add(MapCountryIndex, FColor(0, 218, 82, 255));
+            }
+            else if (IsRuntimeMapDemocracyType(GovernmentType))
+            {
+                CountryColors.Add(MapCountryIndex, FColor(58, 125, 205, 255));
+            }
+            else if (IsRuntimeMapDictatorshipType(GovernmentType))
+            {
+                CountryColors.Add(MapCountryIndex, FColor(214, 52, 55, 255));
+            }
+            else
+            {
+                CountryColors.Add(MapCountryIndex, FColor(132, 116, 170, 255));
+            }
+        };
+
+        for (const FDemocracyCountryOwnershipState& Country : State.RtsWorld.Ownership.Countries)
+        {
+            SetCountryColor(Country.MapCountryIndex, Country.GovernmentType, Country.bPlayerCountry || Country.CountryName.Equals(State.PlayerCountry.CountryName, ESearchCase::IgnoreCase));
+        }
+        for (const FDemocracyContinentState& Continent : State.WorldMap.Continents)
+        {
+            for (const FDemocracyGeneratedCountryState& Country : Continent.Countries)
+            {
+                SetCountryColor(Country.MapCountryIndex, Country.PoliticalType, Country.MapCountryIndex == PlayerMapCountryIndex || Country.CountryName.Equals(State.PlayerCountry.CountryName, ESearchCase::IgnoreCase));
+            }
+        }
+
+        IFileManager::Get().MakeDirectory(*FPaths::GetPath(OutImagePath), true);
+        TArray<uint8> RawPixels;
+        RawPixels.SetNumZeroed(Mask.Width * Mask.Height * 4);
+
+        auto WritePixel = [&RawPixels](int32 PixelIndex, uint8 R, uint8 G, uint8 B, uint8 A)
+        {
+            const int32 RawIndex = PixelIndex * 4;
+            RawPixels[RawIndex] = R;
+            RawPixels[RawIndex + 1] = G;
+            RawPixels[RawIndex + 2] = B;
+            RawPixels[RawIndex + 3] = A;
+        };
+
+        for (int32 Y = 0; Y < Mask.Height; ++Y)
+        {
+            for (int32 X = 0; X < Mask.Width; ++X)
+            {
+                const int32 PixelIndex = Y * Mask.Width + X;
+                const int32 CountryId = Mask.CountryIds[PixelIndex];
+                if (CountryId <= 0)
+                {
+                    WritePixel(PixelIndex, 70, 156, 176, 255);
+                    continue;
+                }
+
+                FColor Color = CountryColors.Contains(CountryId) ? CountryColors[CountryId] : FColor(132, 116, 170, 255);
+                const int32 LeftId = X > 0 ? Mask.CountryIds[PixelIndex - 1] : CountryId;
+                const int32 RightId = X + 1 < Mask.Width ? Mask.CountryIds[PixelIndex + 1] : CountryId;
+                const int32 UpId = Y > 0 ? Mask.CountryIds[PixelIndex - Mask.Width] : CountryId;
+                const int32 DownId = Y + 1 < Mask.Height ? Mask.CountryIds[PixelIndex + Mask.Width] : CountryId;
+                const bool bBorder = LeftId != CountryId || RightId != CountryId || UpId != CountryId || DownId != CountryId;
+                if (bBorder)
+                {
+                    Color = FColor(
+                        FMath::Clamp(static_cast<int32>(Color.R) + 110, 0, 255),
+                        FMath::Clamp(static_cast<int32>(Color.G) + 96, 0, 255),
+                        FMath::Clamp(static_cast<int32>(Color.B) + 90, 0, 255),
+                        255);
+                }
+
+                WritePixel(PixelIndex, Color.R, Color.G, Color.B, 255);
+            }
+        }
+
+        IImageWrapperModule& ImageWrapperModule = FModuleManager::LoadModuleChecked<IImageWrapperModule>(TEXT("ImageWrapper"));
+        const TSharedPtr<IImageWrapper> ImageWrapper = ImageWrapperModule.CreateImageWrapper(EImageFormat::PNG);
+        if (!ImageWrapper.IsValid() || !ImageWrapper->SetRaw(RawPixels.GetData(), RawPixels.Num(), Mask.Width, Mask.Height, ERGBFormat::RGBA, 8))
+        {
+            return false;
+        }
+
+        const TArray64<uint8>& CompressedData64 = ImageWrapper->GetCompressed(100);
+        TArray<uint8> CompressedData;
+        CompressedData.Append(CompressedData64.GetData(), CompressedData64.Num());
+        return FFileHelper::SaveArrayToFile(CompressedData, *OutImagePath);
+    }
     bool DuliaPointInPolygon(const FVector2D& Point, const TArray<FVector2D>& Polygon)
     {
         if (Polygon.Num() < 3)
@@ -10767,6 +10920,11 @@ TSharedRef<SWidget> ALoginHUD::BuildOfficeWorldRtsScreen()
         if (bHasLoadedRuntimeState)
         {
             LoadedSaveState.RuntimeState.RtsWorld.ActiveViewMode = GetRtsZoomModeLabel();
+            FString RuntimeRtsMapPath;
+            if (EnsureDuliaRuntimeGovernmentMapImage(LoadedSaveState.RuntimeState, RuntimeRtsMapPath))
+            {
+                RtsLandMapBrush = MakeShared<FSlateDynamicImageBrush>(FName(*RuntimeRtsMapPath), FVector2D(2242.0f, 1104.0f));
+            }
         }
 
         const float MapWidth = 2242.0f * RtsMapZoom;
