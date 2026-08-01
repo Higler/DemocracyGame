@@ -9963,6 +9963,20 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsCityBasePlaceholderWidget()
             ];
     };
 
+    auto MakeTerrainFeature = [this](const FString& Label, const FLinearColor& Color, const FName& FontWeight, int32 FontSize) -> TSharedRef<SWidget>
+    {
+        return SNew(SBorder)
+            .BorderImage(RowBrush.Get())
+            .BorderBackgroundColor(Color)
+            .Padding(6.0f)
+            [
+                SNew(STextBlock)
+                .Text(BodyText(Label))
+                .Justification(ETextJustify::Center)
+                .Font(FCoreStyle::GetDefaultFontStyle(FontWeight, FontSize))
+                .ColorAndOpacity(FLinearColor(0.92f, 0.98f, 1.0f, 1.0f))
+            ];
+    };
     TSharedRef<SConstraintCanvas> CityLayout = SNew(SConstraintCanvas);
     CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(0.0f, 0.0f, 1120.0f, 620.0f))
     [
@@ -9971,6 +9985,18 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsCityBasePlaceholderWidget()
         .BorderBackgroundColor(FLinearColor(0.10f, 0.18f, 0.11f, 1.0f))
         .Padding(0.0f)
     ];
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(0.0f, 0.0f, 1120.0f, 72.0f))
+    [MakeTerrainFeature(TEXT("Northern tree line / fog edge"), FLinearColor(0.03f, 0.07f, 0.05f, 0.74f), TEXT("Regular"), 10)];
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(760.0f, 118.0f, 280.0f, 92.0f))
+    [MakeTerrainFeature(TEXT("Lake"), FLinearColor(0.04f, 0.28f, 0.38f, 0.88f), TEXT("Bold"), 12)];
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(188.0f, 548.0f, 730.0f, 26.0f))
+    [MakeTerrainFeature(TEXT("River supply crossing"), FLinearColor(0.04f, 0.25f, 0.35f, 0.88f), TEXT("Regular"), 10)];
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(92.0f, 144.0f, 182.0f, 70.0f))
+    [MakeTerrainFeature(TEXT("Farm fields"), FLinearColor(0.20f, 0.30f, 0.10f, 0.78f), TEXT("Bold"), 11)];
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(824.0f, 406.0f, 182.0f, 72.0f))
+    [MakeTerrainFeature(TEXT("Mine ridge"), FLinearColor(0.20f, 0.20f, 0.17f, 0.82f), TEXT("Bold"), 11)];
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(730.0f, 500.0f, 156.0f, 46.0f))
+    [MakeTerrainFeature(TEXT("Gas / fuel node"), FLinearColor(0.12f, 0.18f, 0.19f, 0.86f), TEXT("Bold"), 10)];
     CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(0.0f, 296.0f, 1120.0f, 28.0f))
     [SNew(SBorder).BorderImage(RowBrush.Get()).BorderBackgroundColor(FLinearColor(0.19f, 0.20f, 0.18f, 0.92f)).Padding(0.0f)];
     CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(546.0f, 0.0f, 28.0f, 620.0f))
@@ -9990,6 +10016,20 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsCityBasePlaceholderWidget()
         ]
     ];
 
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(432.0f, 388.0f, 260.0f, 74.0f))
+    [
+        SNew(SBorder)
+        .BorderImage(RowBrush.Get())
+        .BorderBackgroundColor(FLinearColor(0.05f, 0.10f, 0.11f, 0.90f))
+        .Padding(8.0f)
+        [
+            SNew(STextBlock)
+            .Text(BodyText(TEXT("Unit staging\nSOL  TNK  SUP  WRK\nReady for army assignment")))
+            .Justification(ETextJustify::Center)
+            .Font(FCoreStyle::GetDefaultFontStyle("Bold", 11))
+            .ColorAndOpacity(FLinearColor(0.84f, 0.96f, 0.92f, 1.0f))
+        ]
+    ];
     const TArray<FVector2D> SlotPositions = {
         FVector2D(96.0f, 80.0f), FVector2D(336.0f, 76.0f), FVector2D(684.0f, 76.0f), FVector2D(924.0f, 80.0f),
         FVector2D(94.0f, 246.0f), FVector2D(318.0f, 226.0f), FVector2D(702.0f, 226.0f), FVector2D(924.0f, 246.0f),
