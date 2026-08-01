@@ -7060,7 +7060,8 @@ TSharedRef<SWidget> ALoginHUD::BuildStartingCountrySelectionWidget()
     Body->AddSlot().AutoHeight().Padding(0.0f, 6.0f)
     [BuildInfoRow(TEXT("Selected Country"), SelectedDescription)];
 
-    TSharedRef<SScrollBox> CountryList = SNew(SScrollBox);
+    TSharedRef<SScrollBox> CountryList = SNew(SScrollBox)
+        .OnUserScrolled(FOnUserScrolled::CreateUObject(this, &ALoginHUD::HandleStartingCountryListScrolled));
     int32 VisibleRows = 0;
     for (const FDemocracyGeneratedCountryState& Country : Options)
     {
@@ -7099,6 +7100,8 @@ TSharedRef<SWidget> ALoginHUD::BuildStartingCountrySelectionWidget()
         CountryList->AddSlot().Padding(0.0f, 4.0f)
         [BuildInfoRow(TEXT("Filtered"), FString::Printf(TEXT("Showing first %d of %d matches. Use search to narrow the list."), VisibleRows, Options.Num()))];
     }
+
+    CountryList->SetScrollOffset(PendingStartingCountryListScrollOffset);
 
     Body->AddSlot().MaxHeight(210.0f).Padding(0.0f, 8.0f)
     [CountryList];
@@ -13042,6 +13045,7 @@ FReply ALoginHUD::HandleSelectDifficulty(FString DifficultyName)
     PendingStartingCountryName.Empty();
     PendingStartingCountrySearchText.Empty();
     PendingStartingCountryMapIndex = 0;
+    PendingStartingCountryListScrollOffset = 0.0f;
     ShowScreen(ELoginFlowScreen::NewStateSetup);
     return FReply::Handled();
 }
@@ -15512,7 +15516,13 @@ void ALoginHUD::HandlePendingStateNameChanged(const FText& StateNameText)
 void ALoginHUD::HandleStartingCountrySearchChanged(const FText& SearchText)
 {
     PendingStartingCountrySearchText = SearchText.ToString();
+    PendingStartingCountryListScrollOffset = 0.0f;
     RefreshLoginWidget();
+}
+
+void ALoginHUD::HandleStartingCountryListScrolled(float ScrollOffset)
+{
+    PendingStartingCountryListScrollOffset = ScrollOffset;
 }
 
 void ALoginHUD::HandleRecentLocalSavesChanged(ECheckBoxState NewState)

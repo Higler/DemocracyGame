@@ -97,6 +97,7 @@ private:
     FString PendingStartingCountryName;
     FString PendingStartingCountrySearchText;
     int32 PendingStartingCountryMapIndex = 0;
+    float PendingStartingCountryListScrollOffset = 0.0f;
     FString LoadedStateName;
     FString LoadedSavePath;
     FString LoadedSaveSummary;
@@ -362,6 +363,7 @@ private:
     void HandleLocalSaveSearchChanged(const FText& SearchText);
     void HandlePendingStateNameChanged(const FText& StateNameText);
     void HandleStartingCountrySearchChanged(const FText& SearchText);
+    void HandleStartingCountryListScrolled(float ScrollOffset);
     void HandleRecentLocalSavesChanged(ECheckBoxState NewState);
     void HandleServerSearchChanged(const FText& SearchText);
     void HandleRecommendedServersChanged(ECheckBoxState NewState);
