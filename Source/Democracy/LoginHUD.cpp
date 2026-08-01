@@ -9766,14 +9766,43 @@ FReply ALoginHUD::HandleRecruitRtsUnitsClicked(FString UnitType)
 
     int32 TreasuryCost = 0, FoodCost = 0, FuelCost = 0, WoodCost = 0, MetalsCost = 0;
     FString RequiredFocus;
-    if (UnitType.Equals(TEXT("Soldiers"), ESearchCase::IgnoreCase)) { TreasuryCost = 32; FoodCost = 14; MetalsCost = 5; RequiredFocus = TEXT("Food"); }
-    else if (UnitType.Equals(TEXT("Tanks"), ESearchCase::IgnoreCase)) { TreasuryCost = 90; FuelCost = 24; MetalsCost = 32; RequiredFocus = TEXT("Metals"); }
-    else { UnitType = TEXT("Supply Carriers"); TreasuryCost = 48; FuelCost = 18; MetalsCost = 10; RequiredFocus = TEXT("Fuel"); }
+    if (UnitType.Equals(TEXT("Soldiers"), ESearchCase::IgnoreCase) || UnitType.Equals(TEXT("Soldier"), ESearchCase::IgnoreCase))
+    {
+        UnitType = TEXT("Soldiers");
+        TreasuryCost = 32;
+        FoodCost = 14;
+        MetalsCost = 5;
+        RequiredFocus = TEXT("Food");
+    }
+    else if (UnitType.Equals(TEXT("Tanks"), ESearchCase::IgnoreCase) || UnitType.Equals(TEXT("Tank"), ESearchCase::IgnoreCase))
+    {
+        UnitType = TEXT("Tanks");
+        TreasuryCost = 90;
+        FuelCost = 24;
+        MetalsCost = 32;
+        RequiredFocus = TEXT("Metals");
+    }
+    else if (UnitType.Equals(TEXT("Workers"), ESearchCase::IgnoreCase) || UnitType.Equals(TEXT("Worker"), ESearchCase::IgnoreCase))
+    {
+        UnitType = TEXT("Workers");
+        TreasuryCost = 22;
+        FoodCost = 8;
+        WoodCost = 4;
+        RequiredFocus = TEXT("Reserve");
+    }
+    else
+    {
+        UnitType = TEXT("Supply Carriers");
+        TreasuryCost = 48;
+        FuelCost = 18;
+        MetalsCost = 10;
+        RequiredFocus = TEXT("Fuel");
+    }
 
     bool bHasProductionBuilding = false;
     for (const FDemocracyRtsBuildingState& Building : State.RtsWorld.CityBase.Buildings)
     {
-        if (Building.bConstructed && !Building.bDisabled && (Building.ResourceFocus.Equals(RequiredFocus, ESearchCase::IgnoreCase) || Building.ResourceFocus.Equals(TEXT("Security"), ESearchCase::IgnoreCase) || Building.ResourceFocus.Equals(TEXT("Logistics"), ESearchCase::IgnoreCase)))
+        if (Building.bConstructed && !Building.bDisabled && (Building.ResourceFocus.Equals(RequiredFocus, ESearchCase::IgnoreCase) || Building.ResourceFocus.Equals(TEXT("Security"), ESearchCase::IgnoreCase) || Building.ResourceFocus.Equals(TEXT("Logistics"), ESearchCase::IgnoreCase) || Building.ResourceFocus.Equals(TEXT("Reserve"), ESearchCase::IgnoreCase)))
         {
             bHasProductionBuilding = true;
             break;
@@ -9784,12 +9813,12 @@ FReply ALoginHUD::HandleRecruitRtsUnitsClicked(FString UnitType)
     int32 Severity = 24;
     if (!bHasProductionBuilding)
     {
-        Summary = FString::Printf(TEXT("Recruit %s blocked: city/base needs an operational %s, Security, or Logistics building."), *UnitType, *RequiredFocus);
+        Summary = FString::Printf(TEXT("Spawn %s blocked: city/base needs an operational %s, Security, Logistics, or Reserve building."), *UnitType, *RequiredFocus);
         Severity = 45;
     }
     else if (!CanPayRtsCost(State.PlayerCountry, TreasuryCost, FoodCost, FuelCost, WoodCost, MetalsCost))
     {
-        Summary = FString::Printf(TEXT("Recruit %s blocked: %s unavailable."), *UnitType, *BuildRtsCostText(TreasuryCost, FoodCost, FuelCost, WoodCost, MetalsCost));
+        Summary = FString::Printf(TEXT("Spawn %s blocked: %s unavailable."), *UnitType, *BuildRtsCostText(TreasuryCost, FoodCost, FuelCost, WoodCost, MetalsCost));
         Severity = 45;
     }
     else
@@ -9798,18 +9827,26 @@ FReply ALoginHUD::HandleRecruitRtsUnitsClicked(FString UnitType)
         if (UnitType.Equals(TEXT("Soldiers"), ESearchCase::IgnoreCase))
         {
             Army->InfantryCount += 10;
-            Summary = FString::Printf(TEXT("Recruited soldier company into %s. Infantry +10. %s."), *Army->DisplayName, *BuildRtsCostText(TreasuryCost, FoodCost, FuelCost, WoodCost, MetalsCost));
+            Summary = FString::Printf(TEXT("Spawned soldier company into %s. Infantry +10. %s."), *Army->DisplayName, *BuildRtsCostText(TreasuryCost, FoodCost, FuelCost, WoodCost, MetalsCost));
         }
         else if (UnitType.Equals(TEXT("Tanks"), ESearchCase::IgnoreCase))
         {
             Army->VehicleCount += 3;
-            Summary = FString::Printf(TEXT("Produced tank platoon into %s. Vehicles +3. %s."), *Army->DisplayName, *BuildRtsCostText(TreasuryCost, FoodCost, FuelCost, WoodCost, MetalsCost));
+            Summary = FString::Printf(TEXT("Spawned tank platoon into %s. Vehicles +3. %s."), *Army->DisplayName, *BuildRtsCostText(TreasuryCost, FoodCost, FuelCost, WoodCost, MetalsCost));
+        }
+        else if (UnitType.Equals(TEXT("Workers"), ESearchCase::IgnoreCase))
+        {
+            Army->LogisticsCount += 2;
+            Army->SupplyStatus = FMath::Clamp(Army->SupplyStatus + 6, 0, 100);
+            State.RtsWorld.ResourceCollection.WoodFromBuildings += 1;
+            State.RtsWorld.ResourceCollection.MetalsFromBuildings += 1;
+            Summary = FString::Printf(TEXT("Spawned worker crew into %s. Workers repair structures and haul node materials to storage. Logistics +2, supply +6. %s."), *Army->DisplayName, *BuildRtsCostText(TreasuryCost, FoodCost, FuelCost, WoodCost, MetalsCost));
         }
         else
         {
             Army->LogisticsCount += 4;
             Army->SupplyStatus = FMath::Clamp(Army->SupplyStatus + 12, 0, 100);
-            Summary = FString::Printf(TEXT("Produced supply-carrier group into %s. Logistics +4, supply +12. %s."), *Army->DisplayName, *BuildRtsCostText(TreasuryCost, FoodCost, FuelCost, WoodCost, MetalsCost));
+            Summary = FString::Printf(TEXT("Spawned convoy group into %s. Logistics +4, supply +12. %s."), *Army->DisplayName, *BuildRtsCostText(TreasuryCost, FoodCost, FuelCost, WoodCost, MetalsCost));
         }
         Army->TotalStrength = FMath::Clamp(Army->InfantryCount * 8 + Army->VehicleCount * 22 + Army->AircraftCount * 28 + Army->LogisticsCount * 6 + Army->ScoutCount * 5 + Army->DefensiveUnitCount * 18, 0, 999);
         State.RtsWorld.CityBase.RuntimeNotes.Add(Summary);
@@ -10053,20 +10090,22 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsCityBasePlaceholderWidget()
         .BorderBackgroundColor(FLinearColor(0.12f, 0.20f, 0.10f, 1.0f))
         .Padding(0.0f)
     ];
-    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(0.0f, 0.0f, 2200.0f, 190.0f))
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(0.0f, 0.0f, 2200.0f, 180.0f))
     [MakeTerrainFeature(TEXT("forest edge"), FLinearColor(0.03f, 0.10f, 0.05f, 0.90f), TEXT("Regular"), 8)];
-    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(1540.0f, 210.0f, 420.0f, 230.0f))
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(1620.0f, 250.0f, 430.0f, 250.0f))
     [MakeTerrainFeature(TEXT("lake"), FLinearColor(0.02f, 0.25f, 0.38f, 0.90f), TEXT("Bold"), 11)];
-    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(190.0f, 1080.0f, 1500.0f, 48.0f))
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(130.0f, 1138.0f, 1560.0f, 52.0f))
     [MakeTerrainFeature(TEXT("river"), FLinearColor(0.03f, 0.25f, 0.36f, 0.88f), TEXT("Regular"), 8)];
-    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(232.0f, 330.0f, 360.0f, 180.0f))
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(190.0f, 380.0f, 330.0f, 220.0f))
     [MakeTerrainFeature(TEXT("farmland"), FLinearColor(0.19f, 0.31f, 0.09f, 0.76f), TEXT("Regular"), 8)];
-    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(1678.0f, 825.0f, 300.0f, 132.0f))
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(1700.0f, 820.0f, 300.0f, 140.0f))
     [MakeTerrainFeature(TEXT("mine ridge"), FLinearColor(0.20f, 0.20f, 0.17f, 0.82f), TEXT("Regular"), 8)];
-    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(1456.0f, 995.0f, 240.0f, 82.0f))
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(1480.0f, 1006.0f, 245.0f, 88.0f))
     [MakeTerrainFeature(TEXT("fuel node"), FLinearColor(0.10f, 0.18f, 0.18f, 0.86f), TEXT("Regular"), 8)];
 
-    const FVector2D BaseOrigin(540.0f, 340.0f);
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(610.0f, 320.0f, 950.0f, 650.0f))
+    [MakeTerrainFeature(TEXT("buildable base clearing"), FLinearColor(0.15f, 0.23f, 0.16f, 0.96f), TEXT("Regular"), 8)];
+    const FVector2D BaseOrigin(660.0f, 380.0f);
     CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(BaseOrigin.X + 20.0f, BaseOrigin.Y + 270.0f, 1080.0f, 36.0f))
     [SNew(SBorder).BorderImage(RowBrush.Get()).BorderBackgroundColor(FLinearColor(0.18f, 0.19f, 0.17f, 0.92f)).Padding(0.0f)];
     CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(BaseOrigin.X + 520.0f, BaseOrigin.Y + 24.0f, 36.0f, 572.0f))
@@ -10099,10 +10138,10 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsCityBasePlaceholderWidget()
         [MakeBuildingPad(Index)];
     }
 
-    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(290.0f, 350.0f, 84.0f, 34.0f))[MakeResourceNode(TEXT("Food"), TEXT("farmland"))];
-    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(1700.0f, 270.0f, 84.0f, 34.0f))[MakeResourceNode(TEXT("Fuel"), TEXT("depot"))];
-    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(260.0f, 1115.0f, 84.0f, 34.0f))[MakeResourceNode(TEXT("Wood"), TEXT("timber"))];
-    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(1760.0f, 880.0f, 84.0f, 34.0f))[MakeResourceNode(TEXT("Metals"), TEXT("mine"))];
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(286.0f, 476.0f, 84.0f, 34.0f))[MakeResourceNode(TEXT("Food"), TEXT("farmland"))];
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(1742.0f, 336.0f, 84.0f, 34.0f))[MakeResourceNode(TEXT("Fuel"), TEXT("depot"))];
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(254.0f, 1168.0f, 84.0f, 34.0f))[MakeResourceNode(TEXT("Wood"), TEXT("timber"))];
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(1792.0f, 878.0f, 84.0f, 34.0f))[MakeResourceNode(TEXT("Metals"), TEXT("mine"))];
     TSharedRef<SVerticalBox> QueueList = SNew(SVerticalBox);
     int32 DisplayedQueueRows = 0;
     for (const FDemocracyRtsConstructionQueueEntryState& QueueEntry : Base.ConstructionQueue)
@@ -10216,11 +10255,13 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsCityBasePlaceholderWidget()
                 [
                     SNew(SHorizontalBox)
                     + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 8.0f, 0.0f)
-                    [BuildButton(TEXT("Recruit Soldiers"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleRecruitRtsUnitsClicked, FString(TEXT("Soldiers"))), 150.0f, 34.0f, bHasLoadedRuntimeState)]
+                    [BuildButton(TEXT("Spawn Soldier"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleRecruitRtsUnitsClicked, FString(TEXT("Soldiers"))), 132.0f, 34.0f, bHasLoadedRuntimeState)]
                     + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 8.0f, 0.0f)
-                    [BuildButton(TEXT("Build Tanks"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleRecruitRtsUnitsClicked, FString(TEXT("Tanks"))), 128.0f, 34.0f, bHasLoadedRuntimeState)]
+                    [BuildButton(TEXT("Spawn Tank"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleRecruitRtsUnitsClicked, FString(TEXT("Tanks"))), 116.0f, 34.0f, bHasLoadedRuntimeState)]
                     + SHorizontalBox::Slot().AutoWidth()
-                    [BuildButton(TEXT("Supply Carriers"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleRecruitRtsUnitsClicked, FString(TEXT("Supply Carriers"))), 160.0f, 34.0f, bHasLoadedRuntimeState)]
+                    [BuildButton(TEXT("Spawn Convoy"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleRecruitRtsUnitsClicked, FString(TEXT("Supply Carriers"))), 132.0f, 34.0f, bHasLoadedRuntimeState)]
+                    + SHorizontalBox::Slot().AutoWidth().Padding(8.0f, 0.0f, 0.0f, 0.0f)
+                    [BuildButton(TEXT("Spawn Worker"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleRecruitRtsUnitsClicked, FString(TEXT("Workers"))), 132.0f, 34.0f, bHasLoadedRuntimeState)]
                 ]
             ]
         ]
