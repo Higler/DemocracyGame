@@ -70,6 +70,7 @@ protected:
 
 private:
     TSharedPtr<SWidget> LoginScreenWidget;
+    TSharedPtr<SScrollBox> NewCountrySetupScrollBox;
     TSharedPtr<FSlateImageBrush> BackgroundBrush;
     TSharedPtr<FSlateDynamicImageBrush> WorldMapBrush;
     TSharedPtr<FSlateDynamicImageBrush> RtsLandMapBrush;
@@ -99,6 +100,9 @@ private:
     int32 PendingStartingCountryMapIndex = 0;
     float PendingStartingCountryListScrollOffset = 0.0f;
     float PendingNewCountrySetupScrollOffset = 0.0f;
+    bool bNewCountryClimateExpanded = true;
+    bool bNewCountryGenderExpanded = true;
+    bool bNewCountryLocationExpanded = true;
     FString LoadedStateName;
     FString LoadedSavePath;
     FString LoadedSaveSummary;
@@ -232,7 +236,7 @@ private:
     TSharedRef<SWidget> BuildOfficePressReleaseScreen();
     TSharedRef<SWidget> BuildGameOverScreen();
 
-    TSharedRef<SWidget> BuildPanel(const FString& Title, const FString& Subtitle, const TSharedRef<SWidget>& Body, float Width = 620.0f);
+    TSharedRef<SWidget> BuildPanel(const FString& Title, const FString& Subtitle, const TSharedRef<SWidget>& Body, float Width = 620.0f, FOnUserScrolled ScrollHandler = FOnUserScrolled(), float InitialScrollOffset = 0.0f, TSharedPtr<SScrollBox>* OutScrollBox = nullptr);
     TSharedRef<SWidget> BuildButton(const FString& Label, FOnClicked ClickHandler, float Width = 300.0f, float Height = 52.0f, bool bEnabled = true) const;
     TSharedRef<SWidget> BuildBackButton();
     TSharedRef<SWidget> BuildInfoRow(const FString& Primary, const FString& Secondary) const;
@@ -299,6 +303,9 @@ private:
     FReply HandleSelectClimate(FString ClimateName);
     FReply HandleSelectLeaderGender(FString GenderName);
     FReply HandleSelectStartingCountry(FString CountryName, int32 MapCountryIndex);
+    FReply HandleToggleNewCountryClimateSectionClicked();
+    FReply HandleToggleNewCountryGenderSectionClicked();
+    FReply HandleToggleNewCountryLocationSectionClicked();
     FReply HandleStartingCountryMapClicked(const FGeometry& Geometry, const FPointerEvent& MouseEvent);
     FReply HandleCreateInitialSaveClicked();
     FReply HandleResumeSimulationClicked();

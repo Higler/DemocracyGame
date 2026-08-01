@@ -7126,22 +7126,52 @@ TSharedRef<SWidget> ALoginHUD::BuildNewStateSetupScreen()
         .Text(BodyText(PendingStateName))
         .OnTextChanged(FOnTextChanged::CreateUObject(this, &ALoginHUD::HandlePendingStateNameChanged))
     ];
+    const bool bShowClimateOptions = PendingClimate.IsEmpty() || bNewCountryClimateExpanded;
+    const FString ClimateHeader = PendingClimate.IsEmpty()
+        ? TEXT("Climate: Choose")
+        : FString::Printf(TEXT("Climate: %s%s"), *PendingClimate, bShowClimateOptions ? TEXT(" - Collapse") : TEXT(" - Change"));
     Body->AddSlot().AutoHeight().Padding(0.0f, 10.0f, 0.0f, 4.0f)
-    [BuildInfoRow(TEXT("Climate"), PendingClimate.IsEmpty() ? TEXT("Choose one climate below.") : PendingClimate)];
-    Body->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
-    [BuildButton(PendingClimate == TEXT("Northern Cold") ? TEXT("Northern Cold - Selected") : TEXT("Northern Cold"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleSelectClimate, FString(TEXT("Northern Cold"))), 360.0f, 46.0f)];
-    Body->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
-    [BuildButton(PendingClimate == TEXT("Middle Moderate") ? TEXT("Middle Moderate - Selected") : TEXT("Middle Moderate"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleSelectClimate, FString(TEXT("Middle Moderate"))), 360.0f, 46.0f)];
-    Body->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
-    [BuildButton(PendingClimate == TEXT("Southern Tropical") ? TEXT("Southern Tropical - Selected") : TEXT("Southern Tropical"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleSelectClimate, FString(TEXT("Southern Tropical"))), 360.0f, 46.0f)];
+    [BuildButton(ClimateHeader, FOnClicked::CreateUObject(this, &ALoginHUD::HandleToggleNewCountryClimateSectionClicked), 460.0f, 44.0f)];
+    if (bShowClimateOptions)
+    {
+        Body->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
+        [BuildButton(PendingClimate == TEXT("Northern Cold") ? TEXT("Northern Cold - Selected") : TEXT("Northern Cold"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleSelectClimate, FString(TEXT("Northern Cold"))), 360.0f, 46.0f)];
+        Body->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
+        [BuildButton(PendingClimate == TEXT("Middle Moderate") ? TEXT("Middle Moderate - Selected") : TEXT("Middle Moderate"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleSelectClimate, FString(TEXT("Middle Moderate"))), 360.0f, 46.0f)];
+        Body->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
+        [BuildButton(PendingClimate == TEXT("Southern Tropical") ? TEXT("Southern Tropical - Selected") : TEXT("Southern Tropical"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleSelectClimate, FString(TEXT("Southern Tropical"))), 360.0f, 46.0f)];
+    }
+
+    const bool bShowGenderOptions = PendingLeaderGender.IsEmpty() || bNewCountryGenderExpanded;
+    const FString AddressSummary = PendingAddressTitle.IsEmpty() ? TEXT("Choose") : PendingAddressTitle;
+    const FString GenderHeader = FString::Printf(TEXT("President Address: %s%s"), *AddressSummary, bShowGenderOptions ? TEXT(" - Collapse") : TEXT(" - Change"));
     Body->AddSlot().AutoHeight().Padding(0.0f, 10.0f, 0.0f, 4.0f)
-    [BuildInfoRow(TEXT("President Address"), PendingAddressTitle.IsEmpty() ? TEXT("Choose male or female for dialogue address.") : PendingAddressTitle)];
-    Body->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
-    [BuildButton(PendingLeaderGender == TEXT("Male") ? TEXT("Male - Mr. President") : TEXT("Male"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleSelectLeaderGender, FString(TEXT("Male"))), 360.0f, 46.0f)];
-    Body->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
-    [BuildButton(PendingLeaderGender == TEXT("Female") ? TEXT("Female - Miss President") : TEXT("Female"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleSelectLeaderGender, FString(TEXT("Female"))), 360.0f, 46.0f)];
-    Body->AddSlot().AutoHeight().Padding(0.0f, 12.0f)
-    [BuildStartingCountrySelectionWidget()];
+    [BuildButton(GenderHeader, FOnClicked::CreateUObject(this, &ALoginHUD::HandleToggleNewCountryGenderSectionClicked), 460.0f, 44.0f)];
+    if (bShowGenderOptions)
+    {
+        Body->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
+        [BuildButton(PendingLeaderGender == TEXT("Male") ? TEXT("Male - Mr. President") : TEXT("Male"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleSelectLeaderGender, FString(TEXT("Male"))), 360.0f, 46.0f)];
+        Body->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
+        [BuildButton(PendingLeaderGender == TEXT("Female") ? TEXT("Female - Miss President") : TEXT("Female"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleSelectLeaderGender, FString(TEXT("Female"))), 360.0f, 46.0f)];
+    }
+
+    const bool bShowLocationOptions = PendingStartingCountryMapIndex <= 0 || bNewCountryLocationExpanded;
+    const FString LocationSummary = PendingStartingCountryMapIndex > 0
+        ? FString::Printf(TEXT("%s | Map slot %03d"), *PendingStartingCountryName, PendingStartingCountryMapIndex)
+        : TEXT("Choose");
+    const FString LocationHeader = FString::Printf(TEXT("Starting Country: %s%s"), *LocationSummary, bShowLocationOptions ? TEXT(" - Collapse") : TEXT(" - Change"));
+    Body->AddSlot().AutoHeight().Padding(0.0f, 12.0f, 0.0f, 4.0f)
+    [BuildButton(LocationHeader, FOnClicked::CreateUObject(this, &ALoginHUD::HandleToggleNewCountryLocationSectionClicked), 560.0f, 44.0f)];
+    if (bShowLocationOptions)
+    {
+        Body->AddSlot().AutoHeight().Padding(0.0f, 8.0f)
+        [BuildStartingCountrySelectionWidget()];
+    }
+    else
+    {
+        Body->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
+        [BuildInfoRow(TEXT("Selected Country"), LocationSummary)];
+    }
     Body->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
     [BuildInfoRow(TEXT("Create Status"), LastSaveStatus.IsEmpty() ? TEXT("Ready") : LastSaveStatus)];
     Body->AddSlot().AutoHeight().Padding(0.0f, 12.0f)
@@ -7149,13 +7179,15 @@ TSharedRef<SWidget> ALoginHUD::BuildNewStateSetupScreen()
     Body->AddSlot().AutoHeight().Padding(0.0f, 14.0f)
     [BuildButton(TEXT("Back"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleBackToDifficultyClicked), 180.0f, 44.0f)];
 
-    TSharedRef<SScrollBox> SetupScroll = SNew(SScrollBox)
-        .OnUserScrolled(FOnUserScrolled::CreateUObject(this, &ALoginHUD::HandleNewCountrySetupScrolled));
-    SetupScroll->AddSlot()
-    [Body];
-    SetupScroll->SetScrollOffset(PendingNewCountrySetupScrollOffset);
-
-    return BuildPanel(TEXT("New Country Setup"), TEXT("Name the country, choose its climate, and choose where it starts on Planet Dulia."), SetupScroll, 820.0f);
+    NewCountrySetupScrollBox.Reset();
+    return BuildPanel(
+        TEXT("New Country Setup"),
+        TEXT("Name the country, choose its climate, and choose where it starts on Planet Dulia."),
+        Body,
+        820.0f,
+        FOnUserScrolled::CreateUObject(this, &ALoginHUD::HandleNewCountrySetupScrolled),
+        PendingNewCountrySetupScrollOffset,
+        &NewCountrySetupScrollBox);
 }
 TSharedRef<SWidget> ALoginHUD::BuildLoadedGameScreen()
 {
@@ -11260,8 +11292,30 @@ TSharedRef<SWidget> ALoginHUD::BuildServerSelectionScreen()
     return BuildPanel(TEXT("Server Selection"), TEXT("Servers are displayed from best ping to worst ping."), Body);
 }
 
-TSharedRef<SWidget> ALoginHUD::BuildPanel(const FString& Title, const FString& Subtitle, const TSharedRef<SWidget>& Body, float Width)
+TSharedRef<SWidget> ALoginHUD::BuildPanel(const FString& Title, const FString& Subtitle, const TSharedRef<SWidget>& Body, float Width, FOnUserScrolled ScrollHandler, float InitialScrollOffset, TSharedPtr<SScrollBox>* OutScrollBox)
 {
+    TSharedRef<SScrollBox> PanelScroll = SNew(SScrollBox)
+        .OnUserScrolled(ScrollHandler);
+    PanelScroll->AddSlot()
+    [Body];
+    PanelScroll->SetScrollOffset(InitialScrollOffset);
+    if (InitialScrollOffset > 0.0f)
+    {
+        TWeakPtr<SScrollBox> WeakPanelScroll = PanelScroll;
+        PanelScroll->RegisterActiveTimer(0.0f, FWidgetActiveTimerDelegate::CreateLambda([WeakPanelScroll, InitialScrollOffset](double, float)
+        {
+            if (TSharedPtr<SScrollBox> PinnedScroll = WeakPanelScroll.Pin())
+            {
+                PinnedScroll->SetScrollOffset(InitialScrollOffset);
+            }
+            return EActiveTimerReturnType::Stop;
+        }));
+    }
+    if (OutScrollBox)
+    {
+        *OutScrollBox = PanelScroll;
+    }
+
     return SNew(SBox)
         .WidthOverride(Width)
         .MaxDesiredHeight(860.0f)
@@ -11291,15 +11345,10 @@ TSharedRef<SWidget> ALoginHUD::BuildPanel(const FString& Title, const FString& S
                     .ColorAndOpacity(FLinearColor(0.84f, 0.86f, 0.88f, 1.0f))
                 ]
                 + SVerticalBox::Slot().FillHeight(1.0f)
-                [
-                    SNew(SScrollBox)
-                    + SScrollBox::Slot()
-                    [Body]
-                ]
+                [PanelScroll]
             ]
         ];
 }
-
 TSharedRef<SWidget> ALoginHUD::BuildButton(const FString& Label, FOnClicked ClickHandler, float Width, float Height, bool bEnabled) const
 {
     return SNew(SBox)
@@ -13050,6 +13099,9 @@ FReply ALoginHUD::HandleSelectDifficulty(FString DifficultyName)
     PendingStartingCountryMapIndex = 0;
     PendingStartingCountryListScrollOffset = 0.0f;
     PendingNewCountrySetupScrollOffset = 0.0f;
+    bNewCountryClimateExpanded = true;
+    bNewCountryGenderExpanded = true;
+    bNewCountryLocationExpanded = true;
     ShowScreen(ELoginFlowScreen::NewStateSetup);
     return FReply::Handled();
 }
@@ -13057,6 +13109,7 @@ FReply ALoginHUD::HandleSelectDifficulty(FString DifficultyName)
 FReply ALoginHUD::HandleSelectClimate(FString ClimateName)
 {
     PendingClimate = ClimateName;
+    bNewCountryClimateExpanded = false;
     RefreshLoginWidget();
     return FReply::Handled();
 }
@@ -13065,10 +13118,31 @@ FReply ALoginHUD::HandleSelectLeaderGender(FString GenderName)
 {
     PendingLeaderGender = GenderName;
     PendingAddressTitle = GetAddressTitleForGender(GenderName);
+    bNewCountryGenderExpanded = false;
     RefreshLoginWidget();
     return FReply::Handled();
 }
 
+FReply ALoginHUD::HandleToggleNewCountryClimateSectionClicked()
+{
+    bNewCountryClimateExpanded = PendingClimate.IsEmpty() ? true : !bNewCountryClimateExpanded;
+    RefreshLoginWidget();
+    return FReply::Handled();
+}
+
+FReply ALoginHUD::HandleToggleNewCountryGenderSectionClicked()
+{
+    bNewCountryGenderExpanded = PendingLeaderGender.IsEmpty() ? true : !bNewCountryGenderExpanded;
+    RefreshLoginWidget();
+    return FReply::Handled();
+}
+
+FReply ALoginHUD::HandleToggleNewCountryLocationSectionClicked()
+{
+    bNewCountryLocationExpanded = PendingStartingCountryMapIndex <= 0 ? true : !bNewCountryLocationExpanded;
+    RefreshLoginWidget();
+    return FReply::Handled();
+}
 FReply ALoginHUD::HandleStartingCountryMapClicked(const FGeometry& Geometry, const FPointerEvent& MouseEvent)
 {
     if (!MouseEvent.GetEffectingButton().IsValid() || MouseEvent.GetEffectingButton() != EKeys::LeftMouseButton)
@@ -13105,6 +13179,7 @@ FReply ALoginHUD::HandleStartingCountryMapClicked(const FGeometry& Geometry, con
             {
                 PendingStartingCountryName = Country.CountryName;
                 PendingStartingCountryMapIndex = Country.MapCountryIndex;
+                bNewCountryLocationExpanded = false;
                 LastSaveStatus = FString::Printf(TEXT("Selected starting country: %s."), *PendingStartingCountryName);
                 RefreshLoginWidget();
                 return FReply::Handled();
@@ -13120,6 +13195,7 @@ FReply ALoginHUD::HandleSelectStartingCountry(FString CountryName, int32 MapCoun
 {
     PendingStartingCountryName = CountryName;
     PendingStartingCountryMapIndex = MapCountryIndex;
+    bNewCountryLocationExpanded = false;
     LastSaveStatus = FString::Printf(TEXT("Starting country selected: %s, map slot %03d."), *PendingStartingCountryName, PendingStartingCountryMapIndex);
     RefreshLoginWidget();
     return FReply::Handled();
