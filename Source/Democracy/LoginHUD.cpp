@@ -8185,10 +8185,21 @@ FReply ALoginHUD::HandleRtsMapMouseWheel(const FGeometry& Geometry, const FPoint
         const FVector2D CursorLocal = Geometry.AbsoluteToLocal(MouseEvent.GetScreenSpacePosition());
         if (bHasLoadedRuntimeState && LoadedSaveState.RuntimeState.RtsWorld.ActiveViewMode.Equals(TEXT("city_base"), ESearchCase::IgnoreCase))
         {
-            RtsMapZoom = FMath::Clamp(RtsMapZoom + (MouseEvent.GetWheelDelta() > 0.0f ? 0.35f : -0.35f), 4.5f, 6.2f);
-            const float CityViewScale = FMath::Clamp(0.72f + ((RtsMapZoom - 4.5f) / 1.7f) * 0.58f, 0.72f, 1.30f);
-            RtsMapPan.X = FMath::Clamp(RtsMapPan.X, -620.0f * CityViewScale, 620.0f * CityViewScale);
-            RtsMapPan.Y = FMath::Clamp(RtsMapPan.Y, -360.0f * CityViewScale, 360.0f * CityViewScale);
+            const bool bZoomingOut = MouseEvent.GetWheelDelta() < 0.0f;
+            RtsMapZoom = FMath::Clamp(RtsMapZoom + (bZoomingOut ? -0.35f : 0.35f), 4.5f, 6.2f);
+            if (bZoomingOut && RtsMapZoom <= 4.51f)
+            {
+                LoadedSaveState.RuntimeState.RtsWorld.ActiveViewMode = TEXT("Country View");
+                RtsMapZoom = 3.15f;
+                RtsMapPan *= 0.42f;
+                ClampRtsMapView();
+            }
+            else
+            {
+                const float CityViewScale = FMath::Clamp(0.72f + ((RtsMapZoom - 4.5f) / 1.7f) * 0.58f, 0.72f, 1.30f);
+                RtsMapPan.X = FMath::Clamp(RtsMapPan.X, -980.0f * CityViewScale, 980.0f * CityViewScale);
+                RtsMapPan.Y = FMath::Clamp(RtsMapPan.Y, -620.0f * CityViewScale, 620.0f * CityViewScale);
+            }
         }
         else
         {
@@ -8245,15 +8256,22 @@ FReply ALoginHUD::HandleRtsMapMouseMove(const FGeometry& Geometry, const FPointe
             if (bHasLoadedRuntimeState && LoadedSaveState.RuntimeState.RtsWorld.ActiveViewMode.Equals(TEXT("city_base"), ESearchCase::IgnoreCase))
             {
                 const float CityViewScale = FMath::Clamp(0.72f + ((RtsMapZoom - 4.5f) / 1.7f) * 0.58f, 0.72f, 1.30f);
-                RtsMapPan.X = FMath::Clamp(RtsMapPan.X, -620.0f * CityViewScale, 620.0f * CityViewScale);
-                RtsMapPan.Y = FMath::Clamp(RtsMapPan.Y, -360.0f * CityViewScale, 360.0f * CityViewScale);
-                if (FMath::Abs(RtsMapPan.X) > 360.0f || FMath::Abs(RtsMapPan.Y) > 220.0f)
+                RtsMapPan.X = FMath::Clamp(RtsMapPan.X, -980.0f * CityViewScale, 980.0f * CityViewScale);
+                RtsMapPan.Y = FMath::Clamp(RtsMapPan.Y, -620.0f * CityViewScale, 620.0f * CityViewScale);
+                if (FMath::Abs(RtsMapPan.X) > 780.0f || FMath::Abs(RtsMapPan.Y) > 500.0f)
                 {
-                    RtsMapZoom = FMath::Max(4.5f, RtsMapZoom - 0.06f);
+                    LoadedSaveState.RuntimeState.RtsWorld.ActiveViewMode = TEXT("Country View");
+                    RtsMapZoom = 3.15f;
+                    RtsMapPan *= 0.42f;
+                    ClampRtsMapView();
+                }
+                else if (FMath::Abs(RtsMapPan.X) > 460.0f || FMath::Abs(RtsMapPan.Y) > 300.0f)
+                {
+                    RtsMapZoom = FMath::Max(4.5f, RtsMapZoom - 0.08f);
                 }
                 else
                 {
-                    RtsMapZoom = FMath::Min(5.4f, RtsMapZoom + 0.025f);
+                    RtsMapZoom = FMath::Min(5.4f, RtsMapZoom + 0.018f);
                 }
             }
             else
@@ -10081,6 +10099,32 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsCityBasePlaceholderWidget()
                 .ColorAndOpacity(FLinearColor(0.90f, 0.98f, 0.92f, 1.0f))
             ];
     };
+    auto MakeUnitMarker = [this](const FString& Label, int32 Count, const FLinearColor& Color, const FString& ShapeHint) -> TSharedRef<SWidget>
+    {
+        const FString CountText = Count > 0 ? FString::Printf(TEXT("%s\nx%d"), *Label, Count) : Label;
+        return SNew(SBorder)
+            .BorderImage(RowBrush.Get())
+            .BorderBackgroundColor(Color)
+            .Padding(4.0f)
+            [
+                SNew(SVerticalBox)
+                + SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)
+                [
+                    SNew(SBox)
+                    .WidthOverride(34.0f)
+                    .HeightOverride(ShapeHint.Equals(TEXT("wide"), ESearchCase::IgnoreCase) ? 18.0f : 28.0f)
+                    [SNew(SBorder).BorderImage(RowBrush.Get()).BorderBackgroundColor(FLinearColor(Color.R + 0.12f, Color.G + 0.12f, Color.B + 0.12f, 0.98f)).Padding(0.0f)]
+                ]
+                + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 3.0f, 0.0f, 0.0f)
+                [
+                    SNew(STextBlock)
+                    .Text(BodyText(CountText))
+                    .Justification(ETextJustify::Center)
+                    .Font(FCoreStyle::GetDefaultFontStyle("Bold", 8))
+                    .ColorAndOpacity(FLinearColor(0.94f, 0.98f, 0.94f, 1.0f))
+                ]
+            ];
+    };
 
     TSharedRef<SConstraintCanvas> CityLayout = SNew(SConstraintCanvas);
     CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(0.0f, 0.0f, 2200.0f, 1320.0f))
@@ -10157,6 +10201,38 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsCityBasePlaceholderWidget()
         [MakeBuildingPad(Index)];
     }
 
+    const FDemocracyRtsArmyGroupState* CityArmy = nullptr;
+    for (const FDemocracyRtsArmyGroupState& Army : RtsWorld.ArmyGroups)
+    {
+        if (Army.bSelected || CityArmy == nullptr)
+        {
+            CityArmy = &Army;
+            if (Army.bSelected)
+            {
+                break;
+            }
+        }
+    }
+    const int32 InfantryVisualCount = CityArmy ? FMath::Max(0, CityArmy->InfantryCount) : 0;
+    const int32 TankVisualCount = CityArmy ? FMath::Max(0, CityArmy->VehicleCount) : 0;
+    const int32 LogisticsVisualCount = CityArmy ? FMath::Max(0, CityArmy->LogisticsCount) : 0;
+    if (InfantryVisualCount > 0)
+    {
+        CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(BaseOrigin.X + 370.0f, BaseOrigin.Y + 446.0f, 64.0f, 58.0f))
+        [MakeUnitMarker(TEXT("SOL"), InfantryVisualCount, FLinearColor(0.06f, 0.42f, 0.22f, 0.98f), TEXT("tall"))];
+    }
+    if (TankVisualCount > 0)
+    {
+        CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(BaseOrigin.X + 454.0f, BaseOrigin.Y + 452.0f, 70.0f, 54.0f))
+        [MakeUnitMarker(TEXT("TNK"), TankVisualCount, FLinearColor(0.05f, 0.30f, 0.52f, 0.98f), TEXT("wide"))];
+    }
+    if (LogisticsVisualCount > 0)
+    {
+        CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(BaseOrigin.X + 540.0f, BaseOrigin.Y + 452.0f, 72.0f, 54.0f))
+        [MakeUnitMarker(TEXT("CON"), LogisticsVisualCount, FLinearColor(0.08f, 0.35f, 0.24f, 0.98f), TEXT("wide"))];
+        CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(BaseOrigin.X + 628.0f, BaseOrigin.Y + 448.0f, 64.0f, 58.0f))
+        [MakeUnitMarker(TEXT("WRK"), FMath::Max(1, LogisticsVisualCount / 2), FLinearColor(0.18f, 0.46f, 0.22f, 0.98f), TEXT("tall"))];
+    }
     CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(286.0f, 476.0f, 84.0f, 34.0f))[MakeResourceNode(TEXT("Food"), TEXT("farmland"))];
     CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(1742.0f, 336.0f, 84.0f, 34.0f))[MakeResourceNode(TEXT("Fuel"), TEXT("depot"))];
     CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(254.0f, 1168.0f, 84.0f, 34.0f))[MakeResourceNode(TEXT("Wood"), TEXT("timber"))];
