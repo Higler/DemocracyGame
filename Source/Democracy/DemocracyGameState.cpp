@@ -551,31 +551,49 @@ namespace
         const FString RightAlignment = GovernmentRuleAlignment(Right);
         return !LeftAlignment.Equals(TEXT("Non-Aligned"), ESearchCase::IgnoreCase) && LeftAlignment.Equals(RightAlignment, ESearchCase::IgnoreCase);
     }
-    FString ProvinceResourceFocus(int32 ProvinceIndex, const FString& Climate)
+    FString ProvinceResourceFocus(int32 ProvinceIndex, const FString& Climate, int32 ProvinceCount)
     {
-        static const TCHAR* Focuses[] = { TEXT("Food"), TEXT("Fuel"), TEXT("Wood"), TEXT("Metals"), TEXT("Water") };
-        if (Climate.Equals(TEXT("Northern Cold"), ESearchCase::IgnoreCase))
+        const bool bNorthernCold = Climate.Equals(TEXT("Northern Cold"), ESearchCase::IgnoreCase);
+        const bool bSouthernTropical = Climate.Equals(TEXT("Southern Tropical"), ESearchCase::IgnoreCase);
+
+        if (!bNorthernCold && !bSouthernTropical)
         {
-            static const TCHAR* NorthernFocuses[] = { TEXT("Fuel"), TEXT("Metals"), TEXT("Wood"), TEXT("Water"), TEXT("Food") };
-            return NorthernFocuses[ProvinceIndex % 5];
+            static const TCHAR* ModerateFocuses[] = {
+                TEXT("Food"), TEXT("Wood"), TEXT("Metals"), TEXT("Fuel"),
+                TEXT("Food"), TEXT("Wood"), TEXT("Metals"), TEXT("Fuel"),
+                TEXT("Food"), TEXT("Wood"), TEXT("Metals"), TEXT("Fuel")
+            };
+            return ModerateFocuses[ProvinceIndex % 12];
         }
-        if (Climate.Equals(TEXT("Southern Tropical"), ESearchCase::IgnoreCase))
+
+        if (bNorthernCold)
         {
-            static const TCHAR* SouthernFocuses[] = { TEXT("Food"), TEXT("Water"), TEXT("Wood"), TEXT("Fuel"), TEXT("Metals") };
-            return SouthernFocuses[ProvinceIndex % 5];
+            static const TCHAR* NorthernBaseAndExclusive[] = {
+                TEXT("Food"), TEXT("Wood"), TEXT("Metals"),
+                TEXT("Fuel"), TEXT("Fuel"), TEXT("Metals"), TEXT("Wood"), TEXT("Water")
+            };
+            return NorthernBaseAndExclusive[ProvinceIndex % 8];
         }
-        return Focuses[ProvinceIndex % 5];
+
+        static const TCHAR* SouthernBaseAndExclusive[] = {
+            TEXT("Food"), TEXT("Wood"), TEXT("Metals"),
+            TEXT("Food"), TEXT("Food"), TEXT("Wood"), TEXT("Water"), TEXT("Metals")
+        };
+        return SouthernBaseAndExclusive[ProvinceIndex % 8];
     }
 
     int32 DesiredProvinceCountForCountry(const FDemocracyGeneratedCountryState& Country, bool bPlayerCountry, int32 PlayerProvinceTarget)
     {
+        const bool bNorthernCold = Country.Climate.Equals(TEXT("Northern Cold"), ESearchCase::IgnoreCase);
+        const bool bSouthernTropical = Country.Climate.Equals(TEXT("Southern Tropical"), ESearchCase::IgnoreCase);
+        const int32 ClimateMinimum = (!bNorthernCold && !bSouthernTropical) ? 12 : 8;
+        const int32 SizeScaledTarget = ClimateMinimum + Country.AreaWeight / 18 + Country.PowerScore / 40 + Country.BorderPressure / 70 + (bPlayerCountry ? PlayerProvinceTarget / 5 : 0);
         if (Country.DesiredProvinceCount > 0)
         {
-            return FMath::Clamp(Country.DesiredProvinceCount, 2, 10);
+            return FMath::Clamp(FMath::Max(Country.DesiredProvinceCount, ClimateMinimum), ClimateMinimum, 18);
         }
-        return FMath::Clamp(3 + Country.PowerScore / 28 + Country.BorderPressure / 45 + (bPlayerCountry ? PlayerProvinceTarget / 5 : 0), 2, 10);
+        return FMath::Clamp(SizeScaledTarget, ClimateMinimum, 18);
     }
-
     FString TerrainTypeForProvince(int32 ProvinceIndex, const FString& Climate, const FString& ResourceFocus)
     {
         if (Climate.Equals(TEXT("Northern Cold"), ESearchCase::IgnoreCase))
@@ -756,7 +774,7 @@ namespace
                     Province.CurrentControllerCountryName = Country.CountryName;
                     Province.GovernmentType = Country.PoliticalType;
                     Province.Climate = Country.Climate;
-                    Province.ResourceFocus = ProvinceResourceFocus(ProvinceIndex + GlobalCountryIndex, Country.Climate);
+                    Province.ResourceFocus = ProvinceResourceFocus(ProvinceIndex, Country.Climate, ProvinceCount);
                     Province.TerrainType = TerrainTypeForProvince(ProvinceIndex, Country.Climate, Province.ResourceFocus);
                     Province.PopulationWeight = FMath::Max(1, Country.PopulationWeight / ProvinceCount + (ProvinceIndex == 0 ? 4 : 0));
                     Province.AreaWeight = FMath::Max(1, Country.AreaWeight / ProvinceCount + (ProvinceIndex % 3));
@@ -4475,7 +4493,7 @@ FDemocracySimulationState FDemocracyGameStateFactory::CreateInitialState(
     State.RtsWorld.CityBase.GridWidth = 12;
     State.RtsWorld.CityBase.GridHeight = 18;
     State.RtsWorld.CityBase.BaseSummary = TEXT("Initial city/base view supports resource buildings, defense, storage, research, worker staging, unit staging, roads, lakes, rivers, and command structures. Visual assets stay replaceable while mechanics are tested.");
-    State.RtsWorld.CityBase.RuntimeNotes = { TEXT("City/base layout uses top-down RTS placeholders for roads, lakes, rivers, building pads, and resource nodes."), TEXT("Imported vehicle candidates are available under /Game/RTS/Imported/Vehicles for tank, patrol, and logistics stand-ins."), TEXT("Permanent farm, mine, fuel node, worker, soldier, road, water, and civic building assets still need final selection."), TEXT("Any build/upgrade completion must report through RTS backflow before simulation consequences apply.") };
+    State.RtsWorld.CityBase.RuntimeNotes = { TEXT("City/base layout uses top-down RTS placeholders for roads, lakes, rivers, building pads, and resource nodes."), TEXT("Imported vehicle candidates are available under /Game/RTS/Imported/Vehicles for tank, patrol, and logistics stand-ins."), TEXT("Interim soldier variants are /Game/RTS/Imported/Units/artic for friendly forces and /Game/RTS/Imported/Units/afghanbetter_fbx for hostile forces until final animated squads are selected."), TEXT("Workers build, repair, and haul food, fuel/gas, wood, and metals from resource nodes to Strategic Warehouse storage."), TEXT("Permanent farm, mine, fuel node, worker, road, water, and civic building assets still need final selection."), TEXT("Any build/upgrade completion must report through RTS backflow before simulation consequences apply.") };
     State.RtsWorld.CityBase.Buildings = {
         { TEXT("capital_command"), TEXT("Government Command Center"), TEXT("Command"), TEXT("Authority"), TEXT("Candidate: Industry_Props_Pack_6 for interim command/industrial props; replace with final civic HQ/capital RTS building asset"), 1, 0, 140, 0, 0, 18, true, false, TEXT("Operational"), {}, { TEXT("capital"), TEXT("command"), TEXT("required") } },
         { TEXT("barracks"), TEXT("Defense Barracks"), TEXT("Military"), TEXT("Readiness"), TEXT("Imported candidates: /Game/RTS/Imported/Vehicles/ATV_N1_LE, /Game/RTS/Imported/Vehicles/FA_N26_LE, /Game/RTS/Imported/Vehicles/MSH_N2_LE. Still needs final soldier barracks/building mesh."), 1, 75, 120, 2, 0, 28, true, false, TEXT("Operational"), { TEXT("Government Command Center") }, { TEXT("military"), TEXT("defense") } },
@@ -4497,11 +4515,11 @@ FDemocracySimulationState FDemocracyGameStateFactory::CreateInitialState(
         Building.DisabledReason = TEXT("");
     }
     State.RtsWorld.UnitCatalog = {
-        { TEXT("infantry_security_team"), TEXT("Security Infantry Team"), TEXT("Infantry"), TEXT("General-purpose ground control and building defense."), TEXT("barracks"), TEXT("Imported interim candidate: /Game/RTS/Imported/Units/artic. Still needs final animated soldier squad asset and clean unit icon set."), 25, 1, 1, 12, 10, 4, 1, 0, 2, true, false, { TEXT("Defense Barracks") }, { TEXT("infantry"), TEXT("ground"), TEXT("capture") } },
-        { TEXT("vehicle_patrol_unit"), TEXT("Patrol Vehicle Unit"), TEXT("Vehicles"), TEXT("Fast ground response for border defense and patrols."), TEXT("barracks"), TEXT("Imported candidates: /Game/RTS/Imported/Vehicles/ATV_N1_LE, /Game/RTS/Imported/Vehicles/FA_N26_LE, /Game/RTS/Imported/Vehicles/MSH_N2_LE"), 65, 2, 2, 22, 18, 8, 2, 0, 3, true, false, { TEXT("Defense Barracks"), TEXT("Fuel Depot") }, { TEXT("vehicle"), TEXT("ground"), TEXT("rapid-response") } },
+        { TEXT("infantry_security_team"), TEXT("Security Infantry Team"), TEXT("Infantry"), TEXT("General-purpose ground control, capture, and building defense."), TEXT("barracks"), TEXT("Interim team variants: friendly soldier proxy /Game/RTS/Imported/Units/artic with green/blue identity; hostile soldier proxy /Game/RTS/Imported/Units/afghanbetter_fbx with red identity. Still needs final animated soldier squad assets and clean unit icon set."), 25, 1, 1, 12, 10, 4, 1, 0, 2, true, false, { TEXT("Defense Barracks") }, { TEXT("infantry"), TEXT("ground"), TEXT("capture"), TEXT("friendly-blue-green"), TEXT("enemy-red") } },
+        { TEXT("vehicle_patrol_unit"), TEXT("Patrol Vehicle Unit"), TEXT("Vehicles"), TEXT("Fast ground response for border defense and patrols."), TEXT("barracks"), TEXT("Imported candidates: /Game/RTS/Imported/Vehicles/ATV_N1_LE, /Game/RTS/Imported/Vehicles/FA_N26_LE, /Game/RTS/Imported/Vehicles/MSH_N2_LE. Runtime team colors: player green, allied blue, hostile red."), 65, 2, 2, 22, 18, 8, 2, 0, 3, true, false, { TEXT("Defense Barracks"), TEXT("Fuel Depot") }, { TEXT("vehicle"), TEXT("ground"), TEXT("rapid-response"), TEXT("team-tinted") } },
         { TEXT("air_recon_wing"), TEXT("Recon Aircraft Wing"), TEXT("Aircraft"), TEXT("Air scouting and strategic visibility placeholder."), TEXT("research_center"), TEXT("Generic aircraft marker placeholder until final recon aircraft RTS asset is selected"), 95, 3, 3, 18, 12, 12, 5, 0, 14, true, false, { TEXT("Development Center"), TEXT("Fuel Depot") }, { TEXT("aircraft"), TEXT("recon"), TEXT("visibility") } },
-        { TEXT("logistics_convoy"), TEXT("Logistics Convoy"), TEXT("Logistics/Supply"), TEXT("Moves supplies, restores supply routes, and supports deployed forces."), TEXT("warehouse"), TEXT("Imported interim candidate: /Game/RTS/Imported/Vehicles/MSH_N2_LE. Still needs final convoy/troop carrier truck asset."), 55, 2, 2, 4, 14, 6, 1, 18, 1, true, false, { TEXT("Strategic Warehouse"), TEXT("Fuel Depot") }, { TEXT("supply"), TEXT("logistics"), TEXT("support") } },
-        { TEXT("civil_worker_team"), TEXT("Civil Worker Team"), TEXT("Workers"), TEXT("Builds, repairs, gathers from resource nodes, and supports city/base construction."), TEXT("capital_command"), TEXT("No suitable worker asset imported yet. Use generic RTS worker marker until a free modern worker/construction crew asset is selected."), 18, 1, 1, 2, 3, 5, 1, 10, 0, true, false, { TEXT("Government Command Center") }, { TEXT("worker"), TEXT("construction"), TEXT("repair"), TEXT("harvest") } },
+        { TEXT("logistics_convoy"), TEXT("Logistics Convoy"), TEXT("Logistics/Supply"), TEXT("Moves supplies, transports troops, restores supply routes, and supports deployed forces."), TEXT("warehouse"), TEXT("Imported interim candidate: /Game/RTS/Imported/Vehicles/MSH_N2_LE. Runtime convoy colors: player green, allied blue, hostile red. Still needs final convoy/troop carrier truck asset."), 55, 2, 2, 4, 14, 6, 1, 18, 1, true, false, { TEXT("Strategic Warehouse"), TEXT("Fuel Depot") }, { TEXT("supply"), TEXT("logistics"), TEXT("support"), TEXT("troop-carrier"), TEXT("team-tinted") } },
+        { TEXT("civil_worker_team"), TEXT("Civil Worker Team"), TEXT("Workers"), TEXT("Builds, repairs, loads, and hauls food, wood, metals, fuel, and gas from resource nodes to storage buildings."), TEXT("capital_command"), TEXT("Interim worker markers use green/blue hardhat and vest colors for friendly teams and red/orange colors for hostile teams. Still needs final modern worker/construction crew meshes."), 18, 1, 1, 2, 3, 5, 1, 10, 0, true, false, { TEXT("Government Command Center") }, { TEXT("worker"), TEXT("construction"), TEXT("repair"), TEXT("harvest"), TEXT("hauler"), TEXT("materials"), TEXT("node-to-storage"), TEXT("gas"), TEXT("storage-link") } },
         { TEXT("scout_team"), TEXT("Scout Team"), TEXT("Scouts"), TEXT("Low-cost reconnaissance, border warning, and map discovery."), TEXT("barracks"), TEXT("Candidate: Tactical_Crowd_AI_Toolkit for influence/scouting behavior plus soldier packs for scout visuals once imported into Content"), 20, 1, 1, 6, 8, 7, 1, 0, 10, true, false, { TEXT("Defense Barracks") }, { TEXT("scout"), TEXT("recon"), TEXT("early-warning") } },
         { TEXT("static_defense_battery"), TEXT("Static Defense Battery"), TEXT("Defensive Units"), TEXT("Base and province defensive firepower; cannot be used for offensive pushes."), TEXT("defense_post"), TEXT("Imported vehicle candidates: /Game/RTS/Imported/Vehicles/ATV_N1_LE, /Game/RTS/Imported/Vehicles/FA_N26_LE, /Game/RTS/Imported/Vehicles/MSH_N2_LE. Still needs final static defense/turret asset."), 80, 2, 2, 24, 34, 0, 4, 0, 0, true, true, { TEXT("Perimeter Defense Post") }, { TEXT("defense"), TEXT("static"), TEXT("anti-invasion") } }
     };
@@ -4588,8 +4606,9 @@ FDemocracySimulationState FDemocracyGameStateFactory::CreateInitialState(
     State.RtsWorld.ResourceCollection.WoodSentToSimulation = BuildingWood + ProvinceWood;
     State.RtsWorld.ResourceCollection.MetalsSentToSimulation = BuildingMetals + ProvinceMetals;
     State.RtsWorld.ResourceCollection.DisruptionPenalty = 0;
+    RtsCollectionSources.Add(TEXT("Civil worker teams haul node output to Strategic Warehouse storage; broken worker routes reduce exports and can trigger resource disruption alerts."));
     State.RtsWorld.ResourceCollection.CollectionSources = RtsCollectionSources;
-    State.RtsWorld.ResourceCollection.Summary = FString::Printf(TEXT("RTS collection ready: food %+d, fuel %+d, wood %+d, metals %+d per tick before disruption."), State.RtsWorld.ResourceCollection.FoodSentToSimulation, State.RtsWorld.ResourceCollection.FuelSentToSimulation, State.RtsWorld.ResourceCollection.WoodSentToSimulation, State.RtsWorld.ResourceCollection.MetalsSentToSimulation);
+    State.RtsWorld.ResourceCollection.Summary = FString::Printf(TEXT("RTS collection ready: workers haul node output to storage before export; food %+d, fuel/gas %+d, wood %+d, metals %+d per tick before disruption."), State.RtsWorld.ResourceCollection.FoodSentToSimulation, State.RtsWorld.ResourceCollection.FuelSentToSimulation, State.RtsWorld.ResourceCollection.WoodSentToSimulation, State.RtsWorld.ResourceCollection.MetalsSentToSimulation);
 
     const FString HomeProvinceId = State.RtsWorld.CityBase.LinkedProvinceId;
     State.RtsWorld.ArmyGroups = {

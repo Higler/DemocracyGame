@@ -63,3 +63,9 @@ RTS Local Asset Import Pass - 2026-08-01
 - Still available locally but not fully imported/wired: Middle_Eastern_Armed_Fighter, Naval_Tactical_Soldier, Concrete_Road_Barrier, Vehicle_Variety_Pack_Volume_2, Industry_Props_Pack_6, MW_Landscape_Auto_Material, and Tactical_Crowd_AI_Toolkit.
 - Still needed as free assets only: modern convoy/troop-carrier truck, modern worker/construction crew, farm/crop field building set, mine/quarry/ore node, gas/oil node and refinery props, modern civic/industrial building kit, terrain tiles, rivers/lakes/water materials, roads, RTS HUD icons, selection rings, movement path VFX, occupation markers, and battle/casualty report art.
 - RTS city/base visual direction: modern ground-level strategy view with roads, water, terrain, resource zones, buildings, unit staging, and minimal menus; do not copy copyrighted names, UI art, factions, units, or layouts from reference games.
+
+[2026-08-01 10:01:13] RTS unit identity and worker-hauling pass
+- Imported interim hostile soldier proxy: /Game/RTS/Imported/Units/afghanbetter_fbx. Friendly soldier proxy remains /Game/RTS/Imported/Units/artic. Final animated modern soldier squads are still needed for both teams.
+- Tanks/vehicle and logistics/truck HUD markers now use team colors for testing: player green, allied blue, hostile red. Final material instances or separate colored vehicle meshes are still needed when 3D units are spawned.
+- Worker teams now cover construction, repairs, resource loading, and node-to-storage hauling for food, wood, metals, fuel, and gas. Still need distinct friendly/enemy modern worker or construction crew assets.
+- Climate resource-node rules added for new saves: moderate countries have balanced food/wood/metals/fuel nodes; cold and tropical countries keep basics but differ on exclusive node pressure to force trade.

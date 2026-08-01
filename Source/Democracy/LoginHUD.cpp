@@ -2027,29 +2027,47 @@ namespace
 
     int32 RuntimeDesiredProvinceCountForCountry(const FDemocracyGeneratedCountryState& Country, bool bPlayerCountry, int32 PlayerProvinceTarget)
     {
+        const bool bNorthernCold = Country.Climate.Equals(TEXT("Northern Cold"), ESearchCase::IgnoreCase);
+        const bool bSouthernTropical = Country.Climate.Equals(TEXT("Southern Tropical"), ESearchCase::IgnoreCase);
+        const int32 ClimateMinimum = (!bNorthernCold && !bSouthernTropical) ? 12 : 8;
+        const int32 SizeScaledTarget = ClimateMinimum + Country.AreaWeight / 18 + Country.PowerScore / 40 + Country.BorderPressure / 70 + (bPlayerCountry ? PlayerProvinceTarget / 5 : 0);
         if (Country.DesiredProvinceCount > 0)
         {
-            return FMath::Clamp(Country.DesiredProvinceCount, 2, 10);
+            return FMath::Clamp(FMath::Max(Country.DesiredProvinceCount, ClimateMinimum), ClimateMinimum, 18);
         }
-        return FMath::Clamp(3 + Country.PowerScore / 28 + Country.BorderPressure / 45 + (bPlayerCountry ? PlayerProvinceTarget / 5 : 0), 2, 10);
+        return FMath::Clamp(SizeScaledTarget, ClimateMinimum, 18);
     }
 
-    FString RuntimeProvinceResourceFocus(int32 ProvinceIndex, const FString& Climate)
+    FString RuntimeProvinceResourceFocus(int32 ProvinceIndex, const FString& Climate, int32 ProvinceCount)
     {
-        static const TCHAR* Focuses[] = { TEXT("Food"), TEXT("Fuel"), TEXT("Wood"), TEXT("Metals"), TEXT("Water") };
-        if (Climate.Equals(TEXT("Northern Cold"), ESearchCase::IgnoreCase))
-        {
-            static const TCHAR* NorthernFocuses[] = { TEXT("Fuel"), TEXT("Metals"), TEXT("Wood"), TEXT("Water"), TEXT("Food") };
-            return NorthernFocuses[ProvinceIndex % 5];
-        }
-        if (Climate.Equals(TEXT("Southern Tropical"), ESearchCase::IgnoreCase))
-        {
-            static const TCHAR* SouthernFocuses[] = { TEXT("Food"), TEXT("Water"), TEXT("Wood"), TEXT("Fuel"), TEXT("Metals") };
-            return SouthernFocuses[ProvinceIndex % 5];
-        }
-        return Focuses[ProvinceIndex % 5];
-    }
+        const bool bNorthernCold = Climate.Equals(TEXT("Northern Cold"), ESearchCase::IgnoreCase);
+        const bool bSouthernTropical = Climate.Equals(TEXT("Southern Tropical"), ESearchCase::IgnoreCase);
 
+        if (!bNorthernCold && !bSouthernTropical)
+        {
+            static const TCHAR* ModerateFocuses[] = {
+                TEXT("Food"), TEXT("Wood"), TEXT("Metals"), TEXT("Fuel"),
+                TEXT("Food"), TEXT("Wood"), TEXT("Metals"), TEXT("Fuel"),
+                TEXT("Food"), TEXT("Wood"), TEXT("Metals"), TEXT("Fuel")
+            };
+            return ModerateFocuses[ProvinceIndex % 12];
+        }
+
+        if (bNorthernCold)
+        {
+            static const TCHAR* NorthernBaseAndExclusive[] = {
+                TEXT("Food"), TEXT("Wood"), TEXT("Metals"),
+                TEXT("Fuel"), TEXT("Fuel"), TEXT("Metals"), TEXT("Wood"), TEXT("Water")
+            };
+            return NorthernBaseAndExclusive[ProvinceIndex % 8];
+        }
+
+        static const TCHAR* SouthernBaseAndExclusive[] = {
+            TEXT("Food"), TEXT("Wood"), TEXT("Metals"),
+            TEXT("Food"), TEXT("Food"), TEXT("Wood"), TEXT("Water"), TEXT("Metals")
+        };
+        return SouthernBaseAndExclusive[ProvinceIndex % 8];
+    }
     FString RuntimeTerrainTypeForProvince(int32 ProvinceIndex, const FString& Climate, const FString& ResourceFocus)
     {
         if (Climate.Equals(TEXT("Northern Cold"), ESearchCase::IgnoreCase))
@@ -2189,7 +2207,7 @@ namespace
                     Province.CurrentControllerCountryName = Country.CountryName;
                     Province.GovernmentType = Country.PoliticalType;
                     Province.Climate = Country.Climate;
-                    Province.ResourceFocus = RuntimeProvinceResourceFocus(ProvinceIndex + GlobalCountryIndex, Country.Climate);
+                    Province.ResourceFocus = RuntimeProvinceResourceFocus(ProvinceIndex, Country.Climate, ProvinceCount);
                     Province.TerrainType = RuntimeTerrainTypeForProvince(ProvinceIndex, Country.Climate, Province.ResourceFocus);
                     Province.PopulationWeight = FMath::Max(1, Country.PopulationWeight / ProvinceCount + (ProvinceIndex == 0 ? 4 : 0));
                     Province.AreaWeight = FMath::Max(1, Country.AreaWeight / ProvinceCount + (ProvinceIndex % 3));
@@ -9805,7 +9823,7 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsResourceNodesWidget() const
             }
         }
 
-        const FString NodeText = FString::Printf(TEXT("%s Node\nOwned zones %d\nBuildings %+d | provinces %+d\nSupply link: %s"),
+        const FString NodeText = FString::Printf(TEXT("%s Node\nOwned zones %d\nBuildings %+d | provinces %+d\nWorker haul: node -> storage\nSupply link: %s"),
             *ResourceName,
             NodeCount,
             BuildingOutput,
@@ -9820,7 +9838,7 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsResourceNodesWidget() const
             [
                 SNew(SBox)
                 .WidthOverride(170.0f)
-                .HeightOverride(78.0f)
+                .HeightOverride(92.0f)
                 [
                     SNew(STextBlock)
                     .Text(BodyText(NodeText))
@@ -9895,7 +9913,7 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsCityBasePlaceholderWidget()
             ? BuildRtsConstructionAvailabilityText(Building, Index, SlotFocus, true)
             : BuildRtsConstructionAvailabilityText(Building, Index, SlotFocus, false);
         const FString DisabledLine = bDisabled ? FString::Printf(TEXT("\nDISABLED: %s"), Building && !Building->DisabledReason.IsEmpty() ? *Building->DisabledReason : TEXT("damage or shutdown")) : TEXT("");
-        const FString ProductionLink = FString::Printf(TEXT("\nLink: %s node -> %s output -> supply"), *SlotFocus, Building && Building->bConstructed && !Building->bDisabled ? TEXT("active") : TEXT("inactive"));
+        const FString ProductionLink = FString::Printf(TEXT("\nLink: %s node -> worker haul -> storage -> %s output -> supply"), *SlotFocus, Building && Building->bConstructed && !Building->bDisabled ? TEXT("active") : TEXT("inactive"));
         const FString PadText = Building
             ? FString::Printf(TEXT("%s\nL%d %s | %+d/tick\n%s\nHP %d/%d%s%s\n%s"), *PadTitle, Building->Level, *Building->ResourceFocus, Building->ProductionPerTick, *QueueLine, Building->CurrentHealth, Building->MaxHealth, *DisabledLine, *ProductionLink, *AvailabilityLine)
             : FString::Printf(TEXT("%s\nFocus %s\nBuild %s\n%s\n%s"), *PadTitle, *SlotFocus, *GetRtsResourceBuildingName(SlotFocus), *AvailabilityLine, *ProductionLink);
@@ -9956,7 +9974,7 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsCityBasePlaceholderWidget()
             .Padding(8.0f)
             [
                 SNew(STextBlock)
-                .Text(BodyText(FString::Printf(TEXT("%s\n%s zones %d | buildings %d\nBuildings %+d | Province %+d\nTotal before disruption %+d\nSupply: %s"), *ResourceName, *NodeLabel, NodeCount, ActiveBuildingsForNode, BuildingOutput, ProvinceOutput, BuildingOutput + ProvinceOutput, RtsWorld.SupplyRoutes.Num() > 0 ? TEXT("linked") : TEXT("base"))))
+                .Text(BodyText(FString::Printf(TEXT("%s\n%s zones %d | buildings %d\nBuildings %+d | Province %+d\nWorker haul -> warehouse\nTotal before disruption %+d\nSupply: %s"), *ResourceName, *NodeLabel, NodeCount, ActiveBuildingsForNode, BuildingOutput, ProvinceOutput, BuildingOutput + ProvinceOutput, RtsWorld.SupplyRoutes.Num() > 0 ? TEXT("linked") : TEXT("base"))))
                 .AutoWrapText(true)
                 .Font(FCoreStyle::GetDefaultFontStyle("Bold", 10))
                 .ColorAndOpacity(FLinearColor(0.86f, 0.96f, 1.0f, 1.0f))
@@ -10016,7 +10034,7 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsCityBasePlaceholderWidget()
         ]
     ];
 
-    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(432.0f, 388.0f, 260.0f, 74.0f))
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(396.0f, 382.0f, 330.0f, 96.0f))
     [
         SNew(SBorder)
         .BorderImage(RowBrush.Get())
@@ -10024,7 +10042,7 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsCityBasePlaceholderWidget()
         .Padding(8.0f)
         [
             SNew(STextBlock)
-            .Text(BodyText(TEXT("Unit staging\nSOL  TNK  SUP  WRK\nReady for army assignment")))
+            .Text(BodyText(TEXT("Unit staging\nFriendly: SOL/WRK green-blue | TNK/SUP green\nEnemy: SOL/WRK red-orange | TNK/SUP red\nWorkers haul node loads to storage")))
             .Justification(ETextJustify::Center)
             .Font(FCoreStyle::GetDefaultFontStyle("Bold", 11))
             .ColorAndOpacity(FLinearColor(0.84f, 0.96f, 0.92f, 1.0f))
@@ -10529,6 +10547,10 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsArmyMarkersWidget(float MapWidth, float M
         const bool bHostile = Province->GovernmentType.Equals(TEXT("Dictatorship"), ESearchCase::IgnoreCase) && !Province->bPlayerControlled;
         const bool bMoving = Army.MovementTurnsRemaining > 0 || (!Army.DestinationProvinceId.IsEmpty() && !Army.DestinationProvinceId.Equals(Army.CurrentProvinceId, ESearchCase::IgnoreCase));
         const FLinearColor OwnerColor = bSelected ? FLinearColor(1.0f, 0.84f, 0.12f, 0.98f) : (Province->bPlayerControlled ? FLinearColor(0.03f, 0.75f, 0.22f, 0.92f) : (bHostile ? FLinearColor(0.85f, 0.06f, 0.06f, 0.90f) : FLinearColor(0.08f, 0.34f, 0.90f, 0.90f)));
+        const FLinearColor SoldierBadgeColor = Province->bPlayerControlled ? FLinearColor(0.04f, 0.58f, 0.24f, 0.95f) : (bHostile ? FLinearColor(0.82f, 0.12f, 0.06f, 0.95f) : FLinearColor(0.08f, 0.34f, 0.88f, 0.95f));
+        const FLinearColor VehicleBadgeColor = Province->bPlayerControlled ? FLinearColor(0.02f, 0.48f, 0.18f, 0.95f) : (bHostile ? FLinearColor(0.72f, 0.04f, 0.04f, 0.95f) : FLinearColor(0.06f, 0.25f, 0.80f, 0.95f));
+        const FLinearColor LogisticsBadgeColor = Province->bPlayerControlled ? FLinearColor(0.02f, 0.44f, 0.40f, 0.95f) : (bHostile ? FLinearColor(0.72f, 0.14f, 0.06f, 0.95f) : FLinearColor(0.08f, 0.40f, 0.78f, 0.95f));
+        const FLinearColor ScoutBadgeColor = Province->bPlayerControlled ? FLinearColor(0.10f, 0.56f, 0.28f, 0.95f) : (bHostile ? FLinearColor(0.90f, 0.22f, 0.08f, 0.95f) : FLinearColor(0.14f, 0.48f, 0.78f, 0.95f));
         const FLinearColor PathColor = bSelected ? FLinearColor(1.0f, 0.82f, 0.10f, 0.58f) : FLinearColor(0.78f, 0.88f, 1.0f, 0.36f);
 
         FVector2D ArmyCenter(ProvinceMapCenter.X * ScaleX, ProvinceMapCenter.Y * ScaleY);
@@ -10624,10 +10646,10 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsArmyMarkersWidget(float MapWidth, float M
                 + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 3.0f)
                 [
                     SNew(SHorizontalBox)
-                    + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 3.0f, 0.0f)[AddUnitBadge(TEXT("INF"), Army.InfantryCount, FLinearColor(0.22f, 0.30f, 0.34f, 0.95f))]
-                    + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 3.0f, 0.0f)[AddUnitBadge(TEXT("TNK"), Army.VehicleCount, FLinearColor(0.18f, 0.44f, 0.18f, 0.95f))]
-                    + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 3.0f, 0.0f)[AddUnitBadge(TEXT("SUP"), Army.LogisticsCount, FLinearColor(0.65f, 0.45f, 0.12f, 0.95f))]
-                    + SHorizontalBox::Slot().AutoWidth()[AddUnitBadge(TEXT("SCT"), Army.ScoutCount, FLinearColor(0.16f, 0.48f, 0.70f, 0.95f))]
+                    + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 3.0f, 0.0f)[AddUnitBadge(TEXT("INF"), Army.InfantryCount, SoldierBadgeColor)]
+                    + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 3.0f, 0.0f)[AddUnitBadge(TEXT("TNK"), Army.VehicleCount, VehicleBadgeColor)]
+                    + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 3.0f, 0.0f)[AddUnitBadge(TEXT("SUP"), Army.LogisticsCount, LogisticsBadgeColor)]
+                    + SHorizontalBox::Slot().AutoWidth()[AddUnitBadge(TEXT("SCT"), Army.ScoutCount, ScoutBadgeColor)]
                 ]
                 + SVerticalBox::Slot().AutoHeight()
                 [
