@@ -10058,14 +10058,14 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsCityBasePlaceholderWidget()
         return SNew(SBorder)
             .BorderImage(RowBrush.Get())
             .BorderBackgroundColor(Color)
-            .Padding(6.0f)
-            [
-                SNew(STextBlock)
-                .Text(BodyText(Label))
-                .Justification(ETextJustify::Center)
-                .Font(FCoreStyle::GetDefaultFontStyle(FontWeight, FontSize))
-                .ColorAndOpacity(FLinearColor(0.92f, 0.98f, 1.0f, 1.0f))
-            ];
+            .Padding(0.0f);
+    };
+    auto MakeTerrainPatch = [this](const FLinearColor& Color) -> TSharedRef<SWidget>
+    {
+        return SNew(SBorder)
+            .BorderImage(RowBrush.Get())
+            .BorderBackgroundColor(Color)
+            .Padding(0.0f);
     };
     auto MakeSmallLabel = [this](const FString& Label, const FLinearColor& Color, int32 FontSize = 8) -> TSharedRef<SWidget>
     {
@@ -10084,28 +10084,47 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsCityBasePlaceholderWidget()
 
     TSharedRef<SConstraintCanvas> CityLayout = SNew(SConstraintCanvas);
     CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(0.0f, 0.0f, 2200.0f, 1320.0f))
-    [
-        SNew(SBorder)
-        .BorderImage(RowBrush.Get())
-        .BorderBackgroundColor(FLinearColor(0.12f, 0.20f, 0.10f, 1.0f))
-        .Padding(0.0f)
-    ];
-    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(0.0f, 0.0f, 2200.0f, 180.0f))
-    [MakeTerrainFeature(TEXT("forest edge"), FLinearColor(0.03f, 0.10f, 0.05f, 0.90f), TEXT("Regular"), 8)];
-    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(1620.0f, 250.0f, 430.0f, 250.0f))
-    [MakeTerrainFeature(TEXT("lake"), FLinearColor(0.02f, 0.25f, 0.38f, 0.90f), TEXT("Bold"), 11)];
-    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(130.0f, 1138.0f, 1560.0f, 52.0f))
-    [MakeTerrainFeature(TEXT("river"), FLinearColor(0.03f, 0.25f, 0.36f, 0.88f), TEXT("Regular"), 8)];
-    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(190.0f, 380.0f, 330.0f, 220.0f))
-    [MakeTerrainFeature(TEXT("farmland"), FLinearColor(0.19f, 0.31f, 0.09f, 0.76f), TEXT("Regular"), 8)];
-    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(1700.0f, 820.0f, 300.0f, 140.0f))
-    [MakeTerrainFeature(TEXT("mine ridge"), FLinearColor(0.20f, 0.20f, 0.17f, 0.82f), TEXT("Regular"), 8)];
-    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(1480.0f, 1006.0f, 245.0f, 88.0f))
-    [MakeTerrainFeature(TEXT("fuel node"), FLinearColor(0.10f, 0.18f, 0.18f, 0.86f), TEXT("Regular"), 8)];
+    [MakeTerrainPatch(FLinearColor(0.10f, 0.18f, 0.11f, 1.0f))];
 
-    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(610.0f, 320.0f, 950.0f, 650.0f))
-    [MakeTerrainFeature(TEXT("buildable base clearing"), FLinearColor(0.15f, 0.23f, 0.16f, 0.96f), TEXT("Regular"), 8)];
-    const FVector2D BaseOrigin(660.0f, 380.0f);
+    for (int32 TileY = 0; TileY < 12; ++TileY)
+    {
+        for (int32 TileX = 0; TileX < 20; ++TileX)
+        {
+            const float Variation = ((TileX * 17 + TileY * 31) % 9) * 0.006f;
+            const float PatchAlpha = 0.42f + (((TileX + TileY) % 3) * 0.08f);
+            CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(TileX * 112.0f, TileY * 112.0f, 116.0f, 116.0f))
+            [MakeTerrainPatch(FLinearColor(0.08f + Variation, 0.17f + Variation, 0.10f + Variation, PatchAlpha))];
+        }
+    }
+
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(0.0f, 0.0f, 2200.0f, 160.0f))
+    [MakeTerrainFeature(TEXT("forest edge"), FLinearColor(0.02f, 0.08f, 0.04f, 0.94f), TEXT("Regular"), 8)];
+    for (int32 TreeIndex = 0; TreeIndex < 26; ++TreeIndex)
+    {
+        const float TreeX = 60.0f + TreeIndex * 82.0f;
+        const float TreeY = 24.0f + ((TreeIndex * 37) % 94);
+        CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(TreeX, TreeY, 34.0f, 44.0f))
+        [MakeTerrainPatch(FLinearColor(0.01f, 0.16f + ((TreeIndex % 4) * 0.018f), 0.05f, 0.92f))];
+    }
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(1600.0f, 220.0f, 460.0f, 280.0f))
+    [MakeTerrainFeature(TEXT("lake"), FLinearColor(0.02f, 0.25f, 0.38f, 0.94f), TEXT("Bold"), 11)];
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(128.0f, 1118.0f, 1600.0f, 58.0f))
+    [MakeTerrainFeature(TEXT("river"), FLinearColor(0.03f, 0.25f, 0.36f, 0.90f), TEXT("Regular"), 8)];
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(170.0f, 372.0f, 340.0f, 236.0f))
+    [MakeTerrainFeature(TEXT("farmland"), FLinearColor(0.18f, 0.30f, 0.09f, 0.70f), TEXT("Regular"), 8)];
+    for (int32 Furrow = 0; Furrow < 9; ++Furrow)
+    {
+        CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(190.0f, 392.0f + Furrow * 22.0f, 300.0f, 4.0f))
+        [MakeTerrainPatch(FLinearColor(0.24f, 0.36f, 0.12f, 0.68f))];
+    }
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(1690.0f, 800.0f, 330.0f, 158.0f))
+    [MakeTerrainFeature(TEXT("mine ridge"), FLinearColor(0.20f, 0.20f, 0.17f, 0.78f), TEXT("Regular"), 8)];
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(1470.0f, 990.0f, 270.0f, 96.0f))
+    [MakeTerrainFeature(TEXT("fuel node"), FLinearColor(0.10f, 0.18f, 0.18f, 0.80f), TEXT("Regular"), 8)];
+
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(560.0f, 250.0f, 980.0f, 610.0f))
+    [MakeTerrainFeature(TEXT("buildable base clearing"), FLinearColor(0.15f, 0.23f, 0.16f, 0.54f), TEXT("Regular"), 8)];
+    const FVector2D BaseOrigin(590.0f, 286.0f);
     CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(BaseOrigin.X + 20.0f, BaseOrigin.Y + 270.0f, 1080.0f, 36.0f))
     [SNew(SBorder).BorderImage(RowBrush.Get()).BorderBackgroundColor(FLinearColor(0.18f, 0.19f, 0.17f, 0.92f)).Padding(0.0f)];
     CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(BaseOrigin.X + 520.0f, BaseOrigin.Y + 24.0f, 36.0f, 572.0f))
@@ -10124,13 +10143,13 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsCityBasePlaceholderWidget()
             .ColorAndOpacity(FLinearColor(0.96f, 0.92f, 0.78f, 1.0f))
         ]
     ];
-    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(BaseOrigin.X + 420.0f, BaseOrigin.Y + 418.0f, 280.0f, 44.0f))
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(BaseOrigin.X + 420.0f, BaseOrigin.Y + 384.0f, 280.0f, 40.0f))
     [MakeSmallLabel(TEXT("Unit staging: SOL  TNK  SUP  WRK"), FLinearColor(0.04f, 0.10f, 0.11f, 0.78f), 8)];
 
     const TArray<FVector2D> SlotPositions = {
         FVector2D(BaseOrigin.X + 96.0f, BaseOrigin.Y + 80.0f), FVector2D(BaseOrigin.X + 336.0f, BaseOrigin.Y + 76.0f), FVector2D(BaseOrigin.X + 684.0f, BaseOrigin.Y + 76.0f), FVector2D(BaseOrigin.X + 924.0f, BaseOrigin.Y + 80.0f),
         FVector2D(BaseOrigin.X + 94.0f, BaseOrigin.Y + 246.0f), FVector2D(BaseOrigin.X + 318.0f, BaseOrigin.Y + 226.0f), FVector2D(BaseOrigin.X + 702.0f, BaseOrigin.Y + 226.0f), FVector2D(BaseOrigin.X + 924.0f, BaseOrigin.Y + 246.0f),
-        FVector2D(BaseOrigin.X + 96.0f, BaseOrigin.Y + 430.0f), FVector2D(BaseOrigin.X + 336.0f, BaseOrigin.Y + 434.0f), FVector2D(BaseOrigin.X + 684.0f, BaseOrigin.Y + 434.0f), FVector2D(BaseOrigin.X + 924.0f, BaseOrigin.Y + 430.0f)
+        FVector2D(BaseOrigin.X + 96.0f, BaseOrigin.Y + 390.0f), FVector2D(BaseOrigin.X + 336.0f, BaseOrigin.Y + 394.0f), FVector2D(BaseOrigin.X + 684.0f, BaseOrigin.Y + 394.0f), FVector2D(BaseOrigin.X + 924.0f, BaseOrigin.Y + 390.0f)
     };
     for (int32 Index = 0; Index < SlotPositions.Num(); ++Index)
     {
