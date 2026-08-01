@@ -229,6 +229,78 @@ namespace
 
         return Mask.CountryIds[Y * Mask.Width + X];
     }
+    bool EnsureDuliaSetupCountryMapImage(int32 SelectedCountryIndex, FString& OutImagePath)
+    {
+        FDuliaCountryIdMask& Mask = GetMutableDuliaCountryIdMask();
+        if (!Mask.bLoaded || Mask.Width <= 0 || Mask.Height <= 0 || Mask.CountryIds.Num() <= 0)
+        {
+            return false;
+        }
+
+        OutImagePath = FPaths::ProjectDir() / TEXT("Generated") / FString::Printf(TEXT("Dulia_Setup_Country_%03d.png"), FMath::Max(0, SelectedCountryIndex));
+        if (FPaths::FileExists(OutImagePath))
+        {
+            return true;
+        }
+
+        IFileManager::Get().MakeDirectory(*FPaths::GetPath(OutImagePath), true);
+        TArray<uint8> RawPixels;
+        RawPixels.SetNumZeroed(Mask.Width * Mask.Height * 4);
+
+        auto WritePixel = [&RawPixels](int32 PixelIndex, uint8 R, uint8 G, uint8 B, uint8 A)
+        {
+            const int32 RawIndex = PixelIndex * 4;
+            RawPixels[RawIndex] = R;
+            RawPixels[RawIndex + 1] = G;
+            RawPixels[RawIndex + 2] = B;
+            RawPixels[RawIndex + 3] = A;
+        };
+
+        for (int32 Y = 0; Y < Mask.Height; ++Y)
+        {
+            for (int32 X = 0; X < Mask.Width; ++X)
+            {
+                const int32 PixelIndex = Y * Mask.Width + X;
+                const int32 CountryId = Mask.CountryIds[PixelIndex];
+                if (CountryId <= 0)
+                {
+                    WritePixel(PixelIndex, 70, 156, 176, 255);
+                    continue;
+                }
+
+                const bool bSelected = SelectedCountryIndex > 0 && CountryId == SelectedCountryIndex;
+                uint8 R = bSelected ? 0 : 58;
+                uint8 G = bSelected ? 235 : 125;
+                uint8 B = bSelected ? 72 : 205;
+
+                const int32 LeftId = X > 0 ? Mask.CountryIds[PixelIndex - 1] : CountryId;
+                const int32 RightId = X + 1 < Mask.Width ? Mask.CountryIds[PixelIndex + 1] : CountryId;
+                const int32 UpId = Y > 0 ? Mask.CountryIds[PixelIndex - Mask.Width] : CountryId;
+                const int32 DownId = Y + 1 < Mask.Height ? Mask.CountryIds[PixelIndex + Mask.Width] : CountryId;
+                const bool bBorder = LeftId != CountryId || RightId != CountryId || UpId != CountryId || DownId != CountryId;
+                if (bBorder)
+                {
+                    R = bSelected ? 215 : 210;
+                    G = bSelected ? 255 : 214;
+                    B = bSelected ? 220 : 222;
+                }
+
+                WritePixel(PixelIndex, R, G, B, 255);
+            }
+        }
+
+        IImageWrapperModule& ImageWrapperModule = FModuleManager::LoadModuleChecked<IImageWrapperModule>(TEXT("ImageWrapper"));
+        const TSharedPtr<IImageWrapper> ImageWrapper = ImageWrapperModule.CreateImageWrapper(EImageFormat::PNG);
+        if (!ImageWrapper.IsValid() || !ImageWrapper->SetRaw(RawPixels.GetData(), RawPixels.Num(), Mask.Width, Mask.Height, ERGBFormat::RGBA, 8))
+        {
+            return false;
+        }
+
+        const TArray64<uint8>& CompressedData64 = ImageWrapper->GetCompressed(100);
+        TArray<uint8> CompressedData;
+        CompressedData.Append(CompressedData64.GetData(), CompressedData64.Num());
+        return FFileHelper::SaveArrayToFile(CompressedData, *OutImagePath);
+    }
     bool DuliaPointInPolygon(const FVector2D& Point, const TArray<FVector2D>& Polygon)
     {
         if (Polygon.Num() < 3)
@@ -6075,6 +6147,7 @@ void ALoginHUD::EndPlay(const EEndPlayReason::Type EndPlayReason)
     PanelBrush.Reset();
     OverlayBrush.Reset();
     RtsWaterBrush.Reset();
+    SetupCountryMapBrush.Reset();
     RtsLandMapBrush.Reset();
     WorldMapBrush.Reset();
     BackgroundBrush.Reset();
@@ -6950,6 +7023,15 @@ TSharedRef<SWidget> ALoginHUD::BuildStartingCountrySelectionWidget()
 
     const float PreviewWidth = 760.0f;
     const float PreviewHeight = 374.0f;
+    FString SetupCountryMapPath;
+    if (EnsureDuliaSetupCountryMapImage(PendingStartingCountryMapIndex, SetupCountryMapPath))
+    {
+        SetupCountryMapBrush = MakeShared<FSlateDynamicImageBrush>(FName(*SetupCountryMapPath), FVector2D(2242.0f, 1104.0f));
+    }
+    else
+    {
+        SetupCountryMapBrush.Reset();
+    }
     TSharedRef<SOverlay> MapOverlay = SNew(SOverlay);
     MapOverlay->AddSlot()
     [
@@ -6961,44 +7043,10 @@ TSharedRef<SWidget> ALoginHUD::BuildStartingCountrySelectionWidget()
             .HeightOverride(PreviewHeight)
             [
                 SNew(SImage)
-                .Image(WorldMapBrush.Get())
+                .Image(SetupCountryMapBrush.IsValid() ? SetupCountryMapBrush.Get() : WorldMapBrush.Get())
             ]
         ]
     ];
-
-    if (PendingStartingCountryMapIndex > 0)
-    {
-        FVector2D MarkerPoint(-1.0f, -1.0f);
-        for (const FDuliaCountryMapPoint& Point : GetDuliaCountryMapPoints())
-        {
-            if (Point.CountryIndex == PendingStartingCountryMapIndex)
-            {
-                MarkerPoint = Point.Centroid;
-                break;
-            }
-        }
-
-        if (MarkerPoint.X >= 0.0f && MarkerPoint.Y >= 0.0f)
-        {
-            const float MarkerX = FMath::Clamp((MarkerPoint.X / 2242.0f) * PreviewWidth - 10.0f, 0.0f, PreviewWidth - 20.0f);
-            const float MarkerY = FMath::Clamp((MarkerPoint.Y / 1104.0f) * PreviewHeight - 10.0f, 0.0f, PreviewHeight - 20.0f);
-            MapOverlay->AddSlot()
-            .HAlign(HAlign_Left)
-            .VAlign(VAlign_Top)
-            .Padding(FMargin(MarkerX, MarkerY, 0.0f, 0.0f))
-            [
-                SNew(SBorder)
-                .BorderImage(RowBrush.Get())
-                .BorderBackgroundColor(FLinearColor(0.05f, 0.9f, 0.25f, 0.95f))
-                .Padding(FMargin(4.0f))
-                [
-                    SNew(STextBlock)
-                    .Text(BodyText(TEXT("X")))
-                    .ColorAndOpacity(FSlateColor(FLinearColor::White))
-                ]
-            ];
-        }
-    }
 
     Body->AddSlot().AutoHeight().Padding(0.0f, 8.0f)
     [

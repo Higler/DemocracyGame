@@ -73,6 +73,7 @@ private:
     TSharedPtr<FSlateImageBrush> BackgroundBrush;
     TSharedPtr<FSlateDynamicImageBrush> WorldMapBrush;
     TSharedPtr<FSlateDynamicImageBrush> RtsLandMapBrush;
+    TSharedPtr<FSlateDynamicImageBrush> SetupCountryMapBrush;
     TSharedPtr<FSlateColorBrush> RtsWaterBrush;
     TSharedPtr<FSlateColorBrush> OverlayBrush;
     TSharedPtr<FSlateColorBrush> PanelBrush;
