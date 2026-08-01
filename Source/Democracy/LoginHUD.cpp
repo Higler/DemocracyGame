@@ -38,6 +38,7 @@
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/Layout/SConstraintCanvas.h"
 #include "Widgets/Layout/SScrollBox.h"
+#include "Widgets/Layout/SScaleBox.h"
 #include "Widgets/Layout/SUniformGridPanel.h"
 #include "Widgets/SOverlay.h"
 #include "Widgets/SBoxPanel.h"
@@ -9908,15 +9909,11 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsCityBasePlaceholderWidget()
         const bool bUpgradeAvailable = Building && Building->bConstructed && !bDisabled && !bQueued && CanPayRtsCost(LoadedSaveState.RuntimeState.PlayerCountry, Building->UpgradeCost, 0, FMath::Max(0, Building->UpgradeCost / 10), FMath::Max(0, Building->UpgradeCost / 5), FMath::Max(0, Building->UpgradeCost / 6));
         const bool bBuildAvailable = !Building && CanPayRtsCost(LoadedSaveState.RuntimeState.PlayerCountry, BuildPreview.BuildCost, SlotFocus.Equals(TEXT("Food"), ESearchCase::IgnoreCase) ? 8 : 0, (SlotFocus.Equals(TEXT("Fuel"), ESearchCase::IgnoreCase) || SlotFocus.Equals(TEXT("Logistics"), ESearchCase::IgnoreCase)) ? 8 : 4, SlotFocus.Equals(TEXT("Wood"), ESearchCase::IgnoreCase) ? 8 : 14, (SlotFocus.Equals(TEXT("Metals"), ESearchCase::IgnoreCase) || SlotFocus.Equals(TEXT("Security"), ESearchCase::IgnoreCase)) ? 12 : 8);
         const FString PadTitle = Building ? Building->DisplayName : FString::Printf(TEXT("Empty Pad %02d"), Index + 1);
-        const FString QueueLine = QueueEntry ? FString::Printf(TEXT("%s %d/%d turns"), *QueueEntry->QueueType, QueueEntry->TurnsRemaining, QueueEntry->TotalTurns) : TEXT("No active queue");
-        const FString AvailabilityLine = Building && Building->bConstructed
-            ? BuildRtsConstructionAvailabilityText(Building, Index, SlotFocus, true)
-            : BuildRtsConstructionAvailabilityText(Building, Index, SlotFocus, false);
-        const FString DisabledLine = bDisabled ? FString::Printf(TEXT("\nDISABLED: %s"), Building && !Building->DisabledReason.IsEmpty() ? *Building->DisabledReason : TEXT("damage or shutdown")) : TEXT("");
-        const FString ProductionLink = FString::Printf(TEXT("\nLink: %s node -> worker haul -> storage -> %s output -> supply"), *SlotFocus, Building && Building->bConstructed && !Building->bDisabled ? TEXT("active") : TEXT("inactive"));
+                const FString QueueBadge = bQueued ? TEXT("\nQUEUE") : TEXT("");
+        const FString DisabledBadge = bDisabled ? TEXT("\nDISABLED") : TEXT("");
         const FString PadText = Building
-            ? FString::Printf(TEXT("%s\nL%d %s | %+d/tick\n%s\nHP %d/%d%s%s\n%s"), *PadTitle, Building->Level, *Building->ResourceFocus, Building->ProductionPerTick, *QueueLine, Building->CurrentHealth, Building->MaxHealth, *DisabledLine, *ProductionLink, *AvailabilityLine)
-            : FString::Printf(TEXT("%s\nFocus %s\nBuild %s\n%s\n%s"), *PadTitle, *SlotFocus, *GetRtsResourceBuildingName(SlotFocus), *AvailabilityLine, *ProductionLink);
+            ? FString::Printf(TEXT("%s\nL%d %s\n%+d/tick | HP %d/%d%s%s"), *PadTitle, Building->Level, *Building->ResourceFocus, Building->ProductionPerTick, Building->CurrentHealth, Building->MaxHealth, *QueueBadge, *DisabledBadge)
+            : FString::Printf(TEXT("Pad %02d\n%s\n%s"), Index + 1, *SlotFocus, *GetRtsResourceBuildingName(SlotFocus));
         const FLinearColor PadColor = bSelected
             ? FLinearColor(0.18f, 0.32f, 0.42f, 0.96f)
             : (bQueued ? FLinearColor(0.42f, 0.28f, 0.08f, 0.94f) : (bDisabled ? FLinearColor(0.34f, 0.06f, 0.06f, 0.92f) : (Building ? FLinearColor(0.08f, 0.20f, 0.14f, 0.92f) : FLinearColor(0.08f, 0.10f, 0.11f, 0.86f))));
@@ -9939,9 +9936,9 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsCityBasePlaceholderWidget()
                 [
                     SNew(SHorizontalBox)
                     + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 4.0f, 0.0f)
-                    [BuildButton(TEXT("Select"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleSelectRtsBuildingSlot, Index), 62.0f, 28.0f)]
+                    [BuildButton(TEXT("Sel"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleSelectRtsBuildingSlot, Index), 54.0f, 28.0f)]
                     + SHorizontalBox::Slot().AutoWidth()
-                    [Building && Building->bConstructed ? BuildButton(TEXT("Upgrade"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleQueueRtsUpgrade, Building->BuildingId), 78.0f, 28.0f, bUpgradeAvailable) : BuildButton(TEXT("Build"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleQueueRtsBuildSlot, Index, SlotFocus), 66.0f, 28.0f, bBuildAvailable)]
+                    [Building && Building->bConstructed ? BuildButton(TEXT("Up"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleQueueRtsUpgrade, Building->BuildingId), 54.0f, 28.0f, bUpgradeAvailable) : BuildButton(TEXT("Build"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleQueueRtsBuildSlot, Index, SlotFocus), 62.0f, 28.0f, bBuildAvailable)]
                 ]
             ];
     };
@@ -9974,7 +9971,7 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsCityBasePlaceholderWidget()
             .Padding(8.0f)
             [
                 SNew(STextBlock)
-                .Text(BodyText(FString::Printf(TEXT("%s\n%s zones %d | buildings %d\nBuildings %+d | Province %+d\nWorker haul -> warehouse\nTotal before disruption %+d\nSupply: %s"), *ResourceName, *NodeLabel, NodeCount, ActiveBuildingsForNode, BuildingOutput, ProvinceOutput, BuildingOutput + ProvinceOutput, RtsWorld.SupplyRoutes.Num() > 0 ? TEXT("linked") : TEXT("base"))))
+                .Text(BodyText(FString::Printf(TEXT("%s\n%s nodes %d\n+%d/tick\nWorkers -> storage"), *ResourceName, *NodeLabel, NodeCount, BuildingOutput + ProvinceOutput)))
                 .AutoWrapText(true)
                 .Font(FCoreStyle::GetDefaultFontStyle("Bold", 10))
                 .ColorAndOpacity(FLinearColor(0.86f, 0.96f, 1.0f, 1.0f))
@@ -10099,120 +10096,96 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsCityBasePlaceholderWidget()
         ];
     }
 
+    const FString CompactHeader = FString::Printf(TEXT("%s | Food %+d  Fuel %+d  Wood %+d  Metals %+d  Tick %d"),
+        *Base.DisplayName,
+        RtsWorld.ResourceCollection.FoodSentToSimulation,
+        RtsWorld.ResourceCollection.FuelSentToSimulation,
+        RtsWorld.ResourceCollection.WoodSentToSimulation,
+        RtsWorld.ResourceCollection.MetalsSentToSimulation,
+        RtsWorld.RtsTickCount);
+    const FString CompactSelection = SelectedBuildingText.Left(220);
+    const FString CompactSelectionText = CompactSelection.IsEmpty() ? FString(TEXT("Select a building, resource node, or unit group.")) : CompactSelection;
+
     return SNew(SOverlay)
         + SOverlay::Slot()
         [
             SNew(SBorder)
             .BorderImage(RtsWaterBrush.Get())
-            .BorderBackgroundColor(FLinearColor(0.08f, 0.12f, 0.11f, 1.0f))
-            .Padding(18.0f)
+            .BorderBackgroundColor(FLinearColor(0.05f, 0.10f, 0.08f, 1.0f))
+            .Padding(0.0f)
             [
-                SNew(SVerticalBox)
-                + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 12.0f)
+                SNew(SScaleBox)
+                .Stretch(EStretch::ScaleToFit)
+                .StretchDirection(EStretchDirection::Both)
                 [
-                    SNew(STextBlock)
-                    .Text(BodyText(FString::Printf(TEXT("%s - City/Base Control"), *Base.DisplayName)))
-                    .Font(FCoreStyle::GetDefaultFontStyle("Bold", 22))
-                    .ColorAndOpacity(FLinearColor::White)
-                ]
-                + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 10.0f)
-                [
-                    SNew(STextBlock)
-                    .Text(BodyText(BuildRtsCityBaseSummaryText()))
-                    .AutoWrapText(true)
-                    .Font(FCoreStyle::GetDefaultFontStyle("Regular", 12))
-                    .ColorAndOpacity(FLinearColor(0.85f, 0.94f, 0.88f, 1.0f))
-                ]
-                + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 10.0f)
-                [
-                    SNew(SBorder)
-                    .BorderImage(RowBrush.Get())
-                    .BorderBackgroundColor(FLinearColor(0.06f, 0.12f, 0.12f, 0.82f))
-                    .Padding(10.0f)
-                    [
-                        SNew(STextBlock)
-                        .Text(BodyText(FString::Printf(TEXT("Terrain layout: road cross links each building pad to the capital core. Production chain: resource nodes -> constructed buildings -> supply routes -> simulation stockpiles. RTS tick %d, construction advances every %d RTS tick(s). Resource output this tick: food %+d, fuel %+d, wood %+d, metals %+d, disruption %d."), RtsWorld.RtsTickCount, RtsWorld.RtsTicksPerConstructionTurn, RtsWorld.ResourceCollection.FoodSentToSimulation, RtsWorld.ResourceCollection.FuelSentToSimulation, RtsWorld.ResourceCollection.WoodSentToSimulation, RtsWorld.ResourceCollection.MetalsSentToSimulation, RtsWorld.ResourceCollection.DisruptionPenalty)))
-                        .AutoWrapText(true)
-                        .Font(FCoreStyle::GetDefaultFontStyle("Regular", 11))
-                        .ColorAndOpacity(FLinearColor(0.86f, 0.96f, 1.0f, 1.0f))
-                    ]
-                ]
-                + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 12.0f)
-                [
-                    SNew(SBorder)
-                    .BorderImage(RowBrush.Get())
-                    .BorderBackgroundColor(FLinearColor(0.07f, 0.10f, 0.12f, 0.86f))
-                    .Padding(10.0f)
-                    [
-                        SNew(SVerticalBox)
-                        + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 6.0f)
-                        [
-                            SNew(STextBlock)
-                            .Text(BodyText(TEXT("Unit Production / Recruitment: create soldier, tank, and supply-carrier units from operational base buildings, then assign them into the selected army group.")))
-                            .AutoWrapText(true)
-                            .Font(FCoreStyle::GetDefaultFontStyle("Regular", 11))
-                            .ColorAndOpacity(FLinearColor(0.90f, 0.96f, 1.0f, 1.0f))
-                        ]
-                        + SVerticalBox::Slot().AutoHeight()
-                        [
-                            SNew(SHorizontalBox)
-                            + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 8.0f, 0.0f)
-                            [BuildButton(TEXT("Recruit Soldiers"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleRecruitRtsUnitsClicked, FString(TEXT("Soldiers"))), 150.0f, 34.0f, bHasLoadedRuntimeState)]
-                            + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 8.0f, 0.0f)
-                            [BuildButton(TEXT("Build Tanks"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleRecruitRtsUnitsClicked, FString(TEXT("Tanks"))), 128.0f, 34.0f, bHasLoadedRuntimeState)]
-                            + SHorizontalBox::Slot().AutoWidth()
-                            [BuildButton(TEXT("Supply Carriers"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleRecruitRtsUnitsClicked, FString(TEXT("Supply Carriers"))), 160.0f, 34.0f, bHasLoadedRuntimeState)]
-                        ]
-                    ]
-                ]
-                + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 12.0f)
-                [
-                    SNew(SHorizontalBox)
-                    + SHorizontalBox::Slot().FillWidth(0.58f).Padding(0.0f, 0.0f, 10.0f, 0.0f)
-                    [
-                        SNew(SBorder)
-                        .BorderImage(RowBrush.Get())
-                        .BorderBackgroundColor(FLinearColor(0.07f, 0.09f, 0.11f, 0.86f))
-                        .Padding(10.0f)
-                        [
-                            SNew(STextBlock)
-                            .Text(BodyText(SelectedBuildingText))
-                            .AutoWrapText(true)
-                            .Font(FCoreStyle::GetDefaultFontStyle("Regular", 11))
-                            .ColorAndOpacity(FLinearColor(0.92f, 0.97f, 1.0f, 1.0f))
-                        ]
-                    ]
-                    + SHorizontalBox::Slot().FillWidth(0.42f)
-                    [
-                        SNew(SBorder)
-                        .BorderImage(RowBrush.Get())
-                        .BorderBackgroundColor(FLinearColor(0.08f, 0.10f, 0.12f, 0.80f))
-                        .Padding(10.0f)
-                        [QueueList]
-                    ]
-                ]
-                + SVerticalBox::Slot().FillHeight(1.0f)
-                [
-                    SNew(SBorder)
-                    .BorderImage(RowBrush.Get())
-                    .BorderBackgroundColor(FLinearColor(0.04f, 0.08f, 0.07f, 0.90f))
-                    .Padding(10.0f)
-                    [
-                        SNew(SBox)
-                        .WidthOverride(1120.0f)
-                        .HeightOverride(620.0f)
-                        [CityLayout]
-                    ]
+                    SNew(SBox)
+                    .WidthOverride(1120.0f)
+                    .HeightOverride(620.0f)
+                    [CityLayout]
                 ]
             ]
         ]
-        + SOverlay::Slot().HAlign(HAlign_Right).VAlign(VAlign_Top).Padding(18.0f)
+        + SOverlay::Slot().HAlign(HAlign_Left).VAlign(VAlign_Top).Padding(16.0f)
+        [
+            SNew(SBorder)
+            .BorderImage(RowBrush.Get())
+            .BorderBackgroundColor(FLinearColor(0.03f, 0.08f, 0.09f, 0.76f))
+            .Padding(FMargin(12.0f, 8.0f))
+            [
+                SNew(STextBlock)
+                .Text(BodyText(CompactHeader))
+                .Font(FCoreStyle::GetDefaultFontStyle("Bold", 13))
+                .ColorAndOpacity(FLinearColor(0.90f, 0.98f, 0.94f, 1.0f))
+            ]
+        ]
+        + SOverlay::Slot().HAlign(HAlign_Right).VAlign(VAlign_Top).Padding(16.0f)
         [
             SNew(SHorizontalBox)
             + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 8.0f, 0.0f)
             [BuildButton(TEXT("World View"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleResetRtsMapViewClicked), 136.0f, 36.0f)]
             + SHorizontalBox::Slot().AutoWidth()
             [BuildButton(TEXT("Return To Office"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleCloseOfficeOverlayClicked), 172.0f, 36.0f)]
+        ]
+        + SOverlay::Slot().HAlign(HAlign_Left).VAlign(VAlign_Bottom).Padding(16.0f)
+        [
+            SNew(SBorder)
+            .BorderImage(RowBrush.Get())
+            .BorderBackgroundColor(FLinearColor(0.03f, 0.07f, 0.08f, 0.78f))
+            .Padding(FMargin(12.0f, 8.0f))
+            [
+                SNew(SVerticalBox)
+                + SVerticalBox::Slot().AutoHeight()
+                [
+                    SNew(STextBlock)
+                    .Text(BodyText(CompactSelectionText))
+                    .AutoWrapText(true)
+                    .Font(FCoreStyle::GetDefaultFontStyle("Regular", 11))
+                    .ColorAndOpacity(FLinearColor(0.92f, 0.98f, 1.0f, 1.0f))
+                ]
+                + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 8.0f, 0.0f, 0.0f)
+                [
+                    SNew(SHorizontalBox)
+                    + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 8.0f, 0.0f)
+                    [BuildButton(TEXT("Recruit Soldiers"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleRecruitRtsUnitsClicked, FString(TEXT("Soldiers"))), 150.0f, 34.0f, bHasLoadedRuntimeState)]
+                    + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 8.0f, 0.0f)
+                    [BuildButton(TEXT("Build Tanks"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleRecruitRtsUnitsClicked, FString(TEXT("Tanks"))), 128.0f, 34.0f, bHasLoadedRuntimeState)]
+                    + SHorizontalBox::Slot().AutoWidth()
+                    [BuildButton(TEXT("Supply Carriers"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleRecruitRtsUnitsClicked, FString(TEXT("Supply Carriers"))), 160.0f, 34.0f, bHasLoadedRuntimeState)]
+                ]
+            ]
+        ]
+        + SOverlay::Slot().HAlign(HAlign_Right).VAlign(VAlign_Bottom).Padding(16.0f)
+        [
+            SNew(SBorder)
+            .BorderImage(RowBrush.Get())
+            .BorderBackgroundColor(FLinearColor(0.03f, 0.07f, 0.08f, 0.74f))
+            .Padding(FMargin(12.0f, 8.0f))
+            [
+                SNew(SBox)
+                .WidthOverride(520.0f)
+                .MaxDesiredHeight(126.0f)
+                [QueueList]
+            ]
         ];
 }
 TSharedRef<SWidget> ALoginHUD::BuildRtsProvinceStateOverlaysWidget(float MapWidth, float MapHeight) const
