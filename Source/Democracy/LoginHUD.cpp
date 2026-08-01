@@ -8183,11 +8183,21 @@ FReply ALoginHUD::HandleRtsMapMouseWheel(const FGeometry& Geometry, const FPoint
     {
         const FVector2D ViewCenter = Geometry.GetLocalSize() * 0.5f;
         const FVector2D CursorLocal = Geometry.AbsoluteToLocal(MouseEvent.GetScreenSpacePosition());
-        const FVector2D NativeMapCenter(1121.0f, 552.0f);
-        const FVector2D MapPointUnderCursor = (CursorLocal - ViewCenter - RtsMapPan) / OldZoom + NativeMapCenter;
-        RtsMapZoom = NewZoom;
-        RtsMapPan = CursorLocal - ViewCenter - ((MapPointUnderCursor - NativeMapCenter) * RtsMapZoom);
-        ClampRtsMapView();
+        if (bHasLoadedRuntimeState && LoadedSaveState.RuntimeState.RtsWorld.ActiveViewMode.Equals(TEXT("city_base"), ESearchCase::IgnoreCase))
+        {
+            RtsMapZoom = FMath::Clamp(RtsMapZoom + (MouseEvent.GetWheelDelta() > 0.0f ? 0.35f : -0.35f), 4.5f, 6.2f);
+            const float CityViewScale = FMath::Clamp(0.72f + ((RtsMapZoom - 4.5f) / 1.7f) * 0.58f, 0.72f, 1.30f);
+            RtsMapPan.X = FMath::Clamp(RtsMapPan.X, -620.0f * CityViewScale, 620.0f * CityViewScale);
+            RtsMapPan.Y = FMath::Clamp(RtsMapPan.Y, -360.0f * CityViewScale, 360.0f * CityViewScale);
+        }
+        else
+        {
+            const FVector2D NativeMapCenter(1121.0f, 552.0f);
+            const FVector2D MapPointUnderCursor = (CursorLocal - ViewCenter - RtsMapPan) / OldZoom + NativeMapCenter;
+            RtsMapZoom = NewZoom;
+            RtsMapPan = CursorLocal - ViewCenter - ((MapPointUnderCursor - NativeMapCenter) * RtsMapZoom);
+            ClampRtsMapView();
+        }
         RefreshLoginWidget();
     }
 
@@ -8232,7 +8242,24 @@ FReply ALoginHUD::HandleRtsMapMouseMove(const FGeometry& Geometry, const FPointe
         if (!Delta.IsNearlyZero())
         {
             RtsMapPan += Delta;
-            ClampRtsMapView();
+            if (bHasLoadedRuntimeState && LoadedSaveState.RuntimeState.RtsWorld.ActiveViewMode.Equals(TEXT("city_base"), ESearchCase::IgnoreCase))
+            {
+                const float CityViewScale = FMath::Clamp(0.72f + ((RtsMapZoom - 4.5f) / 1.7f) * 0.58f, 0.72f, 1.30f);
+                RtsMapPan.X = FMath::Clamp(RtsMapPan.X, -620.0f * CityViewScale, 620.0f * CityViewScale);
+                RtsMapPan.Y = FMath::Clamp(RtsMapPan.Y, -360.0f * CityViewScale, 360.0f * CityViewScale);
+                if (FMath::Abs(RtsMapPan.X) > 360.0f || FMath::Abs(RtsMapPan.Y) > 220.0f)
+                {
+                    RtsMapZoom = FMath::Max(4.5f, RtsMapZoom - 0.06f);
+                }
+                else
+                {
+                    RtsMapZoom = FMath::Min(5.4f, RtsMapZoom + 0.025f);
+                }
+            }
+            else
+            {
+                ClampRtsMapView();
+            }
             LastRtsMapDragScreenPosition = CurrentPosition;
             bRtsMapDragMoved = bRtsMapDragMoved || FVector2D::Distance(RtsMapMouseDownScreenPosition, CurrentPosition) >= 5.0f;
             RefreshLoginWidget();
@@ -10003,75 +10030,79 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsCityBasePlaceholderWidget()
                 .ColorAndOpacity(FLinearColor(0.92f, 0.98f, 1.0f, 1.0f))
             ];
     };
+    auto MakeSmallLabel = [this](const FString& Label, const FLinearColor& Color, int32 FontSize = 8) -> TSharedRef<SWidget>
+    {
+        return SNew(SBorder)
+            .BorderImage(RowBrush.Get())
+            .BorderBackgroundColor(Color)
+            .Padding(FMargin(5.0f, 2.0f))
+            [
+                SNew(STextBlock)
+                .Text(BodyText(Label))
+                .Justification(ETextJustify::Center)
+                .Font(FCoreStyle::GetDefaultFontStyle("Bold", FontSize))
+                .ColorAndOpacity(FLinearColor(0.90f, 0.98f, 0.92f, 1.0f))
+            ];
+    };
+
     TSharedRef<SConstraintCanvas> CityLayout = SNew(SConstraintCanvas);
-    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(0.0f, 0.0f, 1120.0f, 620.0f))
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(0.0f, 0.0f, 2200.0f, 1320.0f))
     [
         SNew(SBorder)
         .BorderImage(RowBrush.Get())
-        .BorderBackgroundColor(FLinearColor(0.10f, 0.18f, 0.11f, 1.0f))
+        .BorderBackgroundColor(FLinearColor(0.12f, 0.20f, 0.10f, 1.0f))
         .Padding(0.0f)
     ];
-    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(0.0f, 0.0f, 1120.0f, 72.0f))
-    [MakeTerrainFeature(TEXT("Northern tree line / fog edge"), FLinearColor(0.03f, 0.07f, 0.05f, 0.74f), TEXT("Regular"), 10)];
-    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(760.0f, 118.0f, 280.0f, 92.0f))
-    [MakeTerrainFeature(TEXT("Lake"), FLinearColor(0.04f, 0.28f, 0.38f, 0.88f), TEXT("Bold"), 12)];
-    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(188.0f, 548.0f, 730.0f, 26.0f))
-    [MakeTerrainFeature(TEXT("River supply crossing"), FLinearColor(0.04f, 0.25f, 0.35f, 0.88f), TEXT("Regular"), 10)];
-    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(92.0f, 144.0f, 182.0f, 70.0f))
-    [MakeTerrainFeature(TEXT("Farm fields"), FLinearColor(0.20f, 0.30f, 0.10f, 0.78f), TEXT("Bold"), 11)];
-    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(824.0f, 406.0f, 182.0f, 72.0f))
-    [MakeTerrainFeature(TEXT("Mine ridge"), FLinearColor(0.20f, 0.20f, 0.17f, 0.82f), TEXT("Bold"), 11)];
-    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(730.0f, 500.0f, 156.0f, 46.0f))
-    [MakeTerrainFeature(TEXT("Gas / fuel node"), FLinearColor(0.12f, 0.18f, 0.19f, 0.86f), TEXT("Bold"), 10)];
-    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(0.0f, 296.0f, 1120.0f, 28.0f))
-    [SNew(SBorder).BorderImage(RowBrush.Get()).BorderBackgroundColor(FLinearColor(0.19f, 0.20f, 0.18f, 0.92f)).Padding(0.0f)];
-    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(546.0f, 0.0f, 28.0f, 620.0f))
-    [SNew(SBorder).BorderImage(RowBrush.Get()).BorderBackgroundColor(FLinearColor(0.19f, 0.20f, 0.18f, 0.92f)).Padding(0.0f)];
-    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(500.0f, 262.0f, 120.0f, 92.0f))
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(0.0f, 0.0f, 2200.0f, 190.0f))
+    [MakeTerrainFeature(TEXT("forest edge"), FLinearColor(0.03f, 0.10f, 0.05f, 0.90f), TEXT("Regular"), 8)];
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(1540.0f, 210.0f, 420.0f, 230.0f))
+    [MakeTerrainFeature(TEXT("lake"), FLinearColor(0.02f, 0.25f, 0.38f, 0.90f), TEXT("Bold"), 11)];
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(190.0f, 1080.0f, 1500.0f, 48.0f))
+    [MakeTerrainFeature(TEXT("river"), FLinearColor(0.03f, 0.25f, 0.36f, 0.88f), TEXT("Regular"), 8)];
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(232.0f, 330.0f, 360.0f, 180.0f))
+    [MakeTerrainFeature(TEXT("farmland"), FLinearColor(0.19f, 0.31f, 0.09f, 0.76f), TEXT("Regular"), 8)];
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(1678.0f, 825.0f, 300.0f, 132.0f))
+    [MakeTerrainFeature(TEXT("mine ridge"), FLinearColor(0.20f, 0.20f, 0.17f, 0.82f), TEXT("Regular"), 8)];
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(1456.0f, 995.0f, 240.0f, 82.0f))
+    [MakeTerrainFeature(TEXT("fuel node"), FLinearColor(0.10f, 0.18f, 0.18f, 0.86f), TEXT("Regular"), 8)];
+
+    const FVector2D BaseOrigin(540.0f, 340.0f);
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(BaseOrigin.X + 20.0f, BaseOrigin.Y + 270.0f, 1080.0f, 36.0f))
+    [SNew(SBorder).BorderImage(RowBrush.Get()).BorderBackgroundColor(FLinearColor(0.18f, 0.19f, 0.17f, 0.92f)).Padding(0.0f)];
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(BaseOrigin.X + 520.0f, BaseOrigin.Y + 24.0f, 36.0f, 572.0f))
+    [SNew(SBorder).BorderImage(RowBrush.Get()).BorderBackgroundColor(FLinearColor(0.18f, 0.19f, 0.17f, 0.92f)).Padding(0.0f)];
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(BaseOrigin.X + 492.0f, BaseOrigin.Y + 254.0f, 136.0f, 98.0f))
     [
         SNew(SBorder)
         .BorderImage(RowBrush.Get())
         .BorderBackgroundColor(FLinearColor(0.17f, 0.16f, 0.13f, 0.96f))
-        .Padding(10.0f)
-        [
-            SNew(STextBlock)
-            .Text(BodyText(TEXT("Capital Core\nSupply hub")))
-            .Justification(ETextJustify::Center)
-            .Font(FCoreStyle::GetDefaultFontStyle("Bold", 12))
-            .ColorAndOpacity(FLinearColor(0.96f, 0.92f, 0.78f, 1.0f))
-        ]
-    ];
-
-    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(430.0f, 408.0f, 260.0f, 56.0f))
-    [
-        SNew(SBorder)
-        .BorderImage(RowBrush.Get())
-        .BorderBackgroundColor(FLinearColor(0.05f, 0.10f, 0.11f, 0.90f))
         .Padding(8.0f)
         [
             SNew(STextBlock)
-            .Text(BodyText(TEXT("Unit staging\nSOL  TNK  SUP  WRK")))
+            .Text(BodyText(TEXT("Capital\nCore")))
             .Justification(ETextJustify::Center)
             .Font(FCoreStyle::GetDefaultFontStyle("Bold", 11))
-            .ColorAndOpacity(FLinearColor(0.84f, 0.96f, 0.92f, 1.0f))
+            .ColorAndOpacity(FLinearColor(0.96f, 0.92f, 0.78f, 1.0f))
         ]
     ];
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(BaseOrigin.X + 420.0f, BaseOrigin.Y + 418.0f, 280.0f, 44.0f))
+    [MakeSmallLabel(TEXT("Unit staging: SOL  TNK  SUP  WRK"), FLinearColor(0.04f, 0.10f, 0.11f, 0.78f), 8)];
+
     const TArray<FVector2D> SlotPositions = {
-        FVector2D(96.0f, 80.0f), FVector2D(336.0f, 76.0f), FVector2D(684.0f, 76.0f), FVector2D(924.0f, 80.0f),
-        FVector2D(94.0f, 246.0f), FVector2D(318.0f, 226.0f), FVector2D(702.0f, 226.0f), FVector2D(924.0f, 246.0f),
-        FVector2D(96.0f, 430.0f), FVector2D(336.0f, 434.0f), FVector2D(684.0f, 434.0f), FVector2D(924.0f, 430.0f)
+        FVector2D(BaseOrigin.X + 96.0f, BaseOrigin.Y + 80.0f), FVector2D(BaseOrigin.X + 336.0f, BaseOrigin.Y + 76.0f), FVector2D(BaseOrigin.X + 684.0f, BaseOrigin.Y + 76.0f), FVector2D(BaseOrigin.X + 924.0f, BaseOrigin.Y + 80.0f),
+        FVector2D(BaseOrigin.X + 94.0f, BaseOrigin.Y + 246.0f), FVector2D(BaseOrigin.X + 318.0f, BaseOrigin.Y + 226.0f), FVector2D(BaseOrigin.X + 702.0f, BaseOrigin.Y + 226.0f), FVector2D(BaseOrigin.X + 924.0f, BaseOrigin.Y + 246.0f),
+        FVector2D(BaseOrigin.X + 96.0f, BaseOrigin.Y + 430.0f), FVector2D(BaseOrigin.X + 336.0f, BaseOrigin.Y + 434.0f), FVector2D(BaseOrigin.X + 684.0f, BaseOrigin.Y + 434.0f), FVector2D(BaseOrigin.X + 924.0f, BaseOrigin.Y + 430.0f)
     };
     for (int32 Index = 0; Index < SlotPositions.Num(); ++Index)
     {
-        CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(SlotPositions[Index].X, SlotPositions[Index].Y, 112.0f, 76.0f))
+        CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(SlotPositions[Index].X, SlotPositions[Index].Y, 108.0f, 70.0f))
         [MakeBuildingPad(Index)];
     }
 
-    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(28.0f, 28.0f, 96.0f, 44.0f))[MakeResourceNode(TEXT("Food"), TEXT("farmland"))];
-    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(996.0f, 28.0f, 96.0f, 44.0f))[MakeResourceNode(TEXT("Fuel"), TEXT("depot"))];
-    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(28.0f, 548.0f, 96.0f, 44.0f))[MakeResourceNode(TEXT("Wood"), TEXT("timber"))];
-    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(996.0f, 548.0f, 96.0f, 44.0f))[MakeResourceNode(TEXT("Metals"), TEXT("mine"))];
-
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(290.0f, 350.0f, 84.0f, 34.0f))[MakeResourceNode(TEXT("Food"), TEXT("farmland"))];
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(1700.0f, 270.0f, 84.0f, 34.0f))[MakeResourceNode(TEXT("Fuel"), TEXT("depot"))];
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(260.0f, 1115.0f, 84.0f, 34.0f))[MakeResourceNode(TEXT("Wood"), TEXT("timber"))];
+    CityLayout->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(1760.0f, 880.0f, 84.0f, 34.0f))[MakeResourceNode(TEXT("Metals"), TEXT("mine"))];
     TSharedRef<SVerticalBox> QueueList = SNew(SVerticalBox);
     int32 DisplayedQueueRows = 0;
     for (const FDemocracyRtsConstructionQueueEntryState& QueueEntry : Base.ConstructionQueue)
@@ -10107,6 +10138,7 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsCityBasePlaceholderWidget()
         ];
     }
 
+    const float CityViewScale = FMath::Clamp(0.72f + ((RtsMapZoom - 4.5f) / 1.7f) * 0.58f, 0.72f, 1.30f);
     const FString CompactHeader = FString::Printf(TEXT("%s | Food %+d  Fuel %+d  Wood %+d  Metals %+d  Tick %d"),
         *Base.DisplayName,
         RtsWorld.ResourceCollection.FoodSentToSimulation,
@@ -10120,19 +10152,26 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsCityBasePlaceholderWidget()
     return SNew(SOverlay)
         + SOverlay::Slot()
         [
-            SNew(SBorder)
-            .BorderImage(RtsWaterBrush.Get())
-            .BorderBackgroundColor(FLinearColor(0.05f, 0.10f, 0.08f, 1.0f))
-            .Padding(0.0f)
+            SNew(SRtsMapInputSurface)
+            .OnMapMouseWheel(FPointerEventHandler::CreateUObject(this, &ALoginHUD::HandleRtsMapMouseWheel))
+            .OnMapMouseButtonDown(FPointerEventHandler::CreateUObject(this, &ALoginHUD::HandleRtsMapMouseButtonDown))
+            .OnMapMouseButtonUp(FPointerEventHandler::CreateUObject(this, &ALoginHUD::HandleRtsMapMouseButtonUp))
+            .OnMapMouseMove(FPointerEventHandler::CreateUObject(this, &ALoginHUD::HandleRtsMapMouseMove))
             [
-                SNew(SScaleBox)
-                .Stretch(EStretch::ScaleToFit)
-                .StretchDirection(EStretchDirection::Both)
+                SNew(SBorder)
+                .BorderImage(RtsWaterBrush.Get())
+                .BorderBackgroundColor(FLinearColor(0.06f, 0.12f, 0.08f, 1.0f))
+                .Clipping(EWidgetClipping::ClipToBounds)
+                .Padding(0.0f)
                 [
-                    SNew(SBox)
-                    .WidthOverride(1120.0f)
-                    .HeightOverride(620.0f)
-                    [CityLayout]
+                    SNew(SOverlay)
+                    + SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Center).Padding(FMargin(RtsMapPan.X, RtsMapPan.Y, 0.0f, 0.0f))
+                    [
+                        SNew(SBox)
+                        .WidthOverride(2200.0f)
+                        .HeightOverride(1320.0f)
+                        [CityLayout]
+                    ]
                 ]
             ]
         ]
@@ -10930,8 +10969,8 @@ void ALoginHUD::SelectRtsMapAtViewportPosition(const FGeometry& Geometry, const 
     {
         State.RtsWorld.WorldInteraction.LastInteractionSummary = FString::Printf(TEXT("Opened country/base command view for %s."), *RtsSelectedCountryName);
         State.RtsWorld.ActiveViewMode = TEXT("city_base");
-        RtsMapZoom = 4.6f;
-        FocusRtsMapOnSelection();
+        RtsMapZoom = 5.25f;
+        RtsMapPan = FVector2D::ZeroVector;
         RefreshRtsHudState(State);
         RefreshLoginWidget();
         return;
