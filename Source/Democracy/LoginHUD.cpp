@@ -7149,10 +7149,13 @@ TSharedRef<SWidget> ALoginHUD::BuildNewStateSetupScreen()
     Body->AddSlot().AutoHeight().Padding(0.0f, 14.0f)
     [BuildButton(TEXT("Back"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleBackToDifficultyClicked), 180.0f, 44.0f)];
 
-    return BuildPanel(TEXT("New Country Setup"), TEXT("Name the country, choose its climate, and choose where it starts on Planet Dulia."),
-        SNew(SScrollBox)
-        + SScrollBox::Slot()
-        [Body], 820.0f);
+    TSharedRef<SScrollBox> SetupScroll = SNew(SScrollBox)
+        .OnUserScrolled(FOnUserScrolled::CreateUObject(this, &ALoginHUD::HandleNewCountrySetupScrolled));
+    SetupScroll->AddSlot()
+    [Body];
+    SetupScroll->SetScrollOffset(PendingNewCountrySetupScrollOffset);
+
+    return BuildPanel(TEXT("New Country Setup"), TEXT("Name the country, choose its climate, and choose where it starts on Planet Dulia."), SetupScroll, 820.0f);
 }
 TSharedRef<SWidget> ALoginHUD::BuildLoadedGameScreen()
 {
@@ -13046,6 +13049,7 @@ FReply ALoginHUD::HandleSelectDifficulty(FString DifficultyName)
     PendingStartingCountrySearchText.Empty();
     PendingStartingCountryMapIndex = 0;
     PendingStartingCountryListScrollOffset = 0.0f;
+    PendingNewCountrySetupScrollOffset = 0.0f;
     ShowScreen(ELoginFlowScreen::NewStateSetup);
     return FReply::Handled();
 }
@@ -15523,6 +15527,11 @@ void ALoginHUD::HandleStartingCountrySearchChanged(const FText& SearchText)
 void ALoginHUD::HandleStartingCountryListScrolled(float ScrollOffset)
 {
     PendingStartingCountryListScrollOffset = ScrollOffset;
+}
+
+void ALoginHUD::HandleNewCountrySetupScrolled(float ScrollOffset)
+{
+    PendingNewCountrySetupScrollOffset = ScrollOffset;
 }
 
 void ALoginHUD::HandleRecentLocalSavesChanged(ECheckBoxState NewState)
