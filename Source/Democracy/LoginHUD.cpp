@@ -13179,7 +13179,7 @@ FReply ALoginHUD::HandleStartingCountryMapClicked(const FGeometry& Geometry, con
             {
                 PendingStartingCountryName = Country.CountryName;
                 PendingStartingCountryMapIndex = Country.MapCountryIndex;
-                bNewCountryLocationExpanded = false;
+                bNewCountryLocationExpanded = true;
                 LastSaveStatus = FString::Printf(TEXT("Selected starting country: %s."), *PendingStartingCountryName);
                 RefreshLoginWidget();
                 return FReply::Handled();
@@ -13195,7 +13195,7 @@ FReply ALoginHUD::HandleSelectStartingCountry(FString CountryName, int32 MapCoun
 {
     PendingStartingCountryName = CountryName;
     PendingStartingCountryMapIndex = MapCountryIndex;
-    bNewCountryLocationExpanded = false;
+    bNewCountryLocationExpanded = true;
     LastSaveStatus = FString::Printf(TEXT("Starting country selected: %s, map slot %03d."), *PendingStartingCountryName, PendingStartingCountryMapIndex);
     RefreshLoginWidget();
     return FReply::Handled();
