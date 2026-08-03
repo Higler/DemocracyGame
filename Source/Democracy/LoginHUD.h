@@ -218,6 +218,9 @@ private:
     void SelectRtsMapAtViewportPosition(const FGeometry& Geometry, const FVector2D& ScreenPosition);
     bool TryIssueRtsOrderToProvince(const FString& TargetProvinceId);
     void ClampRtsMapView();
+    void EnterRtsWorldMapView();
+    void EnterRtsCountryOperationsView(bool bFocusSelection = true);
+    void EnterRtsCityBaseView();
     void FocusRtsMapOnSelection();
     FReply HandleSelectRtsOrder(FString OrderType);
     FReply HandleConfirmRtsOrderClicked();

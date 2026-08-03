@@ -8298,9 +8298,7 @@ FReply ALoginHUD::HandleRtsMapMouseWheel(const FGeometry& Geometry, const FPoint
             RtsMapZoom = FMath::Clamp(RtsMapZoom + (bZoomingOut ? -0.35f : 0.35f), 4.5f, 6.2f);
             if (bZoomingOut && RtsMapZoom <= 4.51f)
             {
-                LoadedSaveState.RuntimeState.RtsWorld.ActiveViewMode = TEXT("Country Operations View");
-                RtsMapZoom = 2.65f;
-                FocusRtsMapOnSelection();
+                EnterRtsCountryOperationsView(true);
             }
             else
             {
@@ -8317,23 +8315,20 @@ FReply ALoginHUD::HandleRtsMapMouseWheel(const FGeometry& Geometry, const FPoint
             RtsMapZoom = NewZoom;
             if (bZoomingIn && OldZoom < 1.45f && RtsMapZoom >= 1.0f)
             {
-                RtsMapZoom = 2.35f;
                 if (bHasLoadedRuntimeState)
                 {
-                    LoadedSaveState.RuntimeState.RtsWorld.ActiveViewMode = TEXT("Country Operations View");
-                    FocusRtsMapOnSelection();
+                    EnterRtsCountryOperationsView(true);
                 }
                 else
                 {
+                    RtsMapZoom = 2.35f;
                     RtsMapPan = CursorLocal - ViewCenter - ((MapPointUnderCursor - NativeMapCenter) * RtsMapZoom);
                     ClampRtsMapView();
                 }
             }
             else if (bZoomingIn && OldZoom < 4.5f && RtsMapZoom >= 3.85f && bHasLoadedRuntimeState)
             {
-                LoadedSaveState.RuntimeState.RtsWorld.ActiveViewMode = TEXT("city_base");
-                RtsMapZoom = 5.10f;
-                RtsMapPan = FVector2D::ZeroVector;
+                EnterRtsCityBaseView();
             }
             else
             {
@@ -8393,9 +8388,7 @@ FReply ALoginHUD::HandleRtsMapMouseMove(const FGeometry& Geometry, const FPointe
                 const float CityDragDistance = FMath::Max(FMath::Abs(RtsMapPan.X), FMath::Abs(RtsMapPan.Y));
                 if (CityDragDistance > 260.0f)
                 {
-                    LoadedSaveState.RuntimeState.RtsWorld.ActiveViewMode = TEXT("Country Operations View");
-                    RtsMapZoom = 2.65f;
-                    FocusRtsMapOnSelection();
+                    EnterRtsCountryOperationsView(true);
                 }
                 else if (CityDragDistance > 80.0f)
                 {
@@ -8461,9 +8454,21 @@ FReply ALoginHUD::HandleZoomRtsMapInClicked()
     const float NewZoom = FMath::Clamp(RtsMapZoom + 0.5f, 0.75f, 8.0f);
     if (!FMath::IsNearlyEqual(OldZoom, NewZoom))
     {
-        RtsMapPan *= NewZoom / OldZoom;
-        RtsMapZoom = NewZoom;
-        ClampRtsMapView();
+        if (NewZoom >= 4.5f && bHasLoadedRuntimeState)
+        {
+            EnterRtsCityBaseView();
+        }
+        else if (NewZoom >= 1.35f && bHasLoadedRuntimeState)
+        {
+            RtsMapZoom = FMath::Max(NewZoom, 2.35f);
+            EnterRtsCountryOperationsView(true);
+        }
+        else
+        {
+            RtsMapPan *= NewZoom / OldZoom;
+            RtsMapZoom = NewZoom;
+            ClampRtsMapView();
+        }
         RefreshLoginWidget();
     }
     return FReply::Handled();
@@ -8475,24 +8480,78 @@ FReply ALoginHUD::HandleZoomRtsMapOutClicked()
     const float NewZoom = FMath::Clamp(RtsMapZoom - 0.5f, 0.75f, 8.0f);
     if (!FMath::IsNearlyEqual(OldZoom, NewZoom))
     {
-        RtsMapPan *= NewZoom / OldZoom;
-        RtsMapZoom = NewZoom;
-        ClampRtsMapView();
+        if (bHasLoadedRuntimeState && LoadedSaveState.RuntimeState.RtsWorld.ActiveViewMode.Equals(TEXT("city_base"), ESearchCase::IgnoreCase))
+        {
+            EnterRtsCountryOperationsView(true);
+        }
+        else if (NewZoom < 1.35f)
+        {
+            EnterRtsWorldMapView();
+        }
+        else
+        {
+            RtsMapPan *= NewZoom / OldZoom;
+            RtsMapZoom = NewZoom;
+            ClampRtsMapView();
+        }
         RefreshLoginWidget();
     }
     return FReply::Handled();
 }
+
 FReply ALoginHUD::HandleResetRtsMapViewClicked()
+{
+    EnterRtsWorldMapView();
+    RefreshLoginWidget();
+    return FReply::Handled();
+}
+void ALoginHUD::EnterRtsWorldMapView()
 {
     RtsMapZoom = 1.0f;
     RtsMapPan = FVector2D::ZeroVector;
     bIsDraggingRtsMap = false;
     bRtsMapDragMoved = false;
-    RefreshLoginWidget();
-    return FReply::Handled();
+    if (bHasLoadedRuntimeState)
+    {
+        LoadedSaveState.RuntimeState.RtsWorld.ActiveViewMode = TEXT("World View");
+    }
 }
 
+void ALoginHUD::EnterRtsCountryOperationsView(bool bFocusSelection)
+{
+    RtsMapZoom = 2.65f;
+    RtsMapPan = FVector2D::ZeroVector;
+    bIsDraggingRtsMap = false;
+    bRtsMapDragMoved = false;
+    if (bHasLoadedRuntimeState)
+    {
+        LoadedSaveState.RuntimeState.RtsWorld.ActiveViewMode = TEXT("Country Operations View");
+        if (RtsSelectedCountryName.IsEmpty())
+        {
+            RtsSelectedCountryName = LoadedSaveState.RuntimeState.PlayerCountry.CountryName;
+        }
+        if (bFocusSelection)
+        {
+            FocusRtsMapOnSelection();
+        }
+        else
+        {
+            ClampRtsMapView();
+        }
+    }
+}
 
+void ALoginHUD::EnterRtsCityBaseView()
+{
+    RtsMapZoom = 5.10f;
+    RtsMapPan = FVector2D::ZeroVector;
+    bIsDraggingRtsMap = false;
+    bRtsMapDragMoved = false;
+    if (bHasLoadedRuntimeState)
+    {
+        LoadedSaveState.RuntimeState.RtsWorld.ActiveViewMode = TEXT("city_base");
+    }
+}
 void ALoginHUD::ClampRtsMapView()
 {
     RtsMapZoom = FMath::Clamp(RtsMapZoom, 0.75f, 8.0f);
@@ -10459,7 +10518,7 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsCityBasePlaceholderWidget()
         [
             SNew(SHorizontalBox)
             + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 8.0f, 0.0f)
-            [BuildButton(TEXT("World View"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleResetRtsMapViewClicked), 136.0f, 36.0f)]
+            [BuildButton(TEXT("Country View"), FOnClicked::CreateLambda([this]() { EnterRtsCountryOperationsView(true); RefreshLoginWidget(); return FReply::Handled(); }), 146.0f, 36.0f)]
             + SHorizontalBox::Slot().AutoWidth()
             [BuildButton(TEXT("Return To Office"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleCloseOfficeOverlayClicked), 172.0f, 36.0f)]
         ]
@@ -10719,13 +10778,22 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsCountryOperationsOverlayWidget(float MapW
 
         const bool bPlayerCountry = Country.bPlayerCountry || Country.CountryName.Equals(State.PlayerCountry.CountryName, ESearchCase::IgnoreCase);
         const bool bSelectedCountry = Country.CountryName.Equals(RtsSelectedCountryName, ESearchCase::IgnoreCase) || Country.ProvinceIds.Contains(RtsSelectedProvinceId);
+        const bool bHoveredCountry = Country.CountryName.Equals(State.RtsWorld.WorldInteraction.HoveredTargetId, ESearchCase::IgnoreCase) || Country.CountryId.Equals(State.RtsWorld.WorldInteraction.HoveredTargetId, ESearchCase::IgnoreCase) || Country.ProvinceIds.Contains(State.RtsWorld.WorldInteraction.HoveredTargetId);
         const bool bDictatorship = Country.GovernmentType.Equals(TEXT("Dictatorship"), ESearchCase::IgnoreCase);
         const FLinearColor CityColor = bPlayerCountry ? FLinearColor(0.04f, 0.80f, 0.22f, 0.96f) : (bDictatorship ? FLinearColor(0.82f, 0.10f, 0.10f, 0.88f) : FLinearColor(0.08f, 0.34f, 0.86f, 0.86f));
         const FVector2D CountryCenter(Point->Centroid.X * ScaleX, Point->Centroid.Y * ScaleY);
-        const FString CityLabel = bPlayerCountry ? TEXT("CAP") : (bSelectedCountry ? TEXT("CITY") : TEXT("city"));
-        AddBoxMarker(CountryCenter, FVector2D(bSelectedCountry || bPlayerCountry ? 54.0f : 42.0f, 24.0f), CityColor, CityLabel, bSelectedCountry || bPlayerCountry ? 8 : 7);
+        const bool bShowNamedMarker = bPlayerCountry || bSelectedCountry || bHoveredCountry;
+        if (bShowNamedMarker)
+        {
+            const FString CityLabel = bPlayerCountry ? TEXT("CAP") : (bSelectedCountry ? TEXT("CITY") : TEXT("hover"));
+            AddBoxMarker(CountryCenter, FVector2D(54.0f, 24.0f), CityColor, CityLabel, 8);
+        }
+        else if (bDetailedMiddleView)
+        {
+            AddBoxMarker(CountryCenter, FVector2D(12.0f, 12.0f), CityColor.CopyWithNewOpacity(0.62f), TEXT(""), 1);
+        }
 
-        if (!bDetailedMiddleView && !bPlayerCountry && !bSelectedCountry)
+        if (!bDetailedMiddleView && !bPlayerCountry && !bSelectedCountry && !bHoveredCountry)
         {
             continue;
         }
