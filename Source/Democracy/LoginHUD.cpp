@@ -8298,7 +8298,7 @@ FReply ALoginHUD::HandleRtsMapMouseWheel(const FGeometry& Geometry, const FPoint
             RtsMapZoom = FMath::Clamp(RtsMapZoom + (bZoomingOut ? -0.35f : 0.35f), 4.5f, 6.2f);
             if (bZoomingOut && RtsMapZoom <= 4.51f)
             {
-                EnterRtsCountryOperationsView(true);
+                EnterRtsRegionalCountryView(true);
             }
             else
             {
@@ -8388,7 +8388,7 @@ FReply ALoginHUD::HandleRtsMapMouseMove(const FGeometry& Geometry, const FPointe
                 const float CityDragDistance = FMath::Max(FMath::Abs(RtsMapPan.X), FMath::Abs(RtsMapPan.Y));
                 if (CityDragDistance > 260.0f)
                 {
-                    EnterRtsCountryOperationsView(true);
+                    EnterRtsRegionalCountryView(true);
                 }
                 else if (CityDragDistance > 80.0f)
                 {
@@ -8458,6 +8458,10 @@ FReply ALoginHUD::HandleZoomRtsMapInClicked()
         {
             EnterRtsCityBaseView();
         }
+        else if (NewZoom >= 3.0f && bHasLoadedRuntimeState)
+        {
+            EnterRtsRegionalCountryView(true);
+        }
         else if (NewZoom >= 1.35f && bHasLoadedRuntimeState)
         {
             RtsMapZoom = FMath::Max(NewZoom, 2.35f);
@@ -8482,7 +8486,7 @@ FReply ALoginHUD::HandleZoomRtsMapOutClicked()
     {
         if (bHasLoadedRuntimeState && LoadedSaveState.RuntimeState.RtsWorld.ActiveViewMode.Equals(TEXT("city_base"), ESearchCase::IgnoreCase))
         {
-            EnterRtsCountryOperationsView(true);
+            EnterRtsRegionalCountryView(true);
         }
         else if (NewZoom < 1.35f)
         {
@@ -8541,6 +8545,31 @@ void ALoginHUD::EnterRtsCountryOperationsView(bool bFocusSelection)
     }
 }
 
+void ALoginHUD::EnterRtsRegionalCountryView(bool bFocusSelection)
+{
+    RtsMapZoom = 3.65f;
+    RtsMapPan = FVector2D::ZeroVector;
+    bIsDraggingRtsMap = false;
+    bRtsMapDragMoved = false;
+    if (bHasLoadedRuntimeState)
+    {
+        LoadedSaveState.RuntimeState.RtsWorld.ActiveViewMode = TEXT("Regional Country View");
+        if (RtsSelectedCountryName.IsEmpty())
+        {
+            RtsSelectedCountryName = LoadedSaveState.RuntimeState.PlayerCountry.CountryName;
+        }
+        if (bFocusSelection)
+        {
+            FocusRtsMapOnSelection();
+            RtsMapZoom = 3.65f;
+            FocusRtsMapOnSelection();
+        }
+        else
+        {
+            ClampRtsMapView();
+        }
+    }
+}
 void ALoginHUD::EnterRtsCityBaseView()
 {
     RtsMapZoom = 5.10f;
@@ -8666,6 +8695,10 @@ FString ALoginHUD::GetRtsZoomModeLabel() const
     if (RtsMapZoom >= 4.5f)
     {
         return TEXT("Province / City View");
+    }
+    if (RtsMapZoom >= 3.0f)
+    {
+        return TEXT("Regional Country View");
     }
     if (RtsMapZoom >= 1.35f)
     {
@@ -10518,7 +10551,7 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsCityBasePlaceholderWidget()
         [
             SNew(SHorizontalBox)
             + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 8.0f, 0.0f)
-            [BuildButton(TEXT("Country View"), FOnClicked::CreateLambda([this]() { EnterRtsCountryOperationsView(true); RefreshLoginWidget(); return FReply::Handled(); }), 146.0f, 36.0f)]
+            [BuildButton(TEXT("Regional View"), FOnClicked::CreateLambda([this]() { EnterRtsRegionalCountryView(true); RefreshLoginWidget(); return FReply::Handled(); }), 154.0f, 36.0f)]
             + SHorizontalBox::Slot().AutoWidth()
             [BuildButton(TEXT("Return To Office"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleCloseOfficeOverlayClicked), 172.0f, 36.0f)]
         ]

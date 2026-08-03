@@ -220,6 +220,7 @@ private:
     void ClampRtsMapView();
     void EnterRtsWorldMapView();
     void EnterRtsCountryOperationsView(bool bFocusSelection = true);
+    void EnterRtsRegionalCountryView(bool bFocusSelection = true);
     void EnterRtsCityBaseView();
     void FocusRtsMapOnSelection();
     FReply HandleSelectRtsOrder(FString OrderType);
