@@ -8190,9 +8190,8 @@ FReply ALoginHUD::HandleRtsMapMouseWheel(const FGeometry& Geometry, const FPoint
             if (bZoomingOut && RtsMapZoom <= 4.51f)
             {
                 LoadedSaveState.RuntimeState.RtsWorld.ActiveViewMode = TEXT("Country View");
-                RtsMapZoom = 3.15f;
-                RtsMapPan *= 0.42f;
-                ClampRtsMapView();
+                RtsMapZoom = 2.20f;
+                FocusRtsMapOnSelection();
             }
             else
             {
@@ -8205,9 +8204,33 @@ FReply ALoginHUD::HandleRtsMapMouseWheel(const FGeometry& Geometry, const FPoint
         {
             const FVector2D NativeMapCenter(1121.0f, 552.0f);
             const FVector2D MapPointUnderCursor = (CursorLocal - ViewCenter - RtsMapPan) / OldZoom + NativeMapCenter;
+            const bool bZoomingIn = MouseEvent.GetWheelDelta() > 0.0f;
             RtsMapZoom = NewZoom;
-            RtsMapPan = CursorLocal - ViewCenter - ((MapPointUnderCursor - NativeMapCenter) * RtsMapZoom);
-            ClampRtsMapView();
+            if (bZoomingIn && OldZoom < 1.45f && RtsMapZoom >= 1.0f)
+            {
+                RtsMapZoom = 1.85f;
+                if (bHasLoadedRuntimeState)
+                {
+                    LoadedSaveState.RuntimeState.RtsWorld.ActiveViewMode = TEXT("Country View");
+                    FocusRtsMapOnSelection();
+                }
+                else
+                {
+                    RtsMapPan = CursorLocal - ViewCenter - ((MapPointUnderCursor - NativeMapCenter) * RtsMapZoom);
+                    ClampRtsMapView();
+                }
+            }
+            else if (bZoomingIn && OldZoom < 4.5f && RtsMapZoom >= 3.85f && bHasLoadedRuntimeState)
+            {
+                LoadedSaveState.RuntimeState.RtsWorld.ActiveViewMode = TEXT("city_base");
+                RtsMapZoom = 5.10f;
+                RtsMapPan = FVector2D::ZeroVector;
+            }
+            else
+            {
+                RtsMapPan = CursorLocal - ViewCenter - ((MapPointUnderCursor - NativeMapCenter) * RtsMapZoom);
+                ClampRtsMapView();
+            }
         }
         RefreshLoginWidget();
     }
@@ -8261,9 +8284,8 @@ FReply ALoginHUD::HandleRtsMapMouseMove(const FGeometry& Geometry, const FPointe
                 if (FMath::Abs(RtsMapPan.X) > 780.0f || FMath::Abs(RtsMapPan.Y) > 500.0f)
                 {
                     LoadedSaveState.RuntimeState.RtsWorld.ActiveViewMode = TEXT("Country View");
-                    RtsMapZoom = 3.15f;
-                    RtsMapPan *= 0.42f;
-                    ClampRtsMapView();
+                    RtsMapZoom = 2.20f;
+                    FocusRtsMapOnSelection();
                 }
                 else if (FMath::Abs(RtsMapPan.X) > 460.0f || FMath::Abs(RtsMapPan.Y) > 300.0f)
                 {
@@ -11166,7 +11188,7 @@ TSharedRef<SWidget> ALoginHUD::BuildOfficeWorldRtsScreen()
             [
                 SNew(SBorder)
                 .BorderImage(RowBrush.Get())
-                .BorderBackgroundColor(FLinearColor(0.02f, 0.09f, 0.11f, 1.0f))
+                .BorderBackgroundColor(FLinearColor(0.274f, 0.612f, 0.690f, 1.0f))
                 .Padding(0.0f)
             ]
             + SOverlay::Slot()
