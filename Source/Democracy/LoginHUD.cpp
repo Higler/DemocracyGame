@@ -8281,19 +8281,21 @@ FReply ALoginHUD::HandleRtsMapMouseMove(const FGeometry& Geometry, const FPointe
                 const float CityViewScale = FMath::Clamp(0.72f + ((RtsMapZoom - 4.5f) / 1.7f) * 0.58f, 0.72f, 1.30f);
                 RtsMapPan.X = FMath::Clamp(RtsMapPan.X, -980.0f * CityViewScale, 980.0f * CityViewScale);
                 RtsMapPan.Y = FMath::Clamp(RtsMapPan.Y, -620.0f * CityViewScale, 620.0f * CityViewScale);
-                if (FMath::Abs(RtsMapPan.X) > 780.0f || FMath::Abs(RtsMapPan.Y) > 500.0f)
+                const float CityDragDistance = FMath::Max(FMath::Abs(RtsMapPan.X), FMath::Abs(RtsMapPan.Y));
+                if (CityDragDistance > 260.0f)
                 {
                     LoadedSaveState.RuntimeState.RtsWorld.ActiveViewMode = TEXT("Country View");
                     RtsMapZoom = 2.20f;
                     FocusRtsMapOnSelection();
                 }
-                else if (FMath::Abs(RtsMapPan.X) > 460.0f || FMath::Abs(RtsMapPan.Y) > 300.0f)
+                else if (CityDragDistance > 80.0f)
                 {
-                    RtsMapZoom = FMath::Max(4.5f, RtsMapZoom - 0.08f);
+                    const float DragAlpha = FMath::Clamp((CityDragDistance - 80.0f) / 180.0f, 0.0f, 1.0f);
+                    RtsMapZoom = FMath::Lerp(5.25f, 4.50f, DragAlpha);
                 }
                 else
                 {
-                    RtsMapZoom = FMath::Min(5.4f, RtsMapZoom + 0.018f);
+                    RtsMapZoom = FMath::Min(5.35f, RtsMapZoom + 0.008f);
                 }
             }
             else
