@@ -10160,6 +10160,208 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsResourceNodesWidget() const
     return NodeGrid;
 }
 
+TSharedRef<SWidget> ALoginHUD::BuildRtsRegionalCountryViewWidget()
+{
+    if (!bHasLoadedRuntimeState)
+    {
+        return SNew(STextBlock).Text(BodyText(TEXT("No RTS state loaded.")));
+    }
+
+    FDemocracySimulationState& State = LoadedSaveState.RuntimeState;
+    FDemocracyRtsWorldState& RtsWorld = State.RtsWorld;
+    const FString CountryName = RtsSelectedCountryName.IsEmpty() ? State.PlayerCountry.CountryName : RtsSelectedCountryName;
+    const FString ProvinceName = RtsSelectedProvinceId.IsEmpty() ? TEXT("capital region") : RtsSelectedProvinceId;
+    const float RegionalWidth = 2600.0f;
+    const float RegionalHeight = 1560.0f;
+
+    auto MakePatch = [this](const FLinearColor& Color) -> TSharedRef<SWidget>
+    {
+        return SNew(SBorder).BorderImage(RowBrush.Get()).BorderBackgroundColor(Color).Padding(0.0f);
+    };
+
+    auto MakeLabel = [this](const FString& Label, const FLinearColor& Color, int32 FontSize = 9) -> TSharedRef<SWidget>
+    {
+        return SNew(SBorder)
+            .BorderImage(RowBrush.Get())
+            .BorderBackgroundColor(Color)
+            .Padding(FMargin(6.0f, 3.0f))
+            [
+                SNew(STextBlock)
+                .Text(BodyText(Label))
+                .Justification(ETextJustify::Center)
+                .AutoWrapText(true)
+                .Font(FCoreStyle::GetDefaultFontStyle("Bold", FontSize))
+                .ColorAndOpacity(FLinearColor(0.94f, 0.98f, 0.92f, 1.0f))
+            ];
+    };
+
+    auto MakeCity = [this](const FString& Name, const FString& Detail, const FLinearColor& Color) -> TSharedRef<SWidget>
+    {
+        return SNew(SBorder)
+            .BorderImage(RowBrush.Get())
+            .BorderBackgroundColor(Color)
+            .Padding(FMargin(10.0f, 8.0f))
+            [
+                SNew(SVerticalBox)
+                + SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)
+                [
+                    SNew(SBox).WidthOverride(78.0f).HeightOverride(34.0f)
+                    [SNew(SBorder).BorderImage(RowBrush.Get()).BorderBackgroundColor(FLinearColor(0.12f, 0.16f, 0.17f, 0.98f)).Padding(0.0f)]
+                ]
+                + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 5.0f, 0.0f, 0.0f)
+                [
+                    SNew(STextBlock)
+                    .Text(BodyText(Name))
+                    .Justification(ETextJustify::Center)
+                    .Font(FCoreStyle::GetDefaultFontStyle("Bold", 10))
+                    .ColorAndOpacity(FLinearColor::White)
+                ]
+                + SVerticalBox::Slot().AutoHeight()
+                [
+                    SNew(STextBlock)
+                    .Text(BodyText(Detail))
+                    .Justification(ETextJustify::Center)
+                    .Font(FCoreStyle::GetDefaultFontStyle("Regular", 8))
+                    .ColorAndOpacity(FLinearColor(0.78f, 0.88f, 0.82f, 1.0f))
+                ]
+            ];
+    };
+
+    auto MakeResource = [this](const FString& ResourceName, int32 Count, const FLinearColor& Color) -> TSharedRef<SWidget>
+    {
+        return SNew(SBorder)
+            .BorderImage(RowBrush.Get())
+            .BorderBackgroundColor(Color)
+            .Padding(FMargin(8.0f, 5.0f))
+            [
+                SNew(STextBlock)
+                .Text(BodyText(FString::Printf(TEXT("%s\nx%d"), *ResourceName, FMath::Max(1, Count))))
+                .Justification(ETextJustify::Center)
+                .Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
+                .ColorAndOpacity(FLinearColor::White)
+            ];
+    };
+
+    TSharedRef<SConstraintCanvas> RegionalCanvas = SNew(SConstraintCanvas);
+    RegionalCanvas->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(0.0f, 0.0f, RegionalWidth, RegionalHeight))
+    [MakePatch(FLinearColor(0.10f, 0.20f, 0.12f, 1.0f))];
+
+    for (int32 Y = 0; Y < 13; ++Y)
+    {
+        for (int32 X = 0; X < 22; ++X)
+        {
+            const float Tone = ((X * 19 + Y * 11) % 12) * 0.006f;
+            RegionalCanvas->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(X * 120.0f, Y * 120.0f, 124.0f, 124.0f))
+            [MakePatch(FLinearColor(0.08f + Tone, 0.18f + Tone, 0.10f + Tone, 0.50f))];
+        }
+    }
+
+    RegionalCanvas->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(0.0f, 0.0f, 2600.0f, 190.0f))[MakePatch(FLinearColor(0.02f, 0.07f, 0.035f, 0.96f))];
+    RegionalCanvas->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(2040.0f, 270.0f, 420.0f, 320.0f))[MakePatch(FLinearColor(0.03f, 0.24f, 0.34f, 0.96f))];
+    RegionalCanvas->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(210.0f, 1150.0f, 2000.0f, 78.0f))[MakePatch(FLinearColor(0.03f, 0.24f, 0.32f, 0.92f))];
+    RegionalCanvas->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(1460.0f, 190.0f, 56.0f, 1120.0f))[MakePatch(FLinearColor(0.18f, 0.19f, 0.17f, 0.88f))];
+    RegionalCanvas->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(510.0f, 720.0f, 1540.0f, 48.0f))[MakePatch(FLinearColor(0.18f, 0.19f, 0.17f, 0.88f))];
+    RegionalCanvas->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(1120.0f, 470.0f, 220.0f, 170.0f))[MakeLabel(TEXT("Capital command district"), FLinearColor(0.05f, 0.10f, 0.10f, 0.90f), 10)];
+
+    RegionalCanvas->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(1060.0f, 650.0f, 180.0f, 116.0f))[MakeCity(TEXT("Capital"), TEXT("command / storage"), FLinearColor(0.05f, 0.24f, 0.17f, 0.98f))];
+    RegionalCanvas->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(520.0f, 420.0f, 170.0f, 108.0f))[MakeCity(TEXT("North City"), TEXT("industry / repair"), FLinearColor(0.10f, 0.20f, 0.24f, 0.96f))];
+    RegionalCanvas->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(1700.0f, 700.0f, 170.0f, 108.0f))[MakeCity(TEXT("East Depot"), TEXT("logistics / supply"), FLinearColor(0.12f, 0.22f, 0.18f, 0.96f))];
+    RegionalCanvas->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(760.0f, 1030.0f, 170.0f, 108.0f))[MakeCity(TEXT("Farm Town"), TEXT("food / workers"), FLinearColor(0.16f, 0.28f, 0.10f, 0.96f))];
+    RegionalCanvas->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(1880.0f, 1110.0f, 170.0f, 108.0f))[MakeCity(TEXT("South Port"), TEXT("trade / fuel"), FLinearColor(0.07f, 0.24f, 0.30f, 0.96f))];
+
+    int32 FoodNodes = 0;
+    int32 FuelNodes = 0;
+    int32 WoodNodes = 0;
+    int32 MetalNodes = 0;
+    for (const FDemocracyProvinceOwnershipState& Province : RtsWorld.Ownership.Provinces)
+    {
+        if (!Province.CurrentControllerCountryName.Equals(CountryName, ESearchCase::IgnoreCase) && !Province.OriginalCountryName.Equals(CountryName, ESearchCase::IgnoreCase))
+        {
+            continue;
+        }
+        if (Province.ResourceFocus.Contains(TEXT("Fuel"), ESearchCase::IgnoreCase) || Province.ResourceFocus.Contains(TEXT("Gas"), ESearchCase::IgnoreCase) || Province.ResourceFocus.Contains(TEXT("Oil"), ESearchCase::IgnoreCase)) { ++FuelNodes; }
+        else if (Province.ResourceFocus.Contains(TEXT("Wood"), ESearchCase::IgnoreCase) || Province.ResourceFocus.Contains(TEXT("Forest"), ESearchCase::IgnoreCase)) { ++WoodNodes; }
+        else if (Province.ResourceFocus.Contains(TEXT("Metal"), ESearchCase::IgnoreCase) || Province.ResourceFocus.Contains(TEXT("Mine"), ESearchCase::IgnoreCase)) { ++MetalNodes; }
+        else { ++FoodNodes; }
+    }
+    RegionalCanvas->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(320.0f, 600.0f, 120.0f, 58.0f))[MakeResource(TEXT("Food node"), FoodNodes, FLinearColor(0.35f, 0.48f, 0.10f, 0.95f))];
+    RegionalCanvas->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(2170.0f, 620.0f, 120.0f, 58.0f))[MakeResource(TEXT("Fuel node"), FuelNodes, FLinearColor(0.06f, 0.34f, 0.42f, 0.95f))];
+    RegionalCanvas->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(260.0f, 250.0f, 120.0f, 58.0f))[MakeResource(TEXT("Wood node"), WoodNodes, FLinearColor(0.18f, 0.44f, 0.16f, 0.95f))];
+    RegionalCanvas->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(2020.0f, 920.0f, 120.0f, 58.0f))[MakeResource(TEXT("Metal node"), MetalNodes, FLinearColor(0.42f, 0.42f, 0.46f, 0.95f))];
+
+    int32 ArmyIndex = 0;
+    for (const FDemocracyRtsArmyGroupState& Army : RtsWorld.ArmyGroups)
+    {
+        if (ArmyIndex >= 5)
+        {
+            break;
+        }
+        const float X = 930.0f + (ArmyIndex * 138.0f);
+        const float Y = 825.0f + ((ArmyIndex % 2) * 72.0f);
+        const FString ArmyLabel = FString::Printf(TEXT("Army %d\nS%d T%d C%d"), ArmyIndex + 1, Army.InfantryCount, Army.VehicleCount, Army.LogisticsCount);
+        RegionalCanvas->AddSlot().Anchors(FAnchors(0.0f, 0.0f)).Offset(FMargin(X, Y, 106.0f, 60.0f))
+        [MakeLabel(ArmyLabel, Army.bSelected ? FLinearColor(0.18f, 0.52f, 0.20f, 0.98f) : FLinearColor(0.06f, 0.22f, 0.16f, 0.92f), 8)];
+        ++ArmyIndex;
+    }
+
+    const FString HeaderText = FString::Printf(TEXT("Regional Country View | %s | %s | Food %+d Fuel %+d Wood %+d Metals %+d"),
+        *CountryName,
+        *ProvinceName,
+        RtsWorld.ResourceCollection.FoodSentToSimulation,
+        RtsWorld.ResourceCollection.FuelSentToSimulation,
+        RtsWorld.ResourceCollection.WoodSentToSimulation,
+        RtsWorld.ResourceCollection.MetalsSentToSimulation);
+
+    return SNew(SOverlay)
+        + SOverlay::Slot()
+        [
+            SNew(SRtsMapInputSurface)
+            .OnMapMouseWheel(FPointerEventHandler::CreateUObject(this, &ALoginHUD::HandleRtsMapMouseWheel))
+            .OnMapMouseButtonDown(FPointerEventHandler::CreateUObject(this, &ALoginHUD::HandleRtsMapMouseButtonDown))
+            .OnMapMouseButtonUp(FPointerEventHandler::CreateUObject(this, &ALoginHUD::HandleRtsMapMouseButtonUp))
+            .OnMapMouseMove(FPointerEventHandler::CreateUObject(this, &ALoginHUD::HandleRtsMapMouseMove))
+            [
+                SNew(SBorder)
+                .BorderImage(RtsWaterBrush.Get())
+                .BorderBackgroundColor(FLinearColor(0.08f, 0.18f, 0.13f, 1.0f))
+                .Clipping(EWidgetClipping::ClipToBounds)
+                .Padding(0.0f)
+                [
+                    SNew(SOverlay)
+                    + SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Center).Padding(FMargin(RtsMapPan.X, RtsMapPan.Y, 0.0f, 0.0f))
+                    [
+                        SNew(SBox).WidthOverride(RegionalWidth).HeightOverride(RegionalHeight)[RegionalCanvas]
+                    ]
+                ]
+            ]
+        ]
+        + SOverlay::Slot().HAlign(HAlign_Left).VAlign(VAlign_Top).Padding(16.0f)
+        [MakeLabel(HeaderText, FLinearColor(0.03f, 0.07f, 0.08f, 0.84f), 12)]
+        + SOverlay::Slot().HAlign(HAlign_Right).VAlign(VAlign_Top).Padding(16.0f)
+        [
+            SNew(SHorizontalBox)
+            + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 8.0f, 0.0f)
+            [BuildButton(TEXT("World View"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleResetRtsMapViewClicked), 136.0f, 36.0f)]
+            + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 8.0f, 0.0f)
+            [BuildButton(TEXT("City View"), FOnClicked::CreateLambda([this]() { EnterRtsCityBaseView(); RefreshLoginWidget(); return FReply::Handled(); }), 126.0f, 36.0f)]
+            + SHorizontalBox::Slot().AutoWidth()
+            [BuildButton(TEXT("Return To Office"), FOnClicked::CreateUObject(this, &ALoginHUD::HandleCloseOfficeOverlayClicked), 172.0f, 36.0f)]
+        ]
+        + SOverlay::Slot().HAlign(HAlign_Left).VAlign(VAlign_Bottom).Padding(16.0f)
+        [
+            SNew(SBorder)
+            .BorderImage(RowBrush.Get())
+            .BorderBackgroundColor(FLinearColor(0.03f, 0.07f, 0.08f, 0.82f))
+            .Padding(12.0f)
+            [
+                SNew(STextBlock)
+                .Text(BodyText(TEXT("Regional controls: drag to scan the country, wheel up for city/base, wheel down for national map. Cities, nodes, roads, rivers, and army groups are shown here instead of the political world map.")))
+                .AutoWrapText(true)
+                .Font(FCoreStyle::GetDefaultFontStyle("Regular", 10))
+                .ColorAndOpacity(FLinearColor(0.90f, 0.96f, 0.92f, 1.0f))
+            ]
+        ];
+}
 TSharedRef<SWidget> ALoginHUD::BuildRtsCityBasePlaceholderWidget()
 {
     FDemocracyRtsWorldState& RtsWorld = LoadedSaveState.RuntimeState.RtsWorld;
@@ -11539,6 +11741,11 @@ TSharedRef<SWidget> ALoginHUD::BuildOfficeWorldRtsScreen()
         {
             LoadedSaveState.RuntimeState.RtsWorld.ActiveViewMode = TEXT("city_base");
             return BuildRtsCityBasePlaceholderWidget();
+        }
+        if (RtsMapZoom >= 3.0f && bHasLoadedRuntimeState)
+        {
+            LoadedSaveState.RuntimeState.RtsWorld.ActiveViewMode = TEXT("Regional Country View");
+            return BuildRtsRegionalCountryViewWidget();
         }
 
         return SNew(SOverlay)

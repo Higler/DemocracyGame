@@ -208,6 +208,7 @@ private:
     FString BuildRtsConstructionAvailabilityText(const FDemocracyRtsBuildingState* Building, int32 SlotIndex, const FString& SlotFocus, bool bUpgrade) const;
     FString BuildRtsCityBaseSummaryText() const;
     FString BuildRtsOfficeAlertText() const;
+    TSharedRef<SWidget> BuildRtsRegionalCountryViewWidget();
     TSharedRef<SWidget> BuildRtsCityBasePlaceholderWidget();
     TSharedRef<SWidget> BuildRtsResourceNodesWidget() const;
     TSharedRef<SWidget> BuildRtsProvinceStateOverlaysWidget(float MapWidth, float MapHeight) const;
