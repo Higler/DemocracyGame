@@ -2515,6 +2515,117 @@ FString FDemocracyRtsScopeBoundaryState::ToJson(int32 IndentSpaces) const
         *Indent(IndentSpaces - 2));
 }
 
+FString FDemocracyRtsTerrainRuleState::ToJson(int32 IndentSpaces) const
+{
+    const FString Pad = Indent(IndentSpaces);
+    return FString::Printf(
+        TEXT("{\n")
+        TEXT("%s\"terrainId\": \"%s\",\n")
+        TEXT("%s\"displayName\": \"%s\",\n")
+        TEXT("%s\"moveCost\": %d,\n")
+        TEXT("%s\"defenseModifier\": %d,\n")
+        TEXT("%s\"foodOutput\": %d,\n")
+        TEXT("%s\"fuelOutput\": %d,\n")
+        TEXT("%s\"woodOutput\": %d,\n")
+        TEXT("%s\"metalsOutput\": %d,\n")
+        TEXT("%s\"supplyModifier\": %d,\n")
+        TEXT("%s\"blocksVehicleMovement\": %s,\n")
+        TEXT("%s\"blocksConstruction\": %s,\n")
+        TEXT("%s\"notes\": \"%s\",\n")
+        TEXT("%s\"tags\": %s\n")
+        TEXT("%s}"),
+        *Pad, *JsonEscape(TerrainId),
+        *Pad, *JsonEscape(DisplayName),
+        *Pad, MoveCost,
+        *Pad, DefenseModifier,
+        *Pad, FoodOutput,
+        *Pad, FuelOutput,
+        *Pad, WoodOutput,
+        *Pad, MetalsOutput,
+        *Pad, SupplyModifier,
+        *Pad, bBlocksVehicleMovement ? TEXT("true") : TEXT("false"),
+        *Pad, bBlocksConstruction ? TEXT("true") : TEXT("false"),
+        *Pad, *JsonEscape(Notes),
+        *Pad, *StringArrayToJson(Tags),
+        *Indent(IndentSpaces - 2));
+}
+
+FString FDemocracyRtsActionRuleState::ToJson(int32 IndentSpaces) const
+{
+    const FString Pad = Indent(IndentSpaces);
+    return FString::Printf(
+        TEXT("{\n")
+        TEXT("%s\"actionId\": \"%s\",\n")
+        TEXT("%s\"displayName\": \"%s\",\n")
+        TEXT("%s\"requiredRelation\": \"%s\",\n")
+        TEXT("%s\"requiredGovernmentState\": \"%s\",\n")
+        TEXT("%s\"requiredTechTag\": \"%s\",\n")
+        TEXT("%s\"minReadiness\": %d,\n")
+        TEXT("%s\"treasuryCost\": %d,\n")
+        TEXT("%s\"foodCost\": %d,\n")
+        TEXT("%s\"fuelCost\": %d,\n")
+        TEXT("%s\"woodCost\": %d,\n")
+        TEXT("%s\"metalsCost\": %d,\n")
+        TEXT("%s\"cooldownTurns\": %d,\n")
+        TEXT("%s\"requiresWar\": %s,\n")
+        TEXT("%s\"requiresAdjacentProvince\": %s,\n")
+        TEXT("%s\"serverAuthoritative\": %s,\n")
+        TEXT("%s\"consequenceSummary\": \"%s\"\n")
+        TEXT("%s}"),
+        *Pad, *JsonEscape(ActionId),
+        *Pad, *JsonEscape(DisplayName),
+        *Pad, *JsonEscape(RequiredRelation),
+        *Pad, *JsonEscape(RequiredGovernmentState),
+        *Pad, *JsonEscape(RequiredTechTag),
+        *Pad, MinReadiness,
+        *Pad, TreasuryCost,
+        *Pad, FoodCost,
+        *Pad, FuelCost,
+        *Pad, WoodCost,
+        *Pad, MetalsCost,
+        *Pad, CooldownTurns,
+        *Pad, bRequiresWar ? TEXT("true") : TEXT("false"),
+        *Pad, bRequiresAdjacentProvince ? TEXT("true") : TEXT("false"),
+        *Pad, bServerAuthoritative ? TEXT("true") : TEXT("false"),
+        *Pad, *JsonEscape(ConsequenceSummary),
+        *Indent(IndentSpaces - 2));
+}
+
+FString FDemocracyRtsRulesetProfileState::ToJson(int32 IndentSpaces) const
+{
+    const FString Pad = Indent(IndentSpaces);
+    const FString EntryPad = Indent(IndentSpaces + 2);
+    FString TerrainJson = TEXT("[");
+    for (int32 Index = 0; Index < TerrainRules.Num(); ++Index)
+    {
+        TerrainJson += FString::Printf(TEXT("\n%s%s"), *EntryPad, *TerrainRules[Index].ToJson(IndentSpaces + 4));
+        if (Index < TerrainRules.Num() - 1) { TerrainJson += TEXT(","); }
+    }
+    TerrainJson += FString::Printf(TEXT("\n%s]"), *Pad);
+
+    FString ActionJson = TEXT("[");
+    for (int32 Index = 0; Index < ActionRules.Num(); ++Index)
+    {
+        ActionJson += FString::Printf(TEXT("\n%s%s"), *EntryPad, *ActionRules[Index].ToJson(IndentSpaces + 4));
+        if (Index < ActionRules.Num() - 1) { ActionJson += TEXT(","); }
+    }
+    ActionJson += FString::Printf(TEXT("\n%s]"), *Pad);
+
+    return FString::Printf(
+        TEXT("{\n")
+        TEXT("%s\"rulesetVersion\": \"%s\",\n")
+        TEXT("%s\"sourceInspirationNote\": \"%s\",\n")
+        TEXT("%s\"summary\": \"%s\",\n")
+        TEXT("%s\"terrainRules\": %s,\n")
+        TEXT("%s\"actionRules\": %s\n")
+        TEXT("%s}"),
+        *Pad, *JsonEscape(RulesetVersion),
+        *Pad, *JsonEscape(SourceInspirationNote),
+        *Pad, *JsonEscape(Summary),
+        *Pad, *TerrainJson,
+        *Pad, *ActionJson,
+        *Indent(IndentSpaces - 2));
+}
 FString FDemocracyRtsViewModeState::ToJson(int32 IndentSpaces) const
 {
     const FString Pad = Indent(IndentSpaces);
@@ -4465,6 +4576,34 @@ FDemocracySimulationState FDemocracyGameStateFactory::CreateInitialState(
     State.RtsWorld.ScopeBoundary.SimulationOwns = { TEXT("Policies, advisors, diplomacy, treaties, sanctions, economy, budget, public approval, stability, unrest, demographics, events, objectives, autosaves, and fail-state protection."), TEXT("Strategic permissions such as mobilization, emergency powers, war declarations, alliance aid, sanctions, trade, and ceasefire negotiation."), TEXT("Player-facing briefings and dashboard summaries that explain why RTS actions are available or blocked.") };
     State.RtsWorld.ScopeBoundary.BlockedUntilRts = { TEXT("Direct troop movement from the office"), TEXT("Manual battle targeting"), TEXT("Manual farm/mine/logging/oil harvesting"), TEXT("Permanent city construction placement"), TEXT("Live unit pathfinding and combat") };
     State.RtsWorld.ScopeBoundary.BackflowRequired = { TEXT("Territory gained or lost"), TEXT("Province captured or contested"), TEXT("Casualties"), TEXT("Resource disruption"), TEXT("War fatigue"), TEXT("Diplomatic damage"), TEXT("Stability and unrest shifts"), TEXT("Invasion risk"), TEXT("Budget strain"), TEXT("Supply-route failure") };
+    State.RtsWorld.RulesetProfile.RulesetVersion = TEXT("DuliaRtsRules.v1");
+    State.RtsWorld.RulesetProfile.SourceInspirationNote = TEXT("Original Democracy RTS rules inspired by open-source 4X ruleset structure; no Freeciv names, art, data, or code copied.");
+    State.RtsWorld.RulesetProfile.Summary = TEXT("Original data-driven terrain and action rules for RTS testing. Balancing can be tuned without touching combat/order code.");
+    State.RtsWorld.RulesetProfile.TerrainRules = {
+        { TEXT("terrain_open"), TEXT("Open Ground"), 1, 0, 1, 0, 1, 0, 2, false, false, TEXT("Default buildable terrain with easy movement and neutral defense."), { TEXT("buildable"), TEXT("fast") } },
+        { TEXT("terrain_forest"), TEXT("Forest"), 2, 8, 0, 0, 4, 0, -1, true, true, TEXT("Wood-rich terrain that slows vehicles and blocks most construction until cleared."), { TEXT("wood"), TEXT("cover"), TEXT("unbuildable") } },
+        { TEXT("terrain_farmland"), TEXT("Farmland"), 1, -2, 5, 0, 0, 0, 1, false, false, TEXT("Food-focused terrain with low defensive value."), { TEXT("food"), TEXT("buildable") } },
+        { TEXT("terrain_mine_ridge"), TEXT("Mine Ridge"), 3, 14, 0, 0, 0, 5, -2, true, true, TEXT("Metals-rich high ground with strong defense and difficult movement."), { TEXT("metals"), TEXT("high-ground"), TEXT("unbuildable") } },
+        { TEXT("terrain_lake"), TEXT("Lake"), 99, -20, 1, 0, 0, 0, -8, true, true, TEXT("Water blocks ground units and construction until future bridge/naval rules exist."), { TEXT("water"), TEXT("blocked") } },
+        { TEXT("terrain_fuel_basin"), TEXT("Fuel Basin"), 2, -4, 0, 5, 0, 0, 0, false, true, TEXT("Fuel node terrain: valuable, exposed, and only buildable by extraction structures."), { TEXT("fuel"), TEXT("resource-node") } },
+        { TEXT("terrain_urban"), TEXT("Urban District"), 2, 12, 1, 0, 0, 1, 2, false, false, TEXT("Dense city terrain supports defenses and command buildings."), { TEXT("city"), TEXT("defense"), TEXT("buildable") } }
+    };
+    State.RtsWorld.RulesetProfile.ActionRules = {
+        { TEXT("move"), TEXT("Move Army"), TEXT("Any"), TEXT("Any"), TEXT(""), 0, 6, 2, 3, 0, 0, 0, false, false, true, TEXT("Moves an army and consumes fuel/food for logistics.") },
+        { TEXT("defend"), TEXT("Defend Position"), TEXT("Any"), TEXT("Any"), TEXT(""), 0, 5, 2, 0, 0, 1, 0, false, false, true, TEXT("Raises local defensive posture with light metals upkeep.") },
+        { TEXT("rally"), TEXT("Set Rally"), TEXT("Any"), TEXT("Any"), TEXT(""), 0, 6, 2, 3, 0, 0, 0, false, false, true, TEXT("Sets a destination for staging and reinforcements.") },
+        { TEXT("patrol_scout"), TEXT("Patrol / Scout"), TEXT("Any"), TEXT("Any"), TEXT(""), 0, 4, 0, 2, 0, 0, 1, false, false, true, TEXT("Reveals fog and reports hostile movement with low cost.") },
+        { TEXT("reinforce"), TEXT("Reinforce"), TEXT("AllyOrPlayer"), TEXT("Any"), TEXT(""), 35, 12, 4, 5, 0, 4, 1, false, true, true, TEXT("Moves support into controlled or allied positions.") },
+        { TEXT("battle"), TEXT("Attack / Battle"), TEXT("Hostile"), TEXT("Any"), TEXT(""), 40, 18, 6, 8, 0, 7, 1, true, true, true, TEXT("High-impact hostile action; requires war authority and reports backflow consequences.") },
+        { TEXT("occupation"), TEXT("Hold Occupation"), TEXT("Hostile"), TEXT("Any"), TEXT(""), 25, 10, 4, 0, 2, 0, 2, true, true, true, TEXT("Maintains control while increasing budget and unrest pressure.") },
+        { TEXT("diplomacy"), TEXT("Diplomatic Action"), TEXT("Any"), TEXT("Any"), TEXT(""), 0, 16, 0, 0, 0, 0, 1, false, false, true, TEXT("Office-authorized diplomatic action affecting RTS availability.") },
+        { TEXT("build"), TEXT("Construct Building"), TEXT("Player"), TEXT("Any"), TEXT(""), 0, 20, 0, 0, 8, 10, 1, false, false, true, TEXT("Starts a city/base construction queue on buildable terrain.") },
+        { TEXT("upgrade"), TEXT("Upgrade Building"), TEXT("Player"), TEXT("Any"), TEXT(""), 0, 28, 0, 6, 12, 14, 2, false, false, true, TEXT("Improves production or defense after queue completion.") },
+        { TEXT("recruit_soldier"), TEXT("Recruit Soldier"), TEXT("Player"), TEXT("Any"), TEXT(""), 0, 10, 4, 1, 0, 2, 0, false, false, true, TEXT("Creates soldier strength from barracks capacity.") },
+        { TEXT("build_tank"), TEXT("Build Tank"), TEXT("Player"), TEXT("Any"), TEXT(""), 30, 28, 0, 8, 0, 18, 1, false, false, true, TEXT("Creates armored strength using fuel and metals.") },
+        { TEXT("spawn_convoy"), TEXT("Build Convoy"), TEXT("Player"), TEXT("Any"), TEXT(""), 0, 18, 2, 8, 4, 8, 1, false, false, true, TEXT("Creates logistics carriers for supply and transport.") },
+        { TEXT("spawn_worker"), TEXT("Train Worker"), TEXT("Player"), TEXT("Any"), TEXT(""), 0, 8, 3, 0, 2, 0, 0, false, false, true, TEXT("Creates worker teams for hauling, construction, and repair.") }
+    };
     State.RtsWorld.ScopeBoundary.CandidateAssetPacks = { TEXT("Content/World/Dulia/Generated/Dulia_Country_Regions_Preview.png"), TEXT("Content/World/Dulia/Generated/Dulia_Country_Id_Map.png"), TEXT("Content/World/Dulia/Generated/Dulia_Land_Mask.png"), TEXT("Content/RTS/Imported/Vehicles/ATV_N1_LE"), TEXT("Content/RTS/Imported/Vehicles/FA_N26_LE"), TEXT("Content/RTS/Imported/Vehicles/MSH_N2_LE"), TEXT("Content/RTS/Imported/Units/artic"), TEXT("FabLibrary/RTS_Modern_Combat_Vehicle_Pack_Free-f9509a39"), TEXT("FabLibrary/Vehicle_Variety_Pack_Volume_2-591e3b3f"), TEXT("FabLibrary/Arctic_Military_Soldier___Cold_Weather_Combat_Character___Game-Ready__Rigged___A-2c938445"), TEXT("FabLibrary/Middle_Eastern_Armed_Fighter___Realistic_Soldier___Game-Ready__Rigged___Animated-4098d74b"), TEXT("FabLibrary/Naval_Tactical_Soldier___Maritime_Military_Character___Game-Ready__Rigged___Anim-f8703026"), TEXT("FabLibrary/Tactical_Crowd_AI_Toolkit__GPU_Influence_Maps-d81cbf03"), TEXT("FabLibrary/MW_Landscape_Auto_Material-6602874e"), TEXT("FabLibrary/Industry_Props_Pack_6-b5603e44"), TEXT("FabLibrary/Concrete_Road_Barrier-6428e9ae"), TEXT("FabLibrary/Military_Assault_Rifle__Game_Ready_-5bdfc17e"), TEXT("FabLibrary/Military_Pistol__Game_Ready_-c4fdc17e") };
 
     FDemocracyRtsViewModeState CityView;

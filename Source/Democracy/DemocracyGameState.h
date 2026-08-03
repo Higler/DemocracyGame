@@ -764,6 +764,57 @@ struct FDemocracyRtsScopeBoundaryState
     FString ToJson(int32 IndentSpaces = 2) const;
 };
 
+struct FDemocracyRtsTerrainRuleState
+{
+    FString TerrainId;
+    FString DisplayName;
+    int32 MoveCost = 1;
+    int32 DefenseModifier = 0;
+    int32 FoodOutput = 0;
+    int32 FuelOutput = 0;
+    int32 WoodOutput = 0;
+    int32 MetalsOutput = 0;
+    int32 SupplyModifier = 0;
+    bool bBlocksVehicleMovement = false;
+    bool bBlocksConstruction = false;
+    FString Notes;
+    TArray<FString> Tags;
+
+    FString ToJson(int32 IndentSpaces = 2) const;
+};
+
+struct FDemocracyRtsActionRuleState
+{
+    FString ActionId;
+    FString DisplayName;
+    FString RequiredRelation = TEXT("Any");
+    FString RequiredGovernmentState = TEXT("Any");
+    FString RequiredTechTag;
+    int32 MinReadiness = 0;
+    int32 TreasuryCost = 0;
+    int32 FoodCost = 0;
+    int32 FuelCost = 0;
+    int32 WoodCost = 0;
+    int32 MetalsCost = 0;
+    int32 CooldownTurns = 0;
+    bool bRequiresWar = false;
+    bool bRequiresAdjacentProvince = false;
+    bool bServerAuthoritative = true;
+    FString ConsequenceSummary;
+
+    FString ToJson(int32 IndentSpaces = 2) const;
+};
+
+struct FDemocracyRtsRulesetProfileState
+{
+    FString RulesetVersion = TEXT("DuliaRtsRules.v1");
+    FString SourceInspirationNote = TEXT("Original Democracy RTS rules inspired by open-source 4X ruleset structure; no outside names, art, data, or code copied.");
+    FString Summary = TEXT("Ruleset profile has not been initialized yet.");
+    TArray<FDemocracyRtsTerrainRuleState> TerrainRules;
+    TArray<FDemocracyRtsActionRuleState> ActionRules;
+
+    FString ToJson(int32 IndentSpaces = 2) const;
+};
 struct FDemocracyRtsViewModeState
 {
     FString ViewId;
@@ -1080,6 +1131,7 @@ struct FDemocracyRtsWorldState
     FString ActiveViewMode = TEXT("world_map");
     TArray<FString> ActiveStrategicLayers;
     FDemocracyRtsScopeBoundaryState ScopeBoundary;
+    FDemocracyRtsRulesetProfileState RulesetProfile;
     TArray<FDemocracyRtsViewModeState> ViewModes;
     FDemocracyRtsCityBaseState CityBase;
     TArray<FDemocracyRtsUnitDefinitionState> UnitCatalog;

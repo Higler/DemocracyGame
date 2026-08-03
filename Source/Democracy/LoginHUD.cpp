@@ -1704,6 +1704,93 @@ namespace
         return FString::Printf(TEXT("Cost T%d F%d G%d W%d M%d"), TreasuryCost, FoodCost, FuelCost, WoodCost, MetalsCost);
     }
 
+    FString NormalizeRtsRuleKey(const FString& ActionName)
+    {
+        FString Key = ActionName.ToLower();
+        Key.ReplaceInline(TEXT("/"), TEXT("_"));
+        Key.ReplaceInline(TEXT(" "), TEXT("_"));
+        if (Key.Equals(TEXT("patrol_scout")) || Key.Contains(TEXT("scout"))) { return TEXT("patrol_scout"); }
+        if (Key.Contains(TEXT("reinforce"))) { return TEXT("reinforce"); }
+        if (Key.Contains(TEXT("defend"))) { return TEXT("defend"); }
+        if (Key.Contains(TEXT("rally"))) { return TEXT("rally"); }
+        if (Key.Contains(TEXT("battle")) || Key.Contains(TEXT("attack"))) { return TEXT("battle"); }
+        if (Key.Contains(TEXT("occupation")) || Key.Contains(TEXT("occupy"))) { return TEXT("occupation"); }
+        if (Key.Contains(TEXT("diplomacy")) || Key.Contains(TEXT("treaty")) || Key.Contains(TEXT("sanction"))) { return TEXT("diplomacy"); }
+        if (Key.Contains(TEXT("upgrade"))) { return TEXT("upgrade"); }
+        if (Key.Contains(TEXT("build_tank")) || Key.Contains(TEXT("tank"))) { return TEXT("build_tank"); }
+        if (Key.Contains(TEXT("convoy")) || Key.Contains(TEXT("carrier"))) { return TEXT("spawn_convoy"); }
+        if (Key.Contains(TEXT("worker"))) { return TEXT("spawn_worker"); }
+        if (Key.Contains(TEXT("recruit")) || Key.Contains(TEXT("soldier"))) { return TEXT("recruit_soldier"); }
+        if (Key.Contains(TEXT("build"))) { return TEXT("build"); }
+        if (Key.Contains(TEXT("move"))) { return TEXT("move"); }
+        return Key;
+    }
+
+    const FDemocracyRtsActionRuleState* FindRtsActionRule(const FDemocracyRtsWorldState& RtsWorld, const FString& ActionName)
+    {
+        const FString Key = NormalizeRtsRuleKey(ActionName);
+        for (const FDemocracyRtsActionRuleState& Rule : RtsWorld.RulesetProfile.ActionRules)
+        {
+            if (Rule.ActionId.Equals(Key, ESearchCase::IgnoreCase))
+            {
+                return &Rule;
+            }
+        }
+        return nullptr;
+    }
+
+    const FDemocracyRtsTerrainRuleState* FindRtsTerrainRule(const FDemocracyRtsWorldState& RtsWorld, const FString& TerrainType)
+    {
+        const FString LowerTerrain = TerrainType.ToLower();
+        for (const FDemocracyRtsTerrainRuleState& Rule : RtsWorld.RulesetProfile.TerrainRules)
+        {
+            if (Rule.TerrainId.Equals(TerrainType, ESearchCase::IgnoreCase) || Rule.DisplayName.Equals(TerrainType, ESearchCase::IgnoreCase))
+            {
+                return &Rule;
+            }
+            for (const FString& Tag : Rule.Tags)
+            {
+                if (!Tag.IsEmpty() && LowerTerrain.Contains(Tag.ToLower()))
+                {
+                    return &Rule;
+                }
+            }
+        }
+        return nullptr;
+    }
+    int32 RtsTerrainBattleModifier(const FString& TerrainType, const FString& OrderType);
+
+    bool DoesRtsRulesetHaveWarAuthority(const FDemocracySimulationState& State)
+    {
+        for (const FDemocracyWarConflictState& Conflict : State.WarSystem.ActiveConflicts)
+        {
+            const bool bCeasefire = Conflict.Status.Contains(TEXT("Ceasefire"), ESearchCase::IgnoreCase);
+            const bool bResolved = Conflict.Status.Contains(TEXT("Resolved"), ESearchCase::IgnoreCase) || Conflict.Status.Contains(TEXT("Ended"), ESearchCase::IgnoreCase);
+            if (!bCeasefire && !bResolved)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    int32 RtsRulesetTerrainBattleModifier(const FDemocracyRtsWorldState& RtsWorld, const FString& TerrainType, const FString& OrderType)
+    {
+        if (const FDemocracyRtsTerrainRuleState* Rule = FindRtsTerrainRule(RtsWorld, TerrainType))
+        {
+            int32 Modifier = Rule->DefenseModifier;
+            if (OrderType.Equals(TEXT("Move"), ESearchCase::IgnoreCase) || OrderType.Equals(TEXT("Rally"), ESearchCase::IgnoreCase))
+            {
+                Modifier -= FMath::Max(0, Rule->MoveCost - 1) * 3;
+            }
+            if (OrderType.Equals(TEXT("Patrol/Scout"), ESearchCase::IgnoreCase))
+            {
+                Modifier -= FMath::Max(0, Rule->MoveCost - 1);
+            }
+            return FMath::Clamp(Modifier, -24, 28);
+        }
+        return RtsTerrainBattleModifier(TerrainType, OrderType);
+    }
     bool CanPayRtsCost(const FDemocracyCountryState& Country, int32 TreasuryCost, int32 FoodCost, int32 FuelCost, int32 WoodCost, int32 MetalsCost)
     {
         return Country.Treasury >= TreasuryCost
@@ -1787,7 +1874,28 @@ namespace
         int32 FuelCost = 0;
         int32 WoodCost = 0;
         int32 MetalsCost = 0;
-        GetRtsActionCost(ActionName, TreasuryCost, FoodCost, FuelCost, WoodCost, MetalsCost);
+        if (const FDemocracyRtsActionRuleState* Rule = FindRtsActionRule(State.RtsWorld, ActionName))
+        {
+            TreasuryCost = Rule->TreasuryCost;
+            FoodCost = Rule->FoodCost;
+            FuelCost = Rule->FuelCost;
+            WoodCost = Rule->WoodCost;
+            MetalsCost = Rule->MetalsCost;
+            if (State.PlayerCountry.MilitaryReadiness < Rule->MinReadiness)
+            {
+                OutCostSummary = FString::Printf(TEXT("%s requires military readiness %d before it can be ordered."), *Rule->DisplayName, Rule->MinReadiness);
+                return false;
+            }
+            if (Rule->bRequiresWar && !DoesRtsRulesetHaveWarAuthority(State))
+            {
+                OutCostSummary = FString::Printf(TEXT("%s requires active war authority from the office."), *Rule->DisplayName);
+                return false;
+            }
+        }
+        else
+        {
+            GetRtsActionCost(ActionName, TreasuryCost, FoodCost, FuelCost, WoodCost, MetalsCost);
+        }
         const int32 CostMultiplier = FMath::Max(1, Multiplier);
         TreasuryCost *= CostMultiplier;
         FoodCost *= CostMultiplier;
@@ -2750,9 +2858,9 @@ Outcome.bAppliedToSimulation = true;
             Hud.BuildMenuOptions.Add(FString::Printf(TEXT("%s L%d cost %d upgrade %d"), *Building.DisplayName, Building.Level, Building.BuildCost, Building.UpgradeCost));
         }
         Hud.ArmyOrderButtons = { TEXT("Move"), TEXT("Defend"), TEXT("Rally"), TEXT("Patrol/Scout"), TEXT("Reinforce") };
-        Hud.BuildMenuSummary = FString::Printf(TEXT("Build menu: %d building types | queue %d | upgrades %d | construction ticks every %d RTS tick(s)."), State.RtsWorld.CityBase.Buildings.Num(), State.RtsWorld.CityBase.BuildQueueCount, State.RtsWorld.CityBase.UpgradeQueueCount, State.RtsWorld.RtsTicksPerConstructionTurn);
+        Hud.BuildMenuSummary = FString::Printf(TEXT("Build menu: %d building types | queue %d | upgrades %d | construction ticks every %d RTS tick(s). Ruleset %s: %d terrain rules, %d action gates."), State.RtsWorld.CityBase.Buildings.Num(), State.RtsWorld.CityBase.BuildQueueCount, State.RtsWorld.CityBase.UpgradeQueueCount, State.RtsWorld.RtsTicksPerConstructionTurn, *State.RtsWorld.RulesetProfile.RulesetVersion, State.RtsWorld.RulesetProfile.TerrainRules.Num(), State.RtsWorld.RulesetProfile.ActionRules.Num());
         Hud.ArmyOrderSummary = State.RtsWorld.ArmyGroups.Num() > 0 ? FString::Printf(TEXT("Selected army %s | order %s | morale %d | supply %d."), *State.RtsWorld.ArmyGroups[0].DisplayName, *State.RtsWorld.ArmyGroups[0].ActiveOrderType, State.RtsWorld.ArmyGroups[0].Morale, State.RtsWorld.ArmyGroups[0].SupplyStatus) : TEXT("No army selected.");
-        Hud.MinimapSummary = FString::Printf(TEXT("Minimap: %d provinces | known %d | scouted %d | hidden %d | contested %d."), State.RtsWorld.Ownership.TotalProvinces, State.RtsWorld.FogOfWar.KnownProvinceCount, State.RtsWorld.FogOfWar.ScoutedProvinceCount, State.RtsWorld.FogOfWar.HiddenProvinceCount, State.RtsWorld.FogOfWar.ContestedProvinceCount);
+        Hud.MinimapSummary = FString::Printf(TEXT("Minimap: %d provinces | known %d | scouted %d | hidden %d | contested %d | rules %s."), State.RtsWorld.Ownership.TotalProvinces, State.RtsWorld.FogOfWar.KnownProvinceCount, State.RtsWorld.FogOfWar.ScoutedProvinceCount, State.RtsWorld.FogOfWar.HiddenProvinceCount, State.RtsWorld.FogOfWar.ContestedProvinceCount, *State.RtsWorld.RulesetProfile.RulesetVersion);
         Hud.Alerts.Reset();
         if (State.RtsWorld.Backflow.PendingOutcomes.Num() > 0)
         {
@@ -2861,8 +2969,8 @@ Outcome.bAppliedToSimulation = true;
         Battle.OpponentCountry = Province.CurrentControllerCountryName.Equals(State.PlayerCountry.CountryName, ESearchCase::IgnoreCase) ? (State.RtsWorld.Rivals.Num() > 0 ? State.RtsWorld.Rivals[0].CountryName : TEXT("Unknown Rival")) : Province.CurrentControllerCountryName;
         Battle.TerrainType = Province.TerrainType;
         Battle.ReadinessModifier = FMath::Clamp((State.PlayerCountry.MilitaryReadiness - 45) / 2, -18, 26);
-        Battle.TerrainModifier = RtsTerrainBattleModifier(Province.TerrainType, OrderType);
-        Battle.SupplyModifier = FMath::Clamp((Army.SupplyStatus - 55) / 2 - (Army.bSupplyRouteBroken ? 18 : 0), -38, 22);
+        Battle.TerrainModifier = RtsRulesetTerrainBattleModifier(State.RtsWorld, Province.TerrainType, OrderType);
+        Battle.SupplyModifier = FMath::Clamp((Army.SupplyStatus - 55) / 2 - (Army.bSupplyRouteBroken ? 18 : 0) + (FindRtsTerrainRule(State.RtsWorld, Province.TerrainType) ? FindRtsTerrainRule(State.RtsWorld, Province.TerrainType)->SupplyModifier : 0), -38, 22);
         Battle.TechModifier = FMath::Clamp(State.PlayerCountry.Technology / 8, 0, 15);
         Battle.MoraleModifier = FMath::Clamp((Army.Morale - 50) / 2, -22, 22);
 
@@ -2930,7 +3038,8 @@ Outcome.bAppliedToSimulation = true;
         Battle.ScoutLosses = FMath::Min(Army.ScoutCount, FMath::Max(0, LossPressure / 9 + (OrderType.Equals(TEXT("Patrol/Scout"), ESearchCase::IgnoreCase) ? 1 : 0)));
         Battle.DefensiveLosses = FMath::Min(Army.DefensiveUnitCount, FMath::Max(0, LossPressure / 6 + (OrderType.Equals(TEXT("Defend"), ESearchCase::IgnoreCase) ? 0 : 1)));
 
-        Battle.Summary = FString::Printf(TEXT("%s resolved in %s with result %s. Player score %d vs opponent score %d. Modifiers readiness %+d, terrain %+d, supply %+d, tech %+d, morale %+d, reinforcements %+d, defenses %+d. Losses soldiers %d, tanks %d, aircraft %d, supply carriers %d, scouts %d, defensive units %d. %s Follow-ups: %s."), *OrderType, *Province.ProvinceName, *Battle.Result, Battle.PlayerScore, Battle.OpponentScore, Battle.ReadinessModifier, Battle.TerrainModifier, Battle.SupplyModifier, Battle.TechModifier, Battle.MoraleModifier, Battle.ReinforcementModifier, Battle.DefensiveStructureModifier, Battle.InfantryLosses, Battle.VehicleLosses, Battle.AircraftLosses, Battle.LogisticsLosses, Battle.ScoutLosses, Battle.DefensiveLosses, Battle.bRetreated ? TEXT("Retreat behavior triggered to preserve remaining forces.") : TEXT("No automatic retreat triggered."), *FString::Join(Battle.FollowUpActions, TEXT(", ")));
+        const FString RulesetNote = State.RtsWorld.RulesetProfile.RulesetVersion.IsEmpty() ? TEXT("fallback terrain rules") : State.RtsWorld.RulesetProfile.RulesetVersion;
+        Battle.Summary = FString::Printf(TEXT("%s [%s] resolved in %s with result %s. Player score %d vs opponent score %d. Modifiers readiness %+d, terrain %+d, supply %+d, tech %+d, morale %+d, reinforcements %+d, defenses %+d. Losses soldiers %d, tanks %d, aircraft %d, supply carriers %d, scouts %d, defensive units %d. %s Follow-ups: %s."), *OrderType, *RulesetNote, *Province.ProvinceName, *Battle.Result, Battle.PlayerScore, Battle.OpponentScore, Battle.ReadinessModifier, Battle.TerrainModifier, Battle.SupplyModifier, Battle.TechModifier, Battle.MoraleModifier, Battle.ReinforcementModifier, Battle.DefensiveStructureModifier, Battle.InfantryLosses, Battle.VehicleLosses, Battle.AircraftLosses, Battle.LogisticsLosses, Battle.ScoutLosses, Battle.DefensiveLosses, Battle.bRetreated ? TEXT("Retreat behavior triggered to preserve remaining forces.") : TEXT("No automatic retreat triggered."), *FString::Join(Battle.FollowUpActions, TEXT(", ")));
         return Battle;
     }
 
