@@ -8285,57 +8285,69 @@ TSharedRef<SWidget> ALoginHUD::BuildOfficeDemographicsScreen()
 }
 FReply ALoginHUD::HandleRtsMapMouseWheel(const FGeometry& Geometry, const FPointerEvent& MouseEvent)
 {
+    const float WheelDelta = MouseEvent.GetWheelDelta();
+    if (FMath::IsNearlyZero(WheelDelta))
+    {
+        return FReply::Handled();
+    }
+
+    const bool bIsRtsEntry = bHasLoadedRuntimeState && WorldRtsEntryMode.Equals(TEXT("RtsEntry"), ESearchCase::IgnoreCase);
+    const FString ActiveViewMode = bIsRtsEntry ? LoadedSaveState.RuntimeState.RtsWorld.ActiveViewMode : FString();
+    if (bIsRtsEntry && ActiveViewMode.Equals(TEXT("city_base"), ESearchCase::IgnoreCase))
+    {
+        if (WheelDelta < 0.0f)
+        {
+            EnterRtsRegionalCountryView(true);
+        }
+        else
+        {
+            RtsMapZoom = FMath::Clamp(RtsMapZoom + 0.20f, 4.5f, 6.2f);
+        }
+        RefreshLoginWidget();
+        return FReply::Handled();
+    }
+
+    if (bIsRtsEntry && ActiveViewMode.Equals(TEXT("Regional Country View"), ESearchCase::IgnoreCase))
+    {
+        if (WheelDelta > 0.0f)
+        {
+            RtsMapZoom = FMath::Clamp(RtsMapZoom + 0.30f, 3.0f, 4.55f);
+            if (RtsMapZoom >= 4.5f)
+            {
+                EnterRtsCityBaseView();
+            }
+        }
+        else
+        {
+            RtsMapZoom = FMath::Clamp(RtsMapZoom - 0.30f, 2.85f, 4.49f);
+            if (RtsMapZoom <= 2.9f)
+            {
+                EnterRtsWorldMapView();
+            }
+        }
+        RefreshLoginWidget();
+        return FReply::Handled();
+    }
+
+    if (bIsRtsEntry && WheelDelta > 0.0f)
+    {
+        EnterRtsRegionalCountryView(true);
+        RefreshLoginWidget();
+        return FReply::Handled();
+    }
+
     const float OldZoom = FMath::Max(RtsMapZoom, 0.01f);
-    const float ZoomStep = MouseEvent.GetWheelDelta() > 0.0f ? 0.25f : -0.25f;
+    const float ZoomStep = WheelDelta > 0.0f ? 0.25f : -0.25f;
     const float NewZoom = FMath::Clamp(RtsMapZoom + ZoomStep, 0.75f, 8.0f);
     if (!FMath::IsNearlyEqual(OldZoom, NewZoom))
     {
         const FVector2D ViewCenter = Geometry.GetLocalSize() * 0.5f;
         const FVector2D CursorLocal = Geometry.AbsoluteToLocal(MouseEvent.GetScreenSpacePosition());
-        if (bHasLoadedRuntimeState && (LoadedSaveState.RuntimeState.RtsWorld.ActiveViewMode.Equals(TEXT("city_base"), ESearchCase::IgnoreCase) || RtsMapZoom >= 4.5f))
-        {
-            const bool bZoomingOut = MouseEvent.GetWheelDelta() < 0.0f;
-            RtsMapZoom = FMath::Clamp(RtsMapZoom + (bZoomingOut ? -0.35f : 0.35f), 4.5f, 6.2f);
-            if (bZoomingOut && RtsMapZoom <= 4.51f)
-            {
-                EnterRtsRegionalCountryView(true);
-            }
-            else
-            {
-                const float CityViewScale = FMath::Clamp(0.72f + ((RtsMapZoom - 4.5f) / 1.7f) * 0.58f, 0.72f, 1.30f);
-                RtsMapPan.X = FMath::Clamp(RtsMapPan.X, -980.0f * CityViewScale, 980.0f * CityViewScale);
-                RtsMapPan.Y = FMath::Clamp(RtsMapPan.Y, -620.0f * CityViewScale, 620.0f * CityViewScale);
-            }
-        }
-        else
-        {
-            const FVector2D NativeMapCenter(1121.0f, 552.0f);
-            const FVector2D MapPointUnderCursor = (CursorLocal - ViewCenter - RtsMapPan) / OldZoom + NativeMapCenter;
-            const bool bZoomingIn = MouseEvent.GetWheelDelta() > 0.0f;
-            RtsMapZoom = NewZoom;
-            if (bZoomingIn && OldZoom < 1.45f && RtsMapZoom >= 1.0f)
-            {
-                if (bHasLoadedRuntimeState)
-                {
-                    EnterRtsRegionalCountryView(true);
-                }
-                else
-                {
-                    RtsMapZoom = 2.35f;
-                    RtsMapPan = CursorLocal - ViewCenter - ((MapPointUnderCursor - NativeMapCenter) * RtsMapZoom);
-                    ClampRtsMapView();
-                }
-            }
-            else if (bZoomingIn && OldZoom < 4.5f && RtsMapZoom >= 4.5f && bHasLoadedRuntimeState)
-            {
-                EnterRtsCityBaseView();
-            }
-            else
-            {
-                RtsMapPan = CursorLocal - ViewCenter - ((MapPointUnderCursor - NativeMapCenter) * RtsMapZoom);
-                ClampRtsMapView();
-            }
-        }
+        const FVector2D NativeMapCenter(1121.0f, 552.0f);
+        const FVector2D MapPointUnderCursor = (CursorLocal - ViewCenter - RtsMapPan) / OldZoom + NativeMapCenter;
+        RtsMapZoom = NewZoom;
+        RtsMapPan = CursorLocal - ViewCenter - ((MapPointUnderCursor - NativeMapCenter) * RtsMapZoom);
+        ClampRtsMapView();
         RefreshLoginWidget();
     }
 
@@ -8380,7 +8392,9 @@ FReply ALoginHUD::HandleRtsMapMouseMove(const FGeometry& Geometry, const FPointe
         if (!Delta.IsNearlyZero())
         {
             RtsMapPan += Delta;
-            if (bHasLoadedRuntimeState && (LoadedSaveState.RuntimeState.RtsWorld.ActiveViewMode.Equals(TEXT("city_base"), ESearchCase::IgnoreCase) || RtsMapZoom >= 4.5f))
+            const bool bIsRtsEntry = bHasLoadedRuntimeState && WorldRtsEntryMode.Equals(TEXT("RtsEntry"), ESearchCase::IgnoreCase);
+            const FString ActiveViewMode = bIsRtsEntry ? LoadedSaveState.RuntimeState.RtsWorld.ActiveViewMode : FString();
+            if (bIsRtsEntry && ActiveViewMode.Equals(TEXT("city_base"), ESearchCase::IgnoreCase))
             {
                 const float CityViewScale = FMath::Clamp(0.72f + ((RtsMapZoom - 4.5f) / 1.7f) * 0.58f, 0.72f, 1.30f);
                 RtsMapPan.X = FMath::Clamp(RtsMapPan.X, -980.0f * CityViewScale, 980.0f * CityViewScale);
@@ -8399,6 +8413,12 @@ FReply ALoginHUD::HandleRtsMapMouseMove(const FGeometry& Geometry, const FPointe
                 {
                     RtsMapZoom = FMath::Min(5.35f, RtsMapZoom + 0.008f);
                 }
+            }
+            else if (bIsRtsEntry && ActiveViewMode.Equals(TEXT("Regional Country View"), ESearchCase::IgnoreCase))
+            {
+                RtsMapZoom = FMath::Clamp(RtsMapZoom, 3.0f, 4.49f);
+                RtsMapPan.X = FMath::Clamp(RtsMapPan.X, -1220.0f, 1220.0f);
+                RtsMapPan.Y = FMath::Clamp(RtsMapPan.Y, -760.0f, 760.0f);
             }
             else
             {
@@ -11720,14 +11740,36 @@ TSharedRef<SWidget> ALoginHUD::BuildOfficeWorldRtsScreen()
 
     if (bRtsEntry)
     {
+        FString ActiveRtsViewMode;
         if (bHasLoadedRuntimeState)
         {
-            LoadedSaveState.RuntimeState.RtsWorld.ActiveViewMode = GetRtsZoomModeLabel();
+            if (LoadedSaveState.RuntimeState.RtsWorld.ActiveViewMode.IsEmpty())
+            {
+                LoadedSaveState.RuntimeState.RtsWorld.ActiveViewMode = TEXT("World View");
+            }
+            ActiveRtsViewMode = LoadedSaveState.RuntimeState.RtsWorld.ActiveViewMode;
             FString RuntimeRtsMapPath;
             if (EnsureDuliaRuntimeGovernmentMapImage(LoadedSaveState.RuntimeState, RuntimeRtsMapPath))
             {
                 RtsLandMapBrush = MakeShared<FSlateDynamicImageBrush>(FName(*RuntimeRtsMapPath), FVector2D(2242.0f, 1104.0f));
             }
+        }
+
+        if (bHasLoadedRuntimeState && (ActiveRtsViewMode.Equals(TEXT("city_base"), ESearchCase::IgnoreCase) || ActiveRtsViewMode.Equals(TEXT("Province / City View"), ESearchCase::IgnoreCase)))
+        {
+            RtsMapZoom = FMath::Clamp(RtsMapZoom, 4.5f, 6.2f);
+            LoadedSaveState.RuntimeState.RtsWorld.ActiveViewMode = TEXT("city_base");
+            return BuildRtsCityBasePlaceholderWidget();
+        }
+        if (bHasLoadedRuntimeState && ActiveRtsViewMode.Equals(TEXT("Regional Country View"), ESearchCase::IgnoreCase))
+        {
+            RtsMapZoom = FMath::Clamp(RtsMapZoom, 3.0f, 4.49f);
+            return BuildRtsRegionalCountryViewWidget();
+        }
+
+        if (bHasLoadedRuntimeState)
+        {
+            LoadedSaveState.RuntimeState.RtsWorld.ActiveViewMode = TEXT("World View");
         }
 
         const float MapWidth = 2242.0f * RtsMapZoom;
@@ -11736,18 +11778,6 @@ TSharedRef<SWidget> ALoginHUD::BuildOfficeWorldRtsScreen()
             *GetRtsZoomModeLabel(),
             bHasLoadedRuntimeState ? *LoadedSaveState.RuntimeState.RtsWorld.Hud.ResourceSummary : TEXT("No RTS resources loaded."),
             RtsMapZoom * 100.0f);
-
-        if (RtsMapZoom >= 4.5f && bHasLoadedRuntimeState)
-        {
-            LoadedSaveState.RuntimeState.RtsWorld.ActiveViewMode = TEXT("city_base");
-            return BuildRtsCityBasePlaceholderWidget();
-        }
-        if (RtsMapZoom >= 3.0f && bHasLoadedRuntimeState)
-        {
-            LoadedSaveState.RuntimeState.RtsWorld.ActiveViewMode = TEXT("Regional Country View");
-            return BuildRtsRegionalCountryViewWidget();
-        }
-
         return SNew(SOverlay)
             + SOverlay::Slot()
             [
