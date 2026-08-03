@@ -211,6 +211,7 @@ private:
     TSharedRef<SWidget> BuildRtsCityBasePlaceholderWidget();
     TSharedRef<SWidget> BuildRtsResourceNodesWidget() const;
     TSharedRef<SWidget> BuildRtsProvinceStateOverlaysWidget(float MapWidth, float MapHeight) const;
+    TSharedRef<SWidget> BuildRtsCountryOperationsOverlayWidget(float MapWidth, float MapHeight) const;
     TSharedRef<SWidget> BuildRtsFogOverlaysWidget(float MapWidth, float MapHeight) const;
     TSharedRef<SWidget> BuildRtsArmyMarkersWidget(float MapWidth, float MapHeight);
     TSharedRef<SWidget> BuildRtsOrderButtonsWidget();

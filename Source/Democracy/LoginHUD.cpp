@@ -8189,8 +8189,8 @@ FReply ALoginHUD::HandleRtsMapMouseWheel(const FGeometry& Geometry, const FPoint
             RtsMapZoom = FMath::Clamp(RtsMapZoom + (bZoomingOut ? -0.35f : 0.35f), 4.5f, 6.2f);
             if (bZoomingOut && RtsMapZoom <= 4.51f)
             {
-                LoadedSaveState.RuntimeState.RtsWorld.ActiveViewMode = TEXT("Country View");
-                RtsMapZoom = 2.20f;
+                LoadedSaveState.RuntimeState.RtsWorld.ActiveViewMode = TEXT("Country Operations View");
+                RtsMapZoom = 2.65f;
                 FocusRtsMapOnSelection();
             }
             else
@@ -8208,10 +8208,10 @@ FReply ALoginHUD::HandleRtsMapMouseWheel(const FGeometry& Geometry, const FPoint
             RtsMapZoom = NewZoom;
             if (bZoomingIn && OldZoom < 1.45f && RtsMapZoom >= 1.0f)
             {
-                RtsMapZoom = 1.85f;
+                RtsMapZoom = 2.35f;
                 if (bHasLoadedRuntimeState)
                 {
-                    LoadedSaveState.RuntimeState.RtsWorld.ActiveViewMode = TEXT("Country View");
+                    LoadedSaveState.RuntimeState.RtsWorld.ActiveViewMode = TEXT("Country Operations View");
                     FocusRtsMapOnSelection();
                 }
                 else
@@ -8284,8 +8284,8 @@ FReply ALoginHUD::HandleRtsMapMouseMove(const FGeometry& Geometry, const FPointe
                 const float CityDragDistance = FMath::Max(FMath::Abs(RtsMapPan.X), FMath::Abs(RtsMapPan.Y));
                 if (CityDragDistance > 260.0f)
                 {
-                    LoadedSaveState.RuntimeState.RtsWorld.ActiveViewMode = TEXT("Country View");
-                    RtsMapZoom = 2.20f;
+                    LoadedSaveState.RuntimeState.RtsWorld.ActiveViewMode = TEXT("Country Operations View");
+                    RtsMapZoom = 2.65f;
                     FocusRtsMapOnSelection();
                 }
                 else if (CityDragDistance > 80.0f)
@@ -8499,9 +8499,9 @@ FString ALoginHUD::GetRtsZoomModeLabel() const
     {
         return TEXT("Province / City View");
     }
-    if (RtsMapZoom >= 1.8f)
+    if (RtsMapZoom >= 1.35f)
     {
-        return TEXT("Country View");
+        return TEXT("Country Operations View");
     }
     return TEXT("World View");
 }
@@ -10509,6 +10509,152 @@ TSharedRef<SWidget> ALoginHUD::BuildRtsProvinceStateOverlaysWidget(float MapWidt
     return Overlay;
 }
 
+TSharedRef<SWidget> ALoginHUD::BuildRtsCountryOperationsOverlayWidget(float MapWidth, float MapHeight) const
+{
+    TSharedRef<SOverlay> Overlay = SNew(SOverlay);
+    if (!bHasLoadedRuntimeState || RtsMapZoom < 1.35f || RtsMapZoom >= 4.5f)
+    {
+        return Overlay;
+    }
+
+    const FDemocracySimulationState& State = LoadedSaveState.RuntimeState;
+    const TArray<FDuliaCountryMapPoint>& Points = GetDuliaCountryMapPoints();
+    const float ScaleX = MapWidth / 2242.0f;
+    const float ScaleY = MapHeight / 1104.0f;
+    const bool bDetailedMiddleView = RtsMapZoom >= 2.05f;
+
+    auto FindPointForCountry = [&Points](const FDemocracyCountryOwnershipState& Country) -> const FDuliaCountryMapPoint*
+    {
+        for (const FDuliaCountryMapPoint& CandidatePoint : Points)
+        {
+            if (CandidatePoint.CountryIndex == Country.MapCountryIndex)
+            {
+                return &CandidatePoint;
+            }
+        }
+        return nullptr;
+    };
+
+    auto AddBoxMarker = [this, &Overlay, MapWidth, MapHeight](const FVector2D& Center, const FVector2D& Size, const FLinearColor& Color, const FString& Label, int32 FontSize)
+    {
+        const float X = FMath::Clamp(Center.X - (Size.X * 0.5f), 0.0f, FMath::Max(0.0f, MapWidth - Size.X));
+        const float Y = FMath::Clamp(Center.Y - (Size.Y * 0.5f), 0.0f, FMath::Max(0.0f, MapHeight - Size.Y));
+        Overlay->AddSlot().HAlign(HAlign_Left).VAlign(VAlign_Top).Padding(FMargin(X, Y, 0.0f, 0.0f))
+        [
+            SNew(SBorder)
+            .BorderImage(RowBrush.Get())
+            .BorderBackgroundColor(Color)
+            .Padding(FMargin(4.0f, 2.0f))
+            [
+                SNew(STextBlock)
+                .Text(BodyText(Label))
+                .Justification(ETextJustify::Center)
+                .AutoWrapText(true)
+                .Font(FCoreStyle::GetDefaultFontStyle("Bold", FontSize))
+                .ColorAndOpacity(FLinearColor::White)
+            ]
+        ];
+    };
+
+    auto AddTerrainPatch = [this, &Overlay, MapWidth, MapHeight](const FVector2D& Center, const FVector2D& Size, const FLinearColor& Color, const FString& Label)
+    {
+        const float X = FMath::Clamp(Center.X - (Size.X * 0.5f), 0.0f, FMath::Max(0.0f, MapWidth - Size.X));
+        const float Y = FMath::Clamp(Center.Y - (Size.Y * 0.5f), 0.0f, FMath::Max(0.0f, MapHeight - Size.Y));
+        Overlay->AddSlot().HAlign(HAlign_Left).VAlign(VAlign_Top).Padding(FMargin(X, Y, 0.0f, 0.0f))
+        [
+            SNew(SBorder)
+            .BorderImage(RowBrush.Get())
+            .BorderBackgroundColor(Color)
+            .Padding(FMargin(3.0f, 1.0f))
+            [
+                SNew(STextBlock)
+                .Text(BodyText(Label))
+                .Justification(ETextJustify::Center)
+                .Font(FCoreStyle::GetDefaultFontStyle("Regular", 7))
+                .ColorAndOpacity(FLinearColor(0.92f, 0.98f, 0.94f, 0.95f))
+            ]
+        ];
+    };
+
+    auto GetResourceStyle = [](const FString& ResourceFocus, FString& OutLabel, FLinearColor& OutColor)
+    {
+        if (ResourceFocus.Contains(TEXT("Fuel"), ESearchCase::IgnoreCase) || ResourceFocus.Contains(TEXT("Gas"), ESearchCase::IgnoreCase) || ResourceFocus.Contains(TEXT("Oil"), ESearchCase::IgnoreCase))
+        {
+            OutLabel = TEXT("Fuel");
+            OutColor = FLinearColor(0.08f, 0.40f, 0.72f, 0.90f);
+        }
+        else if (ResourceFocus.Contains(TEXT("Wood"), ESearchCase::IgnoreCase) || ResourceFocus.Contains(TEXT("Lumber"), ESearchCase::IgnoreCase) || ResourceFocus.Contains(TEXT("Forest"), ESearchCase::IgnoreCase))
+        {
+            OutLabel = TEXT("Wood");
+            OutColor = FLinearColor(0.18f, 0.55f, 0.18f, 0.90f);
+        }
+        else if (ResourceFocus.Contains(TEXT("Metal"), ESearchCase::IgnoreCase) || ResourceFocus.Contains(TEXT("Mine"), ESearchCase::IgnoreCase))
+        {
+            OutLabel = TEXT("Metal");
+            OutColor = FLinearColor(0.56f, 0.56f, 0.62f, 0.92f);
+        }
+        else
+        {
+            OutLabel = TEXT("Food");
+            OutColor = FLinearColor(0.56f, 0.68f, 0.16f, 0.90f);
+        }
+    };
+
+    for (const FDemocracyCountryOwnershipState& Country : State.RtsWorld.Ownership.Countries)
+    {
+        const FDuliaCountryMapPoint* Point = FindPointForCountry(Country);
+        if (!Point)
+        {
+            continue;
+        }
+
+        const bool bPlayerCountry = Country.bPlayerCountry || Country.CountryName.Equals(State.PlayerCountry.CountryName, ESearchCase::IgnoreCase);
+        const bool bSelectedCountry = Country.CountryName.Equals(RtsSelectedCountryName, ESearchCase::IgnoreCase) || Country.ProvinceIds.Contains(RtsSelectedProvinceId);
+        const bool bDictatorship = Country.GovernmentType.Equals(TEXT("Dictatorship"), ESearchCase::IgnoreCase);
+        const FLinearColor CityColor = bPlayerCountry ? FLinearColor(0.04f, 0.80f, 0.22f, 0.96f) : (bDictatorship ? FLinearColor(0.82f, 0.10f, 0.10f, 0.88f) : FLinearColor(0.08f, 0.34f, 0.86f, 0.86f));
+        const FVector2D CountryCenter(Point->Centroid.X * ScaleX, Point->Centroid.Y * ScaleY);
+        const FString CityLabel = bPlayerCountry ? TEXT("CAP") : (bSelectedCountry ? TEXT("CITY") : TEXT("city"));
+        AddBoxMarker(CountryCenter, FVector2D(bSelectedCountry || bPlayerCountry ? 54.0f : 42.0f, 24.0f), CityColor, CityLabel, bSelectedCountry || bPlayerCountry ? 8 : 7);
+
+        if (!bDetailedMiddleView && !bPlayerCountry && !bSelectedCountry)
+        {
+            continue;
+        }
+
+        AddTerrainPatch(CountryCenter + FVector2D(-44.0f * RtsMapZoom, -34.0f * RtsMapZoom), FVector2D(68.0f, 16.0f), FLinearColor(0.08f, 0.24f, 0.10f, 0.56f), TEXT("terrain"));
+        AddTerrainPatch(CountryCenter + FVector2D(48.0f * RtsMapZoom, 28.0f * RtsMapZoom), FVector2D(54.0f, 14.0f), FLinearColor(0.05f, 0.30f, 0.36f, 0.62f), TEXT("water"));
+
+        int32 ResourceCount = 0;
+        for (const FString& ProvinceId : Country.ProvinceIds)
+        {
+            const FDemocracyProvinceOwnershipState* Province = FindRtsProvinceById(State, ProvinceId);
+            if (!Province)
+            {
+                continue;
+            }
+
+            FString ResourceLabel;
+            FLinearColor ResourceColor;
+            GetResourceStyle(Province->ResourceFocus, ResourceLabel, ResourceColor);
+            const int32 OffsetIndex = ResourceCount % 6;
+            FVector2D ResourceCenter = CountryCenter;
+            if (Province->MapCenterX > 0.0f && Province->MapCenterY > 0.0f)
+            {
+                ResourceCenter = FVector2D(Province->MapCenterX * ScaleX, Province->MapCenterY * ScaleY);
+            }
+            ResourceCenter += FVector2D(((OffsetIndex % 3) - 1) * 26.0f * RtsMapZoom, (OffsetIndex / 3 == 0 ? -1.0f : 1.0f) * 24.0f * RtsMapZoom);
+            AddBoxMarker(ResourceCenter, FVector2D(46.0f, 18.0f), ResourceColor, ResourceLabel, 7);
+
+            ++ResourceCount;
+            if (ResourceCount >= (bPlayerCountry || bSelectedCountry ? 6 : 3))
+            {
+                break;
+            }
+        }
+    }
+
+    return Overlay;
+}
 TSharedRef<SWidget> ALoginHUD::BuildRtsFogOverlaysWidget(float MapWidth, float MapHeight) const
 {
     TSharedRef<SOverlay> Overlay = SNew(SOverlay);
@@ -11221,6 +11367,10 @@ TSharedRef<SWidget> ALoginHUD::BuildOfficeWorldRtsScreen()
                                 + SOverlay::Slot()
                                 [
                                     BuildRtsProvinceStateOverlaysWidget(MapWidth, MapHeight)
+                                ]
+                                + SOverlay::Slot()
+                                [
+                                    BuildRtsCountryOperationsOverlayWidget(MapWidth, MapHeight)
                                 ]
                                 + SOverlay::Slot()
                                 [
